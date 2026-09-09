@@ -37,6 +37,7 @@ VALIDATION DIAGNOSTICS
 - After correction to API 36, CI exposed an invalid direct Lifecycle 2.12.0 pin. Classified as source configuration defect and corrected to 2.9.4.
 - The next run exposed an AAR metadata mismatch: the initially selected 2026 AndroidX/Compose dependencies required compileSdk 37 while the stable CI SDK baseline was API 36. Classified as source/toolchain compatibility defect.
 - The dependency set was minimally aligned to stable API-36-era AndroidX versions rather than changing product architecture or raising minSdk.
+- With compile and unit tests passing, lint then identified android:windowLightNavigationBar as API 27-only while minSdk is 26. The redundant theme attribute was removed rather than raising minSdk or suppressing lint.
 
 BOUNDARIES
 - The bootstrap Compose screen is compilation scaffolding, not visual acceptance for OwnPlay.
