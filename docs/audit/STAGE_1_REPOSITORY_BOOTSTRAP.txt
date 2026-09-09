@@ -1,0 +1,46 @@
+OwnPlay Mobile 2 — Stage 1 Repository Bootstrap Audit Evidence
+Date: 2026-09-09
+Scope: clean-room Android repository bootstrap and source-only validation baseline
+
+PRE-MUTATION AUDIT
+- Repository: Gersi365/OwnPlay-Mobile-2
+- Stage 0 Draft PR remained open and unmerged.
+- Stage 1 was branched from the verified Stage 0 branch state.
+- No Android build files, application module, or runtime source existed before Stage 1.
+- Previous OwnPlay repositories were not opened or used.
+
+AUTHORITATIVE PROJECT INPUTS USED
+- User-approved OwnPlay visual reference images in the current Project
+- 01_PROJECT_INSTRUCTIONS.md
+- 02_PRODUCT_SOURCE_AUTHORITY.md
+- 03_VISUAL_REFERENCE_CONTRACT.md
+- 04_ENGINEERING_WORKFLOW.md
+- 05_BUILD_BLUEPRINT.md
+- 06_QA_ACCEPTANCE_CONTRACT.md
+- docs/PROJECT_BASELINE.md from Stage 0
+
+STAGE 1 IMPLEMENTATION SCOPE
+- Kotlin Android application module created from zero.
+- Jetpack Compose and Material 3 infrastructure enabled.
+- Application namespace and ID set to app.ownplay.mobile.
+- minSdk 26 retained from the approved project baseline.
+- compileSdk/targetSdk 36 selected as the stable installable bootstrap SDK baseline.
+- AGP 9.4.0, Gradle 9.6.0, Kotlin 2.4.20, and JDK 17 pinned for bootstrap validation.
+- AndroidX baseline aligned to API 36: Compose BOM 2025.08.00, Activity Compose 1.11.0, Core KTX 1.17.0, Lifecycle Runtime KTX 2.9.4.
+- Minimal launcher activity and pure product-identity contract added.
+- Focused unit-test baseline added.
+- Source-only/no-APK validation script and GitHub Actions workflow added.
+- CI checkout is pinned to the exact source branch SHA so validation evidence belongs to the reported source HEAD rather than GitHub's synthetic PR merge commit.
+
+VALIDATION DIAGNOSTICS
+- Initial CI requested platforms;android-37 and stopped before Gradle/source validation because the runner's stable sdkmanager did not expose that package. Classified as environment/tooling provisioning failure.
+- After correction to API 36, CI exposed an invalid direct Lifecycle 2.12.0 pin. Classified as source configuration defect and corrected to 2.9.4.
+- The next run exposed an AAR metadata mismatch: the initially selected 2026 AndroidX/Compose dependencies required compileSdk 37 while the stable CI SDK baseline was API 36. Classified as source/toolchain compatibility defect.
+- The dependency set was minimally aligned to stable API-36-era AndroidX versions rather than changing product architecture or raising minSdk.
+- With compile and unit tests passing, lint then identified android:windowLightNavigationBar as API 27-only while minSdk is 26. The redundant theme attribute was removed rather than raising minSdk or suppressing lint.
+
+BOUNDARIES
+- The bootstrap Compose screen is compilation scaffolding, not visual acceptance for OwnPlay.
+- No Room schema, provider integration, playback engine, downloads, authentication, signing, release, or deployment work is included.
+- No APK/AAB generation is authorized by this stage.
+- Source validation must be read live from CI for the exact final branch HEAD; a CI PASS does not imply physical-device PASS.
