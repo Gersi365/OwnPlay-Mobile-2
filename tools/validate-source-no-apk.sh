@@ -33,16 +33,16 @@ fi
   :app:lintDebug \
   --stacktrace
 
-# Stage 3 bootstrap evidence only: emit the generated Room schema so the exact
-# schema can be committed, then this dump is removed and replaced by a clean-tree check.
-echo "ROOM_SCHEMA_DUMP_BEGIN"
-if [[ -d app/schemas ]]; then
-  find app/schemas -type f -name '*.json' -print -exec cat {} \;
-else
-  echo "ERROR: Room schema directory was not generated." >&2
+# Stage 3 bootstrap evidence only: emit the generated Room schema as one
+# compressed/encoded log record, then replace this with a committed-schema check.
+schema_file="app/schemas/app.ownplay.mobile.data.db.OwnPlayDatabase/1.json"
+if [[ ! -f "$schema_file" ]]; then
+  echo "ERROR: Room schema v1 was not generated at $schema_file" >&2
   exit 5
 fi
-echo "ROOM_SCHEMA_DUMP_END"
+printf 'ROOM_SCHEMA_GZIP_BASE64='
+gzip -c "$schema_file" | base64 -w0
+printf '\n'
 
 created_artifacts="$(find_packaged_artifacts)"
 if [[ -n "$created_artifacts" ]]; then
