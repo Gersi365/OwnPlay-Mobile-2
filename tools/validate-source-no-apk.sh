@@ -33,6 +33,17 @@ fi
   :app:lintDebug \
   --stacktrace
 
+# Stage 3 bootstrap evidence only: emit the generated Room schema so the exact
+# schema can be committed, then this dump is removed and replaced by a clean-tree check.
+echo "ROOM_SCHEMA_DUMP_BEGIN"
+if [[ -d app/schemas ]]; then
+  find app/schemas -type f -name '*.json' -print -exec cat {} \;
+else
+  echo "ERROR: Room schema directory was not generated." >&2
+  exit 5
+fi
+echo "ROOM_SCHEMA_DUMP_END"
+
 created_artifacts="$(find_packaged_artifacts)"
 if [[ -n "$created_artifacts" ]]; then
   echo "ERROR: Source-only validation produced packaged Android artifacts:" >&2
