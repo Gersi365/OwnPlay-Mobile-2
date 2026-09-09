@@ -24,12 +24,17 @@ STAGE 1 IMPLEMENTATION SCOPE
 - Jetpack Compose and Material 3 infrastructure enabled.
 - Application namespace and ID set to app.ownplay.mobile.
 - minSdk 26 retained from the approved project baseline.
-- compileSdk/targetSdk 37 selected for the current Android 17 toolchain.
+- compileSdk/targetSdk 36 selected as the stable installable bootstrap SDK baseline.
 - AGP 9.4.0, Gradle 9.6.0, Kotlin 2.4.20, and Compose BOM 2026.08.00 pinned for bootstrap validation.
 - JDK 17 selected for the Android build toolchain.
 - Minimal launcher activity and pure product-identity contract added.
 - Focused unit-test baseline added.
 - Source-only/no-APK validation script and GitHub Actions workflow added.
+
+VALIDATION DIAGNOSTIC
+- The first CI attempt requested platforms;android-37 and stopped before Gradle/source validation because the runner's stable sdkmanager did not expose that package.
+- This was classified as an environment/tooling provisioning failure, not a source defect.
+- The bootstrap compile/target SDK was corrected to 36, while minSdk 26 and all product/architecture decisions remained unchanged.
 
 BOUNDARIES
 - The bootstrap Compose screen is compilation scaffolding, not visual acceptance for OwnPlay.
