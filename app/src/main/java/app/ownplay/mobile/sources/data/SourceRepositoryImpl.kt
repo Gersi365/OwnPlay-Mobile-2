@@ -39,7 +39,9 @@ class SourceRepositoryImpl(
     private val nowMillis: () -> Long = System::currentTimeMillis,
     private val newSourceId: () -> String = { UUID.randomUUID().toString() },
 ) : SourceRepository {
-    override fun observeSources(): Flow<List<Source>> = sourceDao.observeAll().map { rows -> rows.map(SourceEntity::toDomain) }
+    override fun observeSources(): Flow<List<Source>> = sourceDao.observeAll().map { rows ->
+        rows.map { entity -> entity.toDomain() }
+    }
 
     override fun observeActiveSource(): Flow<Source?> = combine(
         observeSources(),
@@ -69,6 +71,7 @@ class SourceRepositoryImpl(
                     ),
                     credential = input.credential,
                 )
+
                 is NewSource.M3u -> {
                     val remote = SourceLocatorPolicy.validateM3uRemote(input.credential.locator)
                     PreparedSource(
@@ -122,12 +125,17 @@ class SourceRepositoryImpl(
             when (val connection = input.connection) {
                 null -> Unit
                 is SourceConnectionUpdate.Xtream -> {
-                    if (existing.type != SourceType.XTREAM.name) return failure("SOURCE_TYPE_MISMATCH", "Source type cannot be changed.")
+                    if (existing.type != SourceType.XTREAM.name) {
+                        return failure("SOURCE_TYPE_MISMATCH", "Source type cannot be changed.")
+                    }
                     connection.baseUrl?.let { baseLocator = SourceLocatorPolicy.normalizeXtream(it) }
                     replacementCredential = connection.credential
                 }
+
                 is SourceConnectionUpdate.M3u -> {
-                    if (existing.type != SourceType.M3U.name) return failure("SOURCE_TYPE_MISMATCH", "Source type cannot be changed.")
+                    if (existing.type != SourceType.M3U.name) {
+                        return failure("SOURCE_TYPE_MISMATCH", "Source type cannot be changed.")
+                    }
                     val remote = SourceLocatorPolicy.validateM3uRemote(connection.credential.locator)
                     baseLocator = SourceLocatorPolicy.redactRemoteLocator(remote)
                     replacementCredential = SourceCredential.M3uRemoteLocator(remote)
@@ -178,7 +186,7 @@ class SourceRepositoryImpl(
             }
 
             if (activeSourcePreferences.currentSelectedSourceId() == sourceId) {
-                val remaining = sourceDao.getAll().map(SourceEntity::toDomain)
+                val remaining = sourceDao.getAll().map { entity -> entity.toDomain() }
                 val fallback = SourceSelectionPolicy.resolve(null, remaining)
                 activeSourcePreferences.setSelectedSourceId(fallback?.sourceId)
             }
@@ -327,16 +335,17 @@ class SourceRepositoryImpl(
         return failure("REFRESH_FAILED", "Source refresh failed; the last known catalog was preserved.")
     }
 
-    private fun ProviderCategoryRecord.toEntity(sourceId: String, kind: String, generation: Long) = ProviderCategoryEntity(
-        sourceId = sourceId,
-        kind = kind,
-        categoryKey = categoryId,
-        providerKey = providerKey,
-        name = name,
-        providerOrder = providerOrder,
-        available = true,
-        lastSeenGeneration = generation,
-    )
+    private fun ProviderCategoryRecord.toEntity(sourceId: String, kind: String, generation: Long) =
+        ProviderCategoryEntity(
+            sourceId = sourceId,
+            kind = kind,
+            categoryKey = categoryId,
+            providerKey = providerKey,
+            name = name,
+            providerOrder = providerOrder,
+            available = true,
+            lastSeenGeneration = generation,
+        )
 
     private fun ProviderLiveChannelRecord.toEntity(sourceId: String, generation: Long) = LiveChannelEntity(
         channelId = channelId,
