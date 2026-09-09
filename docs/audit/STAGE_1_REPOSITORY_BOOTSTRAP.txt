@@ -1,0 +1,38 @@
+OwnPlay Mobile 2 — Stage 1 Repository Bootstrap Audit Evidence
+Date: 2026-09-09
+Scope: clean-room Android repository bootstrap and source-only validation baseline
+
+PRE-MUTATION AUDIT
+- Repository: Gersi365/OwnPlay-Mobile-2
+- Stage 0 Draft PR remained open and unmerged.
+- Stage 1 was branched from the verified Stage 0 branch state.
+- No Android build files, application module, or runtime source existed before Stage 1.
+- Previous OwnPlay repositories were not opened or used.
+
+AUTHORITATIVE PROJECT INPUTS USED
+- User-approved OwnPlay visual reference images in the current Project
+- 01_PROJECT_INSTRUCTIONS.md
+- 02_PRODUCT_SOURCE_AUTHORITY.md
+- 03_VISUAL_REFERENCE_CONTRACT.md
+- 04_ENGINEERING_WORKFLOW.md
+- 05_BUILD_BLUEPRINT.md
+- 06_QA_ACCEPTANCE_CONTRACT.md
+- docs/PROJECT_BASELINE.md from Stage 0
+
+STAGE 1 IMPLEMENTATION SCOPE
+- Kotlin Android application module created from zero.
+- Jetpack Compose and Material 3 infrastructure enabled.
+- Application namespace and ID set to app.ownplay.mobile.
+- minSdk 26 retained from the approved project baseline.
+- compileSdk/targetSdk 37 selected for the current Android 17 toolchain.
+- AGP 9.4.0, Gradle 9.6.0, Kotlin 2.4.20, and Compose BOM 2026.08.00 pinned for bootstrap validation.
+- JDK 17 selected for the Android build toolchain.
+- Minimal launcher activity and pure product-identity contract added.
+- Focused unit-test baseline added.
+- Source-only/no-APK validation script and GitHub Actions workflow added.
+
+BOUNDARIES
+- The bootstrap Compose screen is compilation scaffolding, not visual acceptance for OwnPlay.
+- No Room schema, provider integration, playback engine, downloads, authentication, signing, release, or deployment work is included.
+- No APK/AAB generation is authorized by this stage.
+- Source validation must be read live from CI for the exact final branch HEAD; a CI PASS does not imply physical-device PASS.
