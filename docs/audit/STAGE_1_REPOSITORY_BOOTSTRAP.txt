@@ -31,10 +31,11 @@ STAGE 1 IMPLEMENTATION SCOPE
 - Focused unit-test baseline added.
 - Source-only/no-APK validation script and GitHub Actions workflow added.
 
-VALIDATION DIAGNOSTIC
-- The first CI attempt requested platforms;android-37 and stopped before Gradle/source validation because the runner's stable sdkmanager did not expose that package.
-- This was classified as an environment/tooling provisioning failure, not a source defect.
-- The bootstrap compile/target SDK was corrected to 36, while minSdk 26 and all product/architecture decisions remained unchanged.
+VALIDATION DIAGNOSTICS
+- Initial CI requested platforms;android-37 and stopped before Gradle/source validation because the runner's stable sdkmanager did not expose that package.
+- That incident was classified as an environment/tooling provisioning failure; compile/target SDK was minimally corrected to 36 while minSdk 26 and product/architecture decisions remained unchanged.
+- The next CI attempt reached Gradle source processing and exposed an invalid direct dependency pin: androidx.lifecycle:lifecycle-runtime-ktx:2.12.0 was not published in the configured repositories.
+- That incident was classified as a source configuration defect. The dependency was minimally corrected to lifecycle-runtime-ktx 2.9.4, matching the resolved AndroidX lifecycle line used by the selected Activity/Compose dependency graph.
 
 BOUNDARIES
 - The bootstrap Compose screen is compilation scaffolding, not visual acceptance for OwnPlay.
