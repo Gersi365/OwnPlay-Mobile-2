@@ -25,17 +25,18 @@ STAGE 1 IMPLEMENTATION SCOPE
 - Application namespace and ID set to app.ownplay.mobile.
 - minSdk 26 retained from the approved project baseline.
 - compileSdk/targetSdk 36 selected as the stable installable bootstrap SDK baseline.
-- AGP 9.4.0, Gradle 9.6.0, Kotlin 2.4.20, and Compose BOM 2026.08.00 pinned for bootstrap validation.
-- JDK 17 selected for the Android build toolchain.
+- AGP 9.4.0, Gradle 9.6.0, Kotlin 2.4.20, and JDK 17 pinned for bootstrap validation.
+- AndroidX baseline aligned to API 36: Compose BOM 2025.08.00, Activity Compose 1.11.0, Core KTX 1.17.0, Lifecycle Runtime KTX 2.9.4.
 - Minimal launcher activity and pure product-identity contract added.
 - Focused unit-test baseline added.
 - Source-only/no-APK validation script and GitHub Actions workflow added.
+- CI checkout is pinned to the exact source branch SHA so validation evidence belongs to the reported source HEAD rather than GitHub's synthetic PR merge commit.
 
 VALIDATION DIAGNOSTICS
-- Initial CI requested platforms;android-37 and stopped before Gradle/source validation because the runner's stable sdkmanager did not expose that package.
-- That incident was classified as an environment/tooling provisioning failure; compile/target SDK was minimally corrected to 36 while minSdk 26 and product/architecture decisions remained unchanged.
-- The next CI attempt reached Gradle source processing and exposed an invalid direct dependency pin: androidx.lifecycle:lifecycle-runtime-ktx:2.12.0 was not published in the configured repositories.
-- That incident was classified as a source configuration defect. The dependency was minimally corrected to lifecycle-runtime-ktx 2.9.4, matching the resolved AndroidX lifecycle line used by the selected Activity/Compose dependency graph.
+- Initial CI requested platforms;android-37 and stopped before Gradle/source validation because the runner's stable sdkmanager did not expose that package. Classified as environment/tooling provisioning failure.
+- After correction to API 36, CI exposed an invalid direct Lifecycle 2.12.0 pin. Classified as source configuration defect and corrected to 2.9.4.
+- The next run exposed an AAR metadata mismatch: the initially selected 2026 AndroidX/Compose dependencies required compileSdk 37 while the stable CI SDK baseline was API 36. Classified as source/toolchain compatibility defect.
+- The dependency set was minimally aligned to stable API-36-era AndroidX versions rather than changing product architecture or raising minSdk.
 
 BOUNDARIES
 - The bootstrap Compose screen is compilation scaffolding, not visual acceptance for OwnPlay.
