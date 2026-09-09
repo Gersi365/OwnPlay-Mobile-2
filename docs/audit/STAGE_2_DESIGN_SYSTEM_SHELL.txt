@@ -65,6 +65,10 @@ Clean-room evidence
 -------------------
 No previous OwnPlay implementation was opened, copied, ported, reconstructed, or used as a code/template source.
 
+Validation corrections
+----------------------
+1. Initial exact-head CI run 34400042086 reached compileDebugKotlin and exposed explicit imports of androidx.compose.foundation.layout.weight as an inaccessible internal symbol under the pinned Compose/Kotlin toolchain. Classified as a source compile issue. Minimal correction: remove only the explicit weight imports from OwnPlayBottomBar.kt, LibraryShell.kt, and SettingsShell.kt; RowScope/ColumnScope Modifier.weight usage remains unchanged.
+
 Validation contract
 -------------------
 The branch must be validated with the existing source-only path:
