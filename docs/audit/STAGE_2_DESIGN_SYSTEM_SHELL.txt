@@ -1,0 +1,85 @@
+OWNPLAY MOBILE 2 — STAGE 2 DESIGN SYSTEM + APP SHELL AUDIT
+
+Purpose
+-------
+Implement the approved OwnPlay visual language and primary app shell on top of the validated repository-bootstrap branch without merging earlier stages.
+
+Authoritative base inspected
+----------------------------
+Repository: Gersi365/OwnPlay-Mobile-2
+Base branch: stage-1-repository-bootstrap
+Base HEAD: ec2197535638982f0db8a8d6f3dfcbcbea65af0a
+
+Authority used
+--------------
+- latest explicit user approval to continue with Design System + App Shell
+- approved Project visual references:
+  - 7941.png — Library hierarchy and bottom-navigation treatment
+  - 7942.png — Live hierarchy and selected channel treatment
+  - 7944.png — Live OwnPlay header variant and preview/channel composition
+  - 7945.png — Settings hierarchy and grouped dark surfaces
+  - 7943.png — fullscreen Live reference retained for a later playback/presentation stage
+- 03_VISUAL_REFERENCE_CONTRACT.md
+- 02_PRODUCT_SOURCE_AUTHORITY.md
+- 04_ENGINEERING_WORKFLOW.md
+- verified GitHub source state at the exact base HEAD above
+
+Implemented scope
+-----------------
+- OwnPlay dark color tokens
+- typography baseline
+- spacing tokens
+- shape tokens
+- shared wordmark, top bar, panel, section header, buttons, and content-state panel
+- stable custom bottom navigation for exactly Live / Library / Settings
+- primary app root with saveable destination state
+- initial Live shell reflecting preview + Now/Next + channel hierarchy
+- initial Library shell reflecting Continue Watching + Movies + Series + Downloaded Media hierarchy
+- initial Settings shell reflecting grouped OwnPlay settings surfaces
+- primary-navigation unit contract test
+- system/gesture inset handling through Scaffold + bottom navigation bar insets
+
+Implementation boundary
+-----------------------
+This stage is source-side shell implementation only.
+
+The following visible controls are intentionally non-functional presentation scaffolding where feature behavior belongs to a later stage:
+- Live preview surface
+- channel activation
+- Library resume/play actions
+- Settings toggles and rows
+- search/menu actions
+
+Not implemented in this stage:
+- provider/source networking
+- Room/DataStore/credential storage
+- playback/Media3/player ownership
+- downloads behavior
+- backup/restore
+- fullscreen Live behavior
+- physical visual acceptance
+- APK/AAB generation
+- signing/release/deployment
+
+Clean-room evidence
+-------------------
+No previous OwnPlay implementation was opened, copied, ported, reconstructed, or used as a code/template source.
+
+Validation contract
+-------------------
+The branch must be validated with the existing source-only path:
+
+  bash tools/validate-source-no-apk.sh
+
+Required checks:
+- compileDebugKotlin
+- testDebugUnitTest
+- lintDebug
+- explicit no-APK/AAB assertion
+
+GitHub Actions must checkout and verify the exact source HEAD. The exact-head workflow run is the authoritative validation evidence; this text file deliberately does not embed a self-invalidating final run identifier.
+
+Visual acceptance status
+------------------------
+NOT CLAIMED.
+CI/source PASS does not equal physical visual PASS. Final visual acceptance requires explicit physical-device screenshot/video comparison against the approved Project references.
