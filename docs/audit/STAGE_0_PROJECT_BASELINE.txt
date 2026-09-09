@@ -1,0 +1,38 @@
+OwnPlay Mobile 2 — Stage 0 Project Baseline Audit Evidence
+Date: 2026-09-09
+Scope: repository initialization and stable project baseline only
+
+PRE-MUTATION AUDIT
+- Repository: Gersi365/OwnPlay-Mobile-2
+- Default branch configured by GitHub: main
+- Repository contents before initialization: empty
+- Existing branches before initialization: none returned for main
+- Existing application source: none
+- Existing Git history: none
+- GitHub permissions observed: admin/maintain/push/pull/triage
+- Old OwnPlay repositories were not opened or used.
+
+AUTHORITATIVE PROJECT INPUTS USED
+- User-approved OwnPlay visual reference images in the current Project
+- 01_PROJECT_INSTRUCTIONS.md
+- 02_PRODUCT_SOURCE_AUTHORITY.md
+- 03_VISUAL_REFERENCE_CONTRACT.md
+- 04_ENGINEERING_WORKFLOW.md
+- 05_BUILD_BLUEPRINT.md
+- 06_QA_ACCEPTANCE_CONTRACT.md
+
+AUTHORIZED STAGE 0 CHANGES
+- Initialized the empty repository with README.md.
+- Recorded the clean-room, product, technology, validation, security, playback, visual, and restricted-action baseline in docs/PROJECT_BASELINE.md.
+- No Android application module was created in Stage 0.
+- No production/runtime code was created in Stage 0.
+- No database, authentication, signing, deployment, release, or user-data changes were made.
+
+VALIDATION PERFORMED
+- Repository was re-read from GitHub after mutation.
+- Stage 0 files are plain documentation and require no Android compile/lint execution yet.
+- No APK generation was requested or performed.
+- Physical-device QA is not applicable to Stage 0 documentation.
+
+BOUNDARY
+This evidence file records the Stage 0 audit scope. Exact final branch HEAD and any later CI state must be read live from GitHub and reported for the corresponding stage; they are intentionally not embedded as durable project state here.
