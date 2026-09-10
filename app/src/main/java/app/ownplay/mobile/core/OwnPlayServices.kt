@@ -5,6 +5,8 @@ import app.ownplay.mobile.data.db.OwnPlayDatabase
 import app.ownplay.mobile.data.prefs.ActiveSourcePreferences
 import app.ownplay.mobile.data.security.CredentialStore
 import app.ownplay.mobile.data.security.KeystoreCredentialStore
+import app.ownplay.mobile.playback.Media3PlaybackController
+import app.ownplay.mobile.playback.PlaybackController
 import app.ownplay.mobile.sources.data.ProviderHttpTransport
 import app.ownplay.mobile.sources.data.SourceCatalogLoader
 import app.ownplay.mobile.sources.data.SourceRepositoryImpl
@@ -26,6 +28,10 @@ class OwnPlayServices private constructor(
 
     val credentialStore: CredentialStore by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         KeystoreCredentialStore(applicationContext)
+    }
+
+    val playbackController: PlaybackController by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        Media3PlaybackController(applicationContext)
     }
 
     private val httpClient: OkHttpClient by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
