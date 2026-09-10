@@ -1,0 +1,117 @@
+OWNPLAY MOBILE 2 — STAGE 8 SETTINGS, SOURCES UI & BACKUP/RESTORE AUDIT
+
+Stage: 8 — Settings, Sources UI & Backup/Restore
+Branch: stage-8-settings-sources-backup
+Stacked base branch: stage-7-downloads-offline-playback
+Base source SHA: 4205e094149130f6d36f988e4f5abb6ec09b4f76
+Draft PR: #9 — https://github.com/Gersi365/OwnPlay-Mobile-2/pull/9
+
+AUTHORITY AND CLEAN-ROOM BOUNDARY
+- Repository authority: Gersi365/OwnPlay-Mobile-2.
+- Stage 8 was implemented from the approved OwnPlay Mobile 2 contracts, approved visual references, and verified current-repository state.
+- No historical OwnPlay repository, source file, architecture, resource, schema, migration, test, build script, signing material, backup format, or UI geometry was used as implementation input.
+- No merge, ready-for-review transition, release, deployment, signing change, reset, rebase, force-push, or history rewrite was performed.
+
+SCOPE IMPLEMENTED
+1. Persisted settings
+- DataStore-backed OwnPlay settings were added for Picture in Picture preference, resume playback preference, provider auto-refresh, provider refresh interval, and channel-logo visibility.
+- Provider refresh intervals are 6 hours, 12 hours, and daily.
+- Disabling provider auto-refresh removes the periodic refresh schedule.
+
+2. Provider refresh scheduling
+- WorkManager owns one unique periodic provider-refresh job.
+- Periodic refresh requires network connectivity.
+- The worker refreshes enabled, connected sources and applies deferred restored personalization after successful source refresh.
+- Individual provider refresh failures remain best-effort and do not create a release or deployment side effect.
+
+3. Source management UI
+- Branded OwnPlay source management supports add, edit/reconnect, select, refresh, and remove for Xtream-compatible sources and remote M3U/M3U8 sources.
+- Secret fields are never prefilled in the editor.
+- Remote M3U/M3U8 locator input is treated as secret UI content.
+- A restored source that lacks connection secrets remains disconnected until the user explicitly supplies the required connection details.
+- Successful manual refresh attempts deferred personalization application for that source.
+
+4. Backup and restore
+- Ordinary backup format: strict versioned OwnPlay JSON, format version 1.
+- Restore enforces format/version validation, bounded document size, bounded record counts, bounded string sizes, and strict JSON field handling.
+- Storage Access Framework is used for user-selected export/import documents; no broad storage permission was added.
+- Backup restores non-secret source profiles, settings, custom groups, media favorites, playback progress, and channel/group personalization when stable channel identities are available.
+- Channel personalization and custom-group memberships that cannot yet resolve are retained in app-private pending restore state and retried after source refresh.
+- Missing restored source profiles are created disabled and credential-free. They require explicit reconnect.
+- Existing configured sources preserve their local secure credential reference.
+
+SECURITY AND PRIVACY BOUNDARY
+Ordinary backup intentionally excludes:
+- Xtream usernames and passwords;
+- credential-store payloads and credential secrets;
+- remote M3U/M3U8 locators;
+- provider playback/stream locators;
+- downloaded media files and download-local references;
+- refresh-state implementation data;
+- custom channel-logo locators.
+
+Android backup remains disabled in the application manifest. Source credentials remain Keystore-backed and are not moved into Room or DataStore by Stage 8.
+
+A Stage 8 closure review found a security-sensitive restore condition: an existing configured Xtream source could have retained its local credentials while accepting a base endpoint from imported backup content. That would have allowed future refresh to send the existing credentials to an imported endpoint. The restore policy was corrected forward-only so:
+- configured Xtream sources keep their existing local endpoint;
+- credential-free Xtream source profiles may adopt the backup's non-secret base endpoint;
+- M3U sources never import a remote locator from ordinary backup content.
+Focused JVM tests cover this endpoint-preservation policy.
+
+PERSISTENCE / SCHEMA BOUNDARY
+- Room remains schema version 1.
+- No entity migration or destructive fallback was added.
+- BackupDao only exposes the existing data needed for backup/restore orchestration.
+- Generated Room schema is required to remain identical to the committed schema tree by the source-only validator.
+
+CORRECTION AND VALIDATION HISTORY
+1. 893792e2542cab56f3724002bb7fbb0256502d18 — Add settings and backup foundation
+   GitHub Actions Run #28: 34452492796
+   Job: 102791179460
+   Result: SUCCESS — compileDebugKotlin, testDebugUnitTest, lintDebug, Room schema clean, no APK/AAB.
+
+2. 53049e08dfc8dbd1371e5a557184fcc869adc09c — Wire settings source management and backup UI
+   GitHub Actions Run #29: 34453385470
+   Job: 102794030224
+   Result: FAILED during Kotlin compilation.
+   Verified source defect: ambiguous local suspend-operation construction in SourceManagementScreen save dispatch. Tests/lint did not run.
+
+3. ce8167a70b5c039d4abdbca4a1ff1072fa96edc3 — Fix source editor save dispatch
+   GitHub Actions Run #30: 34454069108
+   Job: 102796237447
+   Result: SUCCESS — compileDebugKotlin, testDebugUnitTest, lintDebug, Room schema clean, no APK/AAB.
+
+4. Stage 8 closure security correction, forward-only:
+   1383ea5970f95aae4e33d4383d3cc1399d507c7a — Add backup source restore security policy
+   d41c524012228d3e2e1df8758e5fd8ff39bd9524 — Preserve configured source endpoints on restore
+   c14086ec96876db60f9c057e3712aee0d4a929a2 — Test backup source restore endpoint policy
+   GitHub Actions Run #33: 34454591112
+   Job: 102797939178
+   Result: SUCCESS — exact checkout c14086ec96876db60f9c057e3712aee0d4a929a2; compileDebugKotlin, testDebugUnitTest, lintDebug, Room schema clean; validator explicitly reported no APK/AAB produced.
+
+FOCUSED TEST COVERAGE ADDED IN STAGE 8
+- Backup codec version/format and secret-exclusion behavior.
+- Provider refresh schedule policy.
+- Backup source restore endpoint policy:
+  * configured Xtream keeps its existing endpoint;
+  * credential-free Xtream can adopt the imported non-secret base endpoint;
+  * M3U never imports a remote locator through ordinary backup.
+
+KNOWN NON-BLOCKING SOURCE / CI NOTES
+- Existing Kotlin warnings inherited from earlier stages remain visible in DownloadRepositoryImpl and LibraryShell; they are hardening candidates, not Stage 8 validation failures.
+- GitHub Actions reports Node.js action-version deprecation warnings for existing workflow action versions; this is a CI hardening candidate.
+
+EXPLICIT STAGE 8 EXCLUSIONS
+- No credential export or secure credential-transfer format.
+- No downloaded-media export.
+- No Activity-level Picture in Picture integration or physical PiP verification.
+- No release/signing/deployment work.
+- No merge or ready-for-review transition.
+- No APK/AAB generation.
+- No claim of physical-device behavior, visual acceptance, source/provider interoperability, Storage Access Framework OEM behavior, or screenshot fidelity.
+
+PHYSICAL QA BOUNDARY
+Source CI validates compilation, JVM unit tests, Android lint, committed Room schema cleanliness, and the no-APK/AAB guard only. It does not validate physical rendering, touch ergonomics, real provider/network behavior, Android document-provider behavior, process/lifecycle behavior, or screenshot comparison against the approved references. Those remain for the explicitly authorized QA-candidate/physical-QA phase.
+
+CLOSURE NOTE
+This audit file is itself a repository mutation after the successful c14086ec96876db60f9c057e3712aee0d4a929a2 validation. Therefore Stage 8 is not source-closed until the audit-file commit receives its own exact-HEAD source-only validation with compile, unit tests, lint, Room schema cleanliness, and the no-APK/AAB guard all passing. The final exact audit commit and its associated GitHub Actions run are the Stage 8 closure evidence.
