@@ -16,6 +16,7 @@ import app.ownplay.mobile.playback.domain.PlaybackStreamFormat
 import app.ownplay.mobile.sources.data.xtream.XtreamClient
 import app.ownplay.mobile.sources.data.xtream.XtreamResult
 import app.ownplay.mobile.sources.data.xtream.XtreamUrlBuilder
+import app.ownplay.mobile.sources.domain.ProviderCategoryVisibility
 import app.ownplay.mobile.sources.domain.SourceCredential
 import app.ownplay.mobile.sources.domain.SourceRepository
 import app.ownplay.mobile.sources.domain.SourceType
@@ -62,7 +63,9 @@ class LiveRepositoryImpl(
                                 providerOrder = row.providerOrder,
                             )
                         },
-                        channels = channelRows.map { row ->
+                        channels = channelRows
+                            .filterNot { row -> ProviderCategoryVisibility.isUtilityLabel(row.name) }
+                            .map { row ->
                             LiveChannel(
                                 channelId = row.channelId,
                                 sourceId = row.sourceId,

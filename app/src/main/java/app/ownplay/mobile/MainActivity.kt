@@ -61,6 +61,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             OwnPlayApp(
                 services = services,
+                onExitConfirmed = { finish() },
                 onFullscreenChanged = { fullscreen ->
                     contentFullscreen = fullscreen
                     setContentOrientation(fullscreen)

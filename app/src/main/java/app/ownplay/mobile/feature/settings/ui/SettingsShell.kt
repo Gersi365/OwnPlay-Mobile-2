@@ -1,5 +1,6 @@
 package app.ownplay.mobile.feature.settings.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -72,6 +73,10 @@ fun SettingsShell(
 ) {
     var pageName by rememberSaveable { mutableStateOf(SettingsPage.MAIN.name) }
     val page = runCatching { SettingsPage.valueOf(pageName) }.getOrDefault(SettingsPage.MAIN)
+
+    BackHandler(enabled = page != SettingsPage.MAIN) {
+        pageName = SettingsPage.MAIN.name
+    }
 
     when (page) {
         SettingsPage.MAIN -> MainSettings(

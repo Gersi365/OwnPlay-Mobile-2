@@ -178,7 +178,7 @@ class OkHttpXtreamClient(
                     listings.mapNotNull { element ->
                         val obj = element.asObject() ?: return@mapNotNull null
                         XtreamEpgEntry(
-                            title = obj["title"]?.text().orEmpty(),
+                            title = XtreamEpgTextPolicy.decode(obj["title"]?.text().orEmpty()),
                             startEpochSeconds = obj["start_timestamp"]?.text()?.toLongOrNull(),
                             endEpochSeconds = obj["stop_timestamp"]?.text()?.toLongOrNull(),
                         )

@@ -1,10 +1,14 @@
 package app.ownplay.mobile.app
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -25,17 +29,37 @@ import kotlinx.coroutines.launch
 fun OwnPlayApp(
     services: OwnPlayServices,
     onFullscreenChanged: (Boolean) -> Unit = {},
+    onExitConfirmed: () -> Unit = {},
 ) {
     OwnPlayTheme {
         var selectedDestination by rememberSaveable {
             mutableStateOf(AppDestination.Live)
         }
         var contentFullscreen by rememberSaveable { mutableStateOf(false) }
+        var exitConfirmationVisible by rememberSaveable { mutableStateOf(false) }
         val scope = rememberCoroutineScope()
 
         fun setContentFullscreen(fullscreen: Boolean) {
             contentFullscreen = fullscreen
             onFullscreenChanged(fullscreen)
+        }
+
+        BackHandler {
+            exitConfirmationVisible = true
+        }
+
+        if (exitConfirmationVisible) {
+            AlertDialog(
+                onDismissRequest = { exitConfirmationVisible = false },
+                title = { Text("Exit OwnPlay?") },
+                text = { Text("Do you want to close OwnPlay?") },
+                confirmButton = {
+                    TextButton(onClick = onExitConfirmed) { Text("Exit") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { exitConfirmationVisible = false }) { Text("Cancel") }
+                },
+            )
         }
 
         Scaffold(
