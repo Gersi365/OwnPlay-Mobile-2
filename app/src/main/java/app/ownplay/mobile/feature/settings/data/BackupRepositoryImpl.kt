@@ -166,7 +166,12 @@ class BackupRepositoryImpl(
                             sourceDao.update(
                                 existing.copy(
                                     displayName = record.displayName.trim(),
-                                    baseLocator = if (record.type == SourceType.XTREAM.name) safeLocator else existing.baseLocator,
+                                    baseLocator = BackupSourceRestorePolicy.resolveBaseLocator(
+                                        sourceType = record.type,
+                                        existingBaseLocator = existing.baseLocator,
+                                        existingCredentialReference = existing.credentialReference,
+                                        importedSafeLocator = safeLocator,
+                                    ),
                                     enabled = record.enabled && existing.credentialReference != null,
                                     updatedAt = nowMillis(),
                                 ),
