@@ -25,6 +25,17 @@ data class LiveCatalog(
     val channels: List<LiveChannel> = emptyList(),
 )
 
+data class LiveProgram(
+    val title: String,
+    val startEpochSeconds: Long?,
+    val endEpochSeconds: Long?,
+)
+
+data class LiveNowNext(
+    val now: LiveProgram? = null,
+    val next: LiveProgram? = null,
+)
+
 class ResolvedLivePlayback(
     val channel: LiveChannel,
     val uri: String,
@@ -47,5 +58,6 @@ sealed interface LivePlaybackResolution {
 
 interface LiveRepository {
     fun observeCatalog(): Flow<LiveCatalog>
+    suspend fun loadNowNext(channelId: String): LiveNowNext
     suspend fun resolvePlayback(channelId: String): LivePlaybackResolution
 }

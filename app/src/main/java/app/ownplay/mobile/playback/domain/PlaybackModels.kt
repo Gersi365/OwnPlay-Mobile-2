@@ -85,5 +85,8 @@ data class PlaybackSnapshot(
     val positionMs: Long = 0L,
     val durationMs: Long? = null,
     val activeTarget: VideoTarget = VideoTarget.NONE,
+    val audioTrackPresent: Boolean? = null,
+    val audioTrackSupported: Boolean? = null,
+    val audioTrackSelected: Boolean? = null,
     val errorCode: Int? = null,
 )

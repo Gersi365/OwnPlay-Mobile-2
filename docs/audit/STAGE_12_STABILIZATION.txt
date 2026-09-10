@@ -103,3 +103,13 @@ Physical QA round 2 findings and corrections
 - Live Xtream playback previously produced an extensionless /live/<redacted>/<redacted>/id locator. The resolver now emits the common transport-stream .ts candidate and a runtime-only .m3u8 fallback candidate. Live presentation performs at most one automatic HLS fallback after a primary player error, without creating a second player/session.
 - No source URL, username, password, token, stream URL, signing password, or private key is recorded here.
 - These corrections require exact-head source validation and later physical retest. Source PASS cannot establish provider playback compatibility or physical responsiveness.
+
+Physical QA round 3 findings and corrections
+- Physical QA of stable-signer QA v4 reported remaining provider utility category labels (including Account Information variants), synthetic All chips in Movies/Series, browse UI rotation instead of Preview -> fullscreen rotation behavior, silent audio on some provider channels, and missing provider EPG in Live rows.
+- Provider category presentation now normalizes punctuation/case, removes known utility-only All/Account Information labels without altering persisted provider metadata, and Library no longer synthesizes an All chip. The first real provider category becomes active deterministically.
+- Normal application browsing is portrait-locked. While a Live Preview is open, physical landscape orientation is detected and transitions the existing selected channel into fullscreen without issuing a second channel load. Fullscreen requests sensor-landscape; leaving fullscreen returns to portrait.
+- Media3 now enables lower-priority decoder fallback and extension-renderer discovery. Playback state records whether an audio track is present, supported, and selected. Live uses the existing one-shot .m3u8 candidate if the primary .ts stream errors or reaches READY with an unusable audio track; no second player/session is created.
+- Existing Xtream get_short_epg support is now connected to Live presentation. EPG is loaded lazily for composed channel rows, cached briefly in memory, and rendered as Now/Next in rows plus selected preview/fullscreen context. EPG failure remains non-blocking and does not prevent playback.
+- No Room schema change or migration is required: stable channel identity and provider stream ids already support EPG association at runtime.
+- No provider URL, username, password, token, stream URL, signing password, private key, or other secret is recorded here.
+- Exact final source validation and physical-device verification remain required. This source correction does not authorize or produce a new QA APK.

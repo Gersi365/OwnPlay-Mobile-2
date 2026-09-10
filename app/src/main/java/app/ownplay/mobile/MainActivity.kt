@@ -1,6 +1,7 @@
 package app.ownplay.mobile
 
 import android.app.PictureInPictureParams
+import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.os.Build
@@ -53,6 +54,7 @@ class MainActivity : ComponentActivity() {
                 services = services,
                 onFullscreenChanged = { fullscreen ->
                     contentFullscreen = fullscreen
+                    setContentOrientation(fullscreen)
                     setImmersiveFullscreen(fullscreen)
                     updatePictureInPictureParams()
                 },
@@ -129,6 +131,14 @@ class MainActivity : ComponentActivity() {
             }
         }
         super.onStop()
+    }
+
+    private fun setContentOrientation(fullscreen: Boolean) {
+        requestedOrientation = if (fullscreen) {
+            ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        } else {
+            ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        }
     }
 
     private fun setImmersiveFullscreen(fullscreen: Boolean) {

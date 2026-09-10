@@ -10,7 +10,9 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import app.ownplay.mobile.playback.domain.PlaybackLoadRequest
 import app.ownplay.mobile.playback.domain.PlaybackMedia
@@ -64,6 +66,10 @@ class Media3PlaybackController(
         }
 
         override fun onIsPlayingChanged(isPlaying: Boolean) {
+            refreshSnapshot()
+        }
+
+        override fun onTracksChanged(tracks: Tracks) {
             refreshSnapshot()
         }
 
@@ -237,10 +243,14 @@ class Media3PlaybackController(
     }
 
     @OptIn(UnstableApi::class)
-    private fun createPlayer(context: Context): ExoPlayer =
-        ExoPlayer.Builder(context)
+    private fun createPlayer(context: Context): ExoPlayer {
+        val renderersFactory = DefaultRenderersFactory(context)
+            .setEnableDecoderFallback(true)
+            .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
+        return ExoPlayer.Builder(context, renderersFactory)
             .setLooper(Looper.getMainLooper())
             .build()
+    }
 
     private fun installDetachListener(surfaceView: SurfaceView) {
         val detachListener = object : View.OnAttachStateChangeListener {
@@ -288,6 +298,7 @@ class Media3PlaybackController(
         }
 
         val media = currentMedia
+        val audio = currentAudioTrackStatus()
         mutableState.value = PlaybackSnapshot(
             mediaId = media?.id,
             title = media?.title,
@@ -298,7 +309,26 @@ class Media3PlaybackController(
             positionMs = player.currentPosition.coerceAtLeast(0L),
             durationMs = player.duration.takeUnless { it == C.TIME_UNSET || it < 0L },
             activeTarget = ownership.activeTarget,
+            audioTrackPresent = audio.present,
+            audioTrackSupported = audio.supported,
+            audioTrackSelected = audio.selected,
             errorCode = errorCode,
+        )
+    }
+
+    private data class AudioTrackStatus(
+        val present: Boolean?,
+        val supported: Boolean?,
+        val selected: Boolean?,
+    )
+
+    private fun currentAudioTrackStatus(): AudioTrackStatus {
+        val groups = player.currentTracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }
+        if (groups.isEmpty()) return AudioTrackStatus(null, null, null)
+        return AudioTrackStatus(
+            present = true,
+            supported = groups.any { it.isSupported() },
+            selected = groups.any { it.isSelected() },
         )
     }
 

@@ -1,5 +1,6 @@
 package app.ownplay.mobile.feature.live.ui
 
+import android.view.OrientationEventListener
 import android.view.SurfaceView
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
@@ -56,6 +57,8 @@ import app.ownplay.mobile.feature.live.domain.LiveCatalog
 import app.ownplay.mobile.feature.live.domain.LiveCategory
 import app.ownplay.mobile.feature.live.domain.LiveChannel
 import app.ownplay.mobile.feature.live.domain.LiveEffect
+import app.ownplay.mobile.feature.live.domain.LiveNowNext
+import app.ownplay.mobile.feature.live.domain.LiveProgram
 import app.ownplay.mobile.feature.live.domain.LiveIntent
 import app.ownplay.mobile.feature.live.domain.LivePlaybackResolution
 import app.ownplay.mobile.feature.live.domain.LivePresentation
@@ -68,6 +71,9 @@ import app.ownplay.mobile.playback.domain.PlaybackLoadRequest
 import app.ownplay.mobile.playback.domain.PlaybackMedia
 import app.ownplay.mobile.playback.domain.PlaybackPhase
 import app.ownplay.mobile.playback.domain.VideoTarget
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -146,13 +152,25 @@ fun LiveShell(
     }
 
     val channels = catalog?.channels.orEmpty()
-    val categories = LiveBrowsePolicy.visibleCategories(catalog?.categories.orEmpty())
+    val rawCategories = catalog?.categories.orEmpty()
+    val categories = LiveBrowsePolicy.visibleCategories(rawCategories)
     var selectedCategoryKey by remember(catalog?.activeSourceId) { mutableStateOf<String?>(null) }
     val activeCategoryKey = LiveBrowsePolicy.activeCategoryKey(categories, selectedCategoryKey)
     val visibleChannels = activeCategoryKey?.let { key ->
         channels.filter { channel -> channel.categoryKey == key }
     } ?: channels
     val selectedChannel = channels.firstOrNull { it.channelId == presentationState.selectedChannelId }
+    val selectedGuide = rememberLiveGuide(liveRepository, selectedChannel?.channelId)
+    val audioCompatibilityMessage = when {
+        fallbackLoadRequest != null -> null
+        playback.phase == PlaybackPhase.READY &&
+            playback.audioTrackPresent == true &&
+            playback.audioTrackSupported == false -> "Audio format is not supported by this device."
+        playback.phase == PlaybackPhase.READY &&
+            playback.audioTrackPresent == true &&
+            playback.audioTrackSelected == false -> "The channel audio track could not be selected."
+        else -> null
+    }
 
     LaunchedEffect(categories, selectedCategoryKey) {
         val resolvedCategoryKey = LiveBrowsePolicy.activeCategoryKey(categories, selectedCategoryKey)
@@ -161,8 +179,14 @@ fun LiveShell(
         }
     }
 
-    LaunchedEffect(playback.phase, fallbackLoadRequest) {
-        if (playback.phase == PlaybackPhase.ERROR) {
+    LaunchedEffect(
+        playback.phase,
+        playback.audioTrackPresent,
+        playback.audioTrackSupported,
+        playback.audioTrackSelected,
+        fallbackLoadRequest,
+    ) {
+        if (LivePlaybackFallbackPolicy.shouldUseFallback(playback)) {
             val fallback = fallbackLoadRequest ?: return@LaunchedEffect
             fallbackLoadRequest = null
             playbackController.load(fallback)
@@ -180,6 +204,34 @@ fun LiveShell(
         }
     }
 
+    val orientationContext = LocalContext.current
+    DisposableEffect(
+        orientationContext,
+        presentationState.presentation,
+        presentationState.selectedChannelId,
+    ) {
+        val selectedId = presentationState.selectedChannelId
+        if (presentationState.presentation != LivePresentation.PREVIEW || selectedId == null) {
+            onDispose { }
+        } else {
+            var landscapeTriggered = false
+            val listener = object : OrientationEventListener(orientationContext) {
+                override fun onOrientationChanged(orientation: Int) {
+                    if (orientation == ORIENTATION_UNKNOWN) return
+                    when {
+                        LiveOrientationPolicy.isLandscape(orientation) && !landscapeTriggered -> {
+                            landscapeTriggered = true
+                            dispatch(LiveIntent.ChannelTapped(selectedId))
+                        }
+                        LiveOrientationPolicy.isPortrait(orientation) -> landscapeTriggered = false
+                    }
+                }
+            }
+            if (listener.canDetectOrientation()) listener.enable()
+            onDispose { listener.disable() }
+        }
+    }
+
     BackHandler(enabled = presentationState.presentation != LivePresentation.BROWSE) {
         dispatch(LiveIntent.BackPressed)
     }
@@ -193,6 +245,8 @@ fun LiveShell(
             controllerScope = scope,
             playbackPhase = playback.phase,
             resolutionError = resolutionError,
+            guide = selectedGuide,
+            audioCompatibilityMessage = audioCompatibilityMessage,
             modifier = modifier,
         )
     } else {
@@ -200,6 +254,7 @@ fun LiveShell(
             catalog = catalog,
             channels = visibleChannels,
             categories = categories,
+            liveRepository = liveRepository,
             selectedCategoryKey = activeCategoryKey,
             onCategorySelected = { categoryKey ->
                 selectedCategoryKey = categoryKey
@@ -215,6 +270,8 @@ fun LiveShell(
             controllerScope = scope,
             playbackPhase = playback.phase,
             resolutionError = resolutionError,
+            selectedGuide = selectedGuide,
+            audioCompatibilityMessage = audioCompatibilityMessage,
             onChannelTapped = { channel ->
                 dispatch(LiveIntent.ChannelTapped(channel.channelId))
             },
@@ -228,6 +285,7 @@ private fun LiveBrowseAndPreview(
     catalog: LiveCatalog?,
     channels: List<LiveChannel>,
     categories: List<LiveCategory>,
+    liveRepository: LiveRepository,
     selectedCategoryKey: String?,
     onCategorySelected: (String?) -> Unit,
     selectedChannel: LiveChannel?,
@@ -235,6 +293,8 @@ private fun LiveBrowseAndPreview(
     controllerScope: CoroutineScope,
     playbackPhase: PlaybackPhase,
     resolutionError: String?,
+    selectedGuide: LiveNowNext,
+    audioCompatibilityMessage: String?,
     onChannelTapped: (LiveChannel) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -301,6 +361,7 @@ private fun LiveBrowseAndPreview(
                 key = { _, channel -> channel.channelId },
             ) { index, channel ->
                 val selected = channel.channelId == selectedChannel?.channelId
+                val guide = if (selected) selectedGuide else rememberLiveGuide(liveRepository, channel.channelId)
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -314,6 +375,7 @@ private fun LiveBrowseAndPreview(
                             controllerScope = controllerScope,
                             playbackPhase = playbackPhase,
                             resolutionError = resolutionError,
+                            audioCompatibilityMessage = audioCompatibilityMessage,
                         )
                     }
 
@@ -321,11 +383,12 @@ private fun LiveBrowseAndPreview(
                         number = (index + 1).toString().padStart(3, '0'),
                         channel = channel,
                         selected = selected,
+                        guide = guide,
                         onClick = { onChannelTapped(channel) },
                     )
 
                     if (selected) {
-                        NowPlayingPanel(selectedChannel = channel)
+                        NowPlayingPanel(selectedChannel = channel, guide = guide)
                     }
                 }
             }
@@ -383,6 +446,7 @@ private fun PreviewSurface(
     controllerScope: CoroutineScope,
     playbackPhase: PlaybackPhase,
     resolutionError: String?,
+    audioCompatibilityMessage: String?,
 ) {
     Box(
         modifier = Modifier
@@ -423,6 +487,7 @@ private fun PreviewSurface(
             val statusMessage = when {
                 resolutionError != null -> resolutionError
                 playbackPhase == PlaybackPhase.ERROR -> "Playback unavailable"
+                audioCompatibilityMessage != null -> audioCompatibilityMessage
                 playbackPhase == PlaybackPhase.BUFFERING -> "Loading ${selectedChannel.name}…"
                 else -> null
             }
@@ -444,7 +509,7 @@ private fun PreviewSurface(
 }
 
 @Composable
-private fun NowPlayingPanel(selectedChannel: LiveChannel?) {
+private fun NowPlayingPanel(selectedChannel: LiveChannel?, guide: LiveNowNext) {
     OwnPlayPanel(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier.padding(OwnPlaySpacing.Lg),
@@ -452,17 +517,17 @@ private fun NowPlayingPanel(selectedChannel: LiveChannel?) {
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "Now Playing",
+                    text = "Now",
                     style = MaterialTheme.typography.bodyMedium,
                     color = OwnPlayColors.TextSecondary,
                 )
                 Text(
-                    text = selectedChannel?.name ?: "Select a channel",
+                    text = guide.now?.title ?: selectedChannel?.name ?: "Select a channel",
                     style = MaterialTheme.typography.titleLarge,
                     color = OwnPlayColors.TextPrimary,
                 )
                 Text(
-                    text = if (selectedChannel == null) "Live preview is idle" else "Live channel",
+                    text = guide.now?.let(::programTimeRange) ?: "Guide unavailable",
                     style = MaterialTheme.typography.bodyMedium,
                     color = OwnPlayColors.TextSecondary,
                 )
@@ -480,12 +545,12 @@ private fun NowPlayingPanel(selectedChannel: LiveChannel?) {
                     color = OwnPlayColors.TextSecondary,
                 )
                 Text(
-                    text = "Guide unavailable",
+                    text = guide.next?.title ?: "Guide unavailable",
                     style = MaterialTheme.typography.titleMedium,
                     color = OwnPlayColors.TextPrimary,
                 )
                 Text(
-                    text = "EPG is optional and never blocks playback",
+                    text = guide.next?.let(::programTimeRange) ?: "EPG is optional and never blocks playback",
                     style = MaterialTheme.typography.bodyMedium,
                     color = OwnPlayColors.TextSecondary,
                 )
@@ -499,6 +564,7 @@ private fun ChannelRow(
     number: String,
     channel: LiveChannel,
     selected: Boolean,
+    guide: LiveNowNext,
     onClick: () -> Unit,
 ) {
     Surface(
@@ -544,10 +610,20 @@ private fun ChannelRow(
                     color = OwnPlayColors.TextPrimary,
                 )
                 Text(
-                    text = if (selected) "Previewing now" else "Live channel",
+                    text = guide.now?.let { program -> "Now ${programTimeRange(program)} • ${program.title}" }
+                        ?: if (selected) "Previewing now" else "Live channel",
                     style = MaterialTheme.typography.bodyMedium,
                     color = OwnPlayColors.TextSecondary,
+                    maxLines = 1,
                 )
+                guide.next?.let { next ->
+                    Text(
+                        text = "Next ${programTimeRange(next)} • ${next.title}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = OwnPlayColors.TextSecondary,
+                        maxLines = 1,
+                    )
+                }
             }
             Text(
                 text = if (selected) "FULLSCREEN ›" else "›",
@@ -566,6 +642,8 @@ private fun FullscreenLive(
     controllerScope: CoroutineScope,
     playbackPhase: PlaybackPhase,
     resolutionError: String?,
+    guide: LiveNowNext,
+    audioCompatibilityMessage: String?,
     modifier: Modifier = Modifier,
 ) {
     var overlayVisible by remember(channel.channelId) { mutableStateOf(true) }
@@ -643,12 +721,23 @@ private fun FullscreenLive(
                             text = when {
                                 resolutionError != null -> resolutionError
                                 playbackPhase == PlaybackPhase.ERROR -> "Playback unavailable"
+                                audioCompatibilityMessage != null -> audioCompatibilityMessage
                                 playbackPhase == PlaybackPhase.BUFFERING -> "Buffering live stream…"
+                                guide.now != null -> "Now ${programTimeRange(guide.now)} • ${guide.now.title}"
                                 else -> "Live • Guide unavailable"
                             },
                             style = MaterialTheme.typography.bodyMedium,
                             color = OwnPlayColors.TextSecondary,
+                            maxLines = 1,
                         )
+                        guide.next?.let { next ->
+                            Text(
+                                text = "Next ${programTimeRange(next)} • ${next.title}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = OwnPlayColors.TextSecondary,
+                                maxLines = 1,
+                            )
+                        }
                     }
                     Text(
                         text = "BACK TO PREVIEW",
@@ -708,6 +797,34 @@ private fun LivePlaybackSurface(
         }
     }
 }
+
+@Composable
+private fun rememberLiveGuide(
+    liveRepository: LiveRepository,
+    channelId: String?,
+): LiveNowNext {
+    var guide by remember(liveRepository, channelId) { mutableStateOf(LiveNowNext()) }
+    LaunchedEffect(liveRepository, channelId) {
+        guide = channelId?.let { liveRepository.loadNowNext(it) } ?: LiveNowNext()
+    }
+    return guide
+}
+
+private fun programTimeRange(program: LiveProgram): String {
+    val start = program.startEpochSeconds?.let(::formatEpgTime)
+    val end = program.endEpochSeconds?.let(::formatEpgTime)
+    return when {
+        start != null && end != null -> "$start–$end"
+        start != null -> start
+        end != null -> "until $end"
+        else -> ""
+    }
+}
+
+private fun formatEpgTime(epochSeconds: Long): String = Instant
+    .ofEpochSecond(epochSeconds)
+    .atZone(ZoneId.systemDefault())
+    .format(DateTimeFormatter.ofPattern("HH:mm"))
 
 private fun channelNumber(
     channels: List<LiveChannel>,

@@ -8,10 +8,10 @@ class LiveBrowsePolicyTest {
     @Test
     fun `provider utility categories are hidden and first real category becomes active`() {
         val categories = listOf(
-            LiveCategory("all", "All", 0),
-            LiveCategory("account", "Account Information", 1),
+            LiveCategory("all", "ALL CHANNELS", 0),
+            LiveCategory("account", "• Account Information — expires soon", 1),
             LiveCategory("news", "News", 2),
-            LiveCategory("sports", "Sports", 3),
+            LiveCategory("sports", "All Sports", 3),
         )
         val visible = LiveBrowsePolicy.visibleCategories(categories)
         assertEquals(listOf("news", "sports"), visible.map { it.categoryKey })

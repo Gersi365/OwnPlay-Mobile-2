@@ -4,18 +4,24 @@ import app.ownplay.mobile.data.db.CatalogDao
 import app.ownplay.mobile.data.db.SourceDao
 import app.ownplay.mobile.data.security.CredentialStore
 import app.ownplay.mobile.feature.live.domain.LiveCatalog
+import app.ownplay.mobile.feature.live.domain.LiveGuidePolicy
+import app.ownplay.mobile.feature.live.domain.LiveNowNext
+import app.ownplay.mobile.feature.live.domain.LiveProgram
 import app.ownplay.mobile.feature.live.domain.LiveCategory
 import app.ownplay.mobile.feature.live.domain.LiveChannel
 import app.ownplay.mobile.feature.live.domain.LivePlaybackResolution
 import app.ownplay.mobile.feature.live.domain.LiveRepository
 import app.ownplay.mobile.feature.live.domain.ResolvedLivePlayback
 import app.ownplay.mobile.playback.domain.PlaybackStreamFormat
+import app.ownplay.mobile.sources.data.xtream.XtreamClient
+import app.ownplay.mobile.sources.data.xtream.XtreamResult
 import app.ownplay.mobile.sources.data.xtream.XtreamUrlBuilder
 import app.ownplay.mobile.sources.domain.SourceCredential
 import app.ownplay.mobile.sources.domain.SourceRepository
 import app.ownplay.mobile.sources.domain.SourceType
 import java.net.URI
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -28,7 +34,14 @@ class LiveRepositoryImpl(
     private val sourceDao: SourceDao,
     private val catalogDao: CatalogDao,
     private val credentialStore: CredentialStore,
+    private val xtreamClient: XtreamClient,
 ) : LiveRepository {
+    private data class GuideCacheEntry(
+        val loadedAtMs: Long,
+        val guide: LiveNowNext,
+    )
+
+    private val guideCache = ConcurrentHashMap<String, GuideCacheEntry>()
     @OptIn(ExperimentalCoroutinesApi::class)
     override fun observeCatalog(): Flow<LiveCatalog> =
         sourceRepository.observeActiveSource().flatMapLatest { source ->
@@ -63,6 +76,44 @@ class LiveRepositoryImpl(
                 }
             }
         }
+
+    override suspend fun loadNowNext(channelId: String): LiveNowNext {
+        if (channelId.isBlank()) return LiveNowNext()
+        val nowMs = System.currentTimeMillis()
+        guideCache[channelId]
+            ?.takeIf { nowMs - it.loadedAtMs < GUIDE_CACHE_TTL_MS }
+            ?.let { return it.guide }
+
+        val guide = try {
+            val channel = catalogDao.getLiveChannel(channelId) ?: return LiveNowNext()
+            val source = sourceDao.get(channel.sourceId) ?: return LiveNowNext()
+            if (!channel.available || !source.enabled || source.type != SourceType.XTREAM.name) {
+                return LiveNowNext()
+            }
+            val streamId = channel.providerStreamId ?: return LiveNowNext()
+            val credential = credentialStore.get(source.sourceId) as? SourceCredential.Xtream
+                ?: return LiveNowNext()
+            when (val result = xtreamClient.shortEpg(source.baseLocator, credential, streamId, limit = 4)) {
+                is XtreamResult.Failure -> LiveNowNext()
+                is XtreamResult.Success -> LiveGuidePolicy.nowNext(
+                    programs = result.value.map { entry ->
+                        LiveProgram(
+                            title = entry.title.trim(),
+                            startEpochSeconds = entry.startEpochSeconds,
+                            endEpochSeconds = entry.endEpochSeconds,
+                        )
+                    },
+                    nowEpochSeconds = nowMs / 1_000L,
+                )
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            LiveNowNext()
+        }
+        guideCache[channelId] = GuideCacheEntry(nowMs, guide)
+        return guide
+    }
 
     override suspend fun resolvePlayback(channelId: String): LivePlaybackResolution {
         if (channelId.isBlank()) return failure("INVALID_CHANNEL", "This channel cannot be opened.")
@@ -137,4 +188,8 @@ class LiveRepositoryImpl(
 
     private fun failure(code: String, message: String): LivePlaybackResolution.Failure =
         LivePlaybackResolution.Failure(code = code, safeMessage = message)
+
+    private companion object {
+        const val GUIDE_CACHE_TTL_MS = 120_000L
+    }
 }

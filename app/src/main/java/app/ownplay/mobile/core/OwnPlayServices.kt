@@ -133,6 +133,7 @@ class OwnPlayServices private constructor(
             sourceDao = database.sourceDao(),
             catalogDao = database.catalogDao(),
             credentialStore = credentialStore,
+            xtreamClient = xtreamClient,
         )
     }
 

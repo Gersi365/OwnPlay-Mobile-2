@@ -349,23 +349,29 @@ private fun LibraryHome(
 ) {
     var selectedMovieCategoryKey by remember(catalog?.activeSourceId) { mutableStateOf<String?>(null) }
     var selectedSeriesCategoryKey by remember(catalog?.activeSourceId) { mutableStateOf<String?>(null) }
-    val movieCategories = catalog?.movieCategories.orEmpty()
-    val seriesCategories = catalog?.seriesCategories.orEmpty()
+    val rawMovieCategories = catalog?.movieCategories.orEmpty()
+    val rawSeriesCategories = catalog?.seriesCategories.orEmpty()
+    val movieCategories = LibraryBrowsePolicy.visibleCategories(rawMovieCategories)
+    val seriesCategories = LibraryBrowsePolicy.visibleCategories(rawSeriesCategories)
+    val activeMovieCategoryKey = LibraryBrowsePolicy.activeCategoryKey(movieCategories, selectedMovieCategoryKey)
+    val activeSeriesCategoryKey = LibraryBrowsePolicy.activeCategoryKey(seriesCategories, selectedSeriesCategoryKey)
     val visibleMovies = catalog?.movies.orEmpty().let { movies ->
-        selectedMovieCategoryKey?.let { key -> movies.filter { it.categoryKey == key } } ?: movies
+        activeMovieCategoryKey?.let { key -> movies.filter { it.categoryKey == key } } ?: movies
     }
     val visibleSeries = catalog?.series.orEmpty().let { series ->
-        selectedSeriesCategoryKey?.let { key -> series.filter { it.categoryKey == key } } ?: series
+        activeSeriesCategoryKey?.let { key -> series.filter { it.categoryKey == key } } ?: series
     }
 
     LaunchedEffect(movieCategories, selectedMovieCategoryKey) {
-        if (selectedMovieCategoryKey != null && movieCategories.none { it.categoryKey == selectedMovieCategoryKey }) {
-            selectedMovieCategoryKey = null
+        val resolvedCategoryKey = LibraryBrowsePolicy.activeCategoryKey(movieCategories, selectedMovieCategoryKey)
+        if (selectedMovieCategoryKey != resolvedCategoryKey) {
+            selectedMovieCategoryKey = resolvedCategoryKey
         }
     }
     LaunchedEffect(seriesCategories, selectedSeriesCategoryKey) {
-        if (selectedSeriesCategoryKey != null && seriesCategories.none { it.categoryKey == selectedSeriesCategoryKey }) {
-            selectedSeriesCategoryKey = null
+        val resolvedCategoryKey = LibraryBrowsePolicy.activeCategoryKey(seriesCategories, selectedSeriesCategoryKey)
+        if (selectedSeriesCategoryKey != resolvedCategoryKey) {
+            selectedSeriesCategoryKey = resolvedCategoryKey
         }
     }
 
@@ -418,7 +424,7 @@ private fun LibraryHome(
             if (movieCategories.isNotEmpty()) {
                 LibraryCategoryStrip(
                     categories = movieCategories,
-                    selectedCategoryKey = selectedMovieCategoryKey,
+                    selectedCategoryKey = activeMovieCategoryKey,
                     onSelected = { selectedMovieCategoryKey = it },
                 )
             }
@@ -435,7 +441,7 @@ private fun LibraryHome(
 
                 catalog != null && catalog.movies.isNotEmpty() -> OwnPlayStatePanel(
                     title = "No movies in this category",
-                    message = "Choose another provider category or All.",
+                    message = "Choose another provider category.",
                 )
             }
 
@@ -446,7 +452,7 @@ private fun LibraryHome(
             if (seriesCategories.isNotEmpty()) {
                 LibraryCategoryStrip(
                     categories = seriesCategories,
-                    selectedCategoryKey = selectedSeriesCategoryKey,
+                    selectedCategoryKey = activeSeriesCategoryKey,
                     onSelected = { selectedSeriesCategoryKey = it },
                 )
             }
@@ -463,7 +469,7 @@ private fun LibraryHome(
 
                 catalog != null && catalog.series.isNotEmpty() -> OwnPlayStatePanel(
                     title = "No series in this category",
-                    message = "Choose another provider category or All.",
+                    message = "Choose another provider category.",
                 )
             }
 
@@ -493,9 +499,6 @@ private fun LibraryCategoryStrip(
     onSelected: (String?) -> Unit,
 ) {
     LazyRow(horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm)) {
-        item(key = "all") {
-            LibraryCategoryChip("All", selectedCategoryKey == null) { onSelected(null) }
-        }
         items(categories, key = { it.categoryKey }) { category ->
             LibraryCategoryChip(category.name, selectedCategoryKey == category.categoryKey) {
                 onSelected(category.categoryKey)
