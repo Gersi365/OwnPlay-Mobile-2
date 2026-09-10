@@ -1,0 +1,85 @@
+STAGE 11 — QA CANDIDATE & PHYSICAL QA PREFLIGHT
+Date: 2026-09-10
+Repository: Gersi365/OwnPlay-Mobile-2
+Branch: stage-11-qa-candidate-preflight
+Base branch: stage-10-security-performance-accessibility
+Base source HEAD: f2972922020663c18f1df6e0e0562c99d95391b8
+
+PURPOSE
+- Establish a source-only QA-candidate preflight without crossing the restricted QA APK-generation boundary.
+- Preserve the exact source state that must be validated before any explicitly authorized QA package is built.
+- Define the physical evidence required by the project QA acceptance contract.
+
+PRE-CHANGE AUDIT
+- Stage 10 exact-final-head source-only validation completed successfully in GitHub Actions Run 34459965785 / job 102815194053.
+- Stage 10 remained open, draft, and unmerged when this preflight branch was created.
+- This branch was created from the exact validated Stage 10 source HEAD.
+- No historical OwnPlay implementation repository or source was opened or used.
+- No merge, ready-for-review, signing, release, deployment, history rewrite, destructive data operation, or QA APK generation was authorized or performed.
+
+CURRENT CANDIDATE IDENTITY
+- applicationId / namespace: app.ownplay.mobile
+- minSdk: 26
+- targetSdk / compileSdk: 36
+- versionCode: 1
+- versionName: 0.1.0-dev
+- No signing configuration change is introduced by this preflight.
+- Room remains version 1 with the committed schema contract unchanged.
+
+SOURCE-ONLY PREFLIGHT REQUIREMENTS
+- Validate the exact final preflight HEAD.
+- Kotlin compile must pass.
+- JVM unit tests must pass.
+- lintDebug must pass.
+- Generated Room schemas must match committed HEAD and leave the schema tree clean.
+- The validator must prove no APK/AAB is generated.
+
+PHYSICAL QA ACCEPTANCE SCOPE — PENDING EXPLICIT QA APK AUTHORIZATION
+Live / playback:
+- verify real video rendering in Preview and fullscreen;
+- verify passive Preview without transport controls;
+- switch channels and confirm the Preview switches cleanly;
+- activate the same previewed channel again and confirm fullscreen without a presentation-only playback restart;
+- Back from fullscreen returns to the same Preview;
+- verify no duplicate audio, no stale/black surface, and explicit stop/exit behavior;
+- verify PiP retains video plus audio and restores a clean surface;
+- verify background/foreground and supported rotation outside PiP without ownership conflicts.
+
+Library / VOD:
+- verify Continue Watching hierarchy and approved artwork density;
+- verify Movie and Series episode details;
+- verify Resume persists and restores progress;
+- verify Play from Beginning starts at zero without prematurely destroying prior saved progress;
+- verify fullscreen VOD uses the unified player and custom OwnPlay controls.
+
+Downloads / offline:
+- verify QUEUED/DOWNLOADING -> Pause -> PAUSED persistence -> Resume -> COMPLETED;
+- verify integrity-verified complete files only can play offline;
+- verify Retry after recoverable failure does not create duplicate rows;
+- verify offline playback and background/foreground behavior;
+- verify Remove outside fullscreen.
+
+Provider / data:
+- verify representative Xtream and M3U/M3U8 sources on real networks;
+- verify source refresh preserves favorites, hidden state, local names/order/groups, progress, and valid downloads;
+- verify no credentials appear in UI, logs, ordinary backup, screenshots, or debug evidence.
+
+Visual / accessibility / performance:
+- capture physical screenshots for Live, Live Preview, fullscreen Live, Library, media details, Settings, and fullscreen VOD/offline;
+- compare each primary screen directly against the approved project references;
+- verify touch targets, TalkBack traversal/roles, font scaling, and readable contrast on-device;
+- observe responsiveness with representative and large catalogs, downloads, refresh, and playback; no source-CI performance claim is substituted for device evidence.
+
+CRITICAL BLOCKERS
+- black video, audio-only PiP, duplicate audio, multiple active players, stale video surface, Preview/fullscreen/PiP crashes, presentation-only same-channel restart, continued playback after explicit stop, or critical resume corruption;
+- credentials exposure, personalization loss on refresh, database corruption, nondeterministic identity duplication, download-state corruption, incomplete/unverified offline playback, or paused downloads resuming without explicit action.
+
+RESTRICTED QA PACKAGE BOUNDARY
+- QA APK generation requires explicit user authorization and is NOT authorized by this preflight commit.
+- If later authorized, build the exact intended candidate HEAD, preserve the application ID and signing identity, maintain monotonic versionCode requirements, and report APK SHA-256, signer SHA-256, package, and version.
+- Build success must never be reported as physical QA success.
+
+STATUS
+- Source-only preflight evidence recorded.
+- Exact-head source-only CI is required for this evidence commit before the preflight can be considered complete.
+- QA APK generation and all physical-device/visual acceptance remain pending explicit authorization.
