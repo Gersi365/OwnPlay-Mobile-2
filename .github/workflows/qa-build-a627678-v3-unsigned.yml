@@ -1,0 +1,123 @@
+name: OwnPlay QA v3 exact-head pre-sign build
+
+on:
+  push:
+    branches:
+      - qa-build-a627678-v3-unsigned
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      SOURCE_SHA: a62767867ed2c8dbf9453bbb663f3adf6d6f35a8
+      VERSION_CODE: "3"
+      UNSIGNED_NAME: OwnPlay-QA-a627678-v3-unsigned-aligned.apk
+
+    steps:
+      - name: Checkout exact authorized source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Verify exact authorized source
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual_sha="$(git rev-parse HEAD)"
+          test "$actual_sha" = "$SOURCE_SHA"
+          test -z "$(git status --porcelain)"
+          echo "Validated source HEAD: $actual_sha"
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK 36
+        shell: bash
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Set up Gradle 9.6.0
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "9.6.0"
+          cache-read-only: true
+
+      - name: Apply authorized versionCode build override
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("app/build.gradle.kts")
+          text = path.read_text()
+          needle = "versionCode = 1"
+          replacement = "versionCode = 3"
+          if text.count(needle) != 1:
+              raise SystemExit("Expected exactly one versionCode = 1 declaration")
+          path.write_text(text.replace(needle, replacement))
+          PY
+          test "$(git diff --name-only)" = "app/build.gradle.kts"
+          grep -q 'versionCode = 3' app/build.gradle.kts
+          echo "Applied approved build-only versionCode override: 1 -> 3"
+
+      - name: Build and prepare aligned unsigned release APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          BUILD_TOOLS="$ANDROID_HOME/build-tools/36.0.0"
+          OUT="$RUNNER_TEMP/qa-v3-presign"
+          mkdir -p "$OUT"
+
+          gradle --no-daemon :app:assembleRelease
+          test -f app/build/outputs/apk/release/app-release-unsigned.apk
+
+          "$BUILD_TOOLS/zipalign" -p -f 4 \
+            app/build/outputs/apk/release/app-release-unsigned.apk \
+            "$OUT/$UNSIGNED_NAME"
+          "$BUILD_TOOLS/zipalign" -c -v 4 "$OUT/$UNSIGNED_NAME"
+
+          "$BUILD_TOOLS/aapt" dump badging "$OUT/$UNSIGNED_NAME" \
+            | tee "$OUT/PACKAGE_BADGING.txt"
+          grep -q "package: name='app.ownplay.mobile'" "$OUT/PACKAGE_BADGING.txt"
+          grep -q "versionCode='3'" "$OUT/PACKAGE_BADGING.txt"
+          grep -q "versionName='0.1.0-dev'" "$OUT/PACKAGE_BADGING.txt"
+
+          sha256sum "$OUT/$UNSIGNED_NAME" | tee "$OUT/UNSIGNED_APK_SHA256.txt"
+          unzip -p "$OUT/$UNSIGNED_NAME" AndroidManifest.xml | sha256sum \
+            | tee "$OUT/ANDROID_MANIFEST_BINARY_SHA256.txt"
+
+          test -f "$BUILD_TOOLS/lib/apksigner.jar"
+          cp "$BUILD_TOOLS/lib/apksigner.jar" "$OUT/apksigner.jar"
+
+          cat > "$OUT/QA_BUILD_PRE_SIGN_METADATA.txt" <<EOF
+          sourceSha=$SOURCE_SHA
+          package=app.ownplay.mobile
+          versionCode=3
+          versionName=0.1.0-dev
+          buildType=release
+          sourceCheckoutCleanBeforeOverride=true
+          buildOnlyVersionCodeOverride=1-to-3
+          signingState=unsigned-aligned-awaiting-stable-qa-signer
+          buildTools=36.0.0
+          EOF
+
+          test "$(git diff --name-only)" = "app/build.gradle.kts"
+
+      - name: Upload pre-sign QA v3 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ownplay-qa-a627678-v3-presign
+          path: ${{ runner.temp }}/qa-v3-presign/
+          if-no-files-found: error
+          retention-days: 1
