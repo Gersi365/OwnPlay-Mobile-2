@@ -45,7 +45,7 @@ jobs:
         run: |
           python /tmp/stage12_player_local_hud_patch.py
           git diff --check
-          actual="$(git diff --name-only | sort)"
+          actual="$(git status --porcelain | cut -c4- | sort)"
           expected="$(printf '%s\n' \
             app/src/main/java/app/ownplay/mobile/MainActivity.kt \
             app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryShell.kt \
