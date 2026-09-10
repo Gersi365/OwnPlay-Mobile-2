@@ -37,10 +37,7 @@ class Media3PlaybackController(
         val surfaceView: SurfaceView,
     )
 
-    @OptIn(UnstableApi::class)
-    private val player = ExoPlayer.Builder(context.applicationContext)
-        .setLooper(Looper.getMainLooper())
-        .build()
+    private val player = createPlayer(context.applicationContext)
 
     private val mutationMutex = Mutex()
     private val mutableState = MutableStateFlow(PlaybackSnapshot())
@@ -206,6 +203,12 @@ class Media3PlaybackController(
             }
         }
     }
+
+    @OptIn(UnstableApi::class)
+    private fun createPlayer(context: Context): ExoPlayer =
+        ExoPlayer.Builder(context)
+            .setLooper(Looper.getMainLooper())
+            .build()
 
     private fun clearBoundSurface() {
         val existing = boundSurface ?: return
