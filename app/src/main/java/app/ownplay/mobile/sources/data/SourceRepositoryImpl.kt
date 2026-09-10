@@ -19,6 +19,7 @@ import app.ownplay.mobile.sources.domain.Source
 import app.ownplay.mobile.sources.domain.SourceConnectionUpdate
 import app.ownplay.mobile.sources.domain.SourceCredential
 import app.ownplay.mobile.sources.domain.SourceError
+import app.ownplay.mobile.sources.domain.SourceRefreshFailurePolicy
 import app.ownplay.mobile.sources.domain.SourceRepository
 import app.ownplay.mobile.sources.domain.SourceResult
 import app.ownplay.mobile.sources.domain.SourceSelectionPolicy
@@ -238,17 +239,19 @@ class SourceRepositoryImpl(
         val plan = RefreshPolicy.plan(previous?.generation ?: 0, payload)
 
         if (plan.successfulSections.isEmpty()) {
-            database.refreshStateDao().upsert(
-                RefreshStateEntity(
-                    sourceId = sourceId,
-                    generation = plan.generation,
-                    state = "FAILED",
-                    lastAttempt = attemptAt,
-                    lastSuccess = previous?.lastSuccess,
-                    errorCode = plan.errorCode ?: "REFRESH_FAILED",
-                ),
-            )
-            return failure("REFRESH_FAILED", "Source refresh failed; the last known catalog was preserved.")
+            runCatching {
+                database.refreshStateDao().upsert(
+                    RefreshStateEntity(
+                        sourceId = sourceId,
+                        generation = plan.generation,
+                        state = "FAILED",
+                        lastAttempt = attemptAt,
+                        lastSuccess = previous?.lastSuccess,
+                        errorCode = plan.errorCode ?: "REFRESH_FAILED",
+                    ),
+                )
+            }
+            return SourceResult.Failure(SourceRefreshFailurePolicy.present(plan.errorCode))
         }
 
         return try {
@@ -341,7 +344,7 @@ class SourceRepositoryImpl(
                 ),
             )
         }
-        return failure("REFRESH_FAILED", "Source refresh failed; the last known catalog was preserved.")
+        return SourceResult.Failure(SourceRefreshFailurePolicy.present(code))
     }
 
     private fun ProviderCategoryRecord.toEntity(sourceId: String, kind: String, generation: Long) =
