@@ -1,0 +1,119 @@
+name: Stage 12 player local HUD guarded apply
+
+on:
+  push:
+    branches:
+      - stage12-player-local-hud-runner
+
+permissions:
+  contents: write
+
+jobs:
+  validate-and-commit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      EXPECTED_BASE: 5f312e7e47c2f977da0ccaab66d012ed2fded571
+      TARGET_BRANCH: stage-12-stabilization
+    steps:
+      - name: Checkout helper branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Preserve patch helper
+        shell: bash
+        run: cp tools/stage12_player_local_hud_patch.py /tmp/stage12_player_local_hud_patch.py
+
+      - name: Checkout exact target branch
+        uses: actions/checkout@v4
+        with:
+          ref: stage-12-stabilization
+          clean: true
+          fetch-depth: 1
+
+      - name: Guard exact target base
+        shell: bash
+        run: |
+          actual="$(git rev-parse HEAD)"
+          test "$actual" = "$EXPECTED_BASE"
+          test -z "$(git status --porcelain)"
+          echo "Exact target base: $actual"
+
+      - name: Apply transient HUD patch
+        shell: bash
+        run: |
+          python /tmp/stage12_player_local_hud_patch.py
+          git diff --check
+          actual="$(git diff --name-only | sort)"
+          expected="$(printf '%s\n' \
+            app/src/main/java/app/ownplay/mobile/MainActivity.kt \
+            app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryShell.kt \
+            app/src/main/java/app/ownplay/mobile/feature/live/ui/LiveShell.kt \
+            app/src/main/java/app/ownplay/mobile/playback/domain/PlayerLocalControlPolicy.kt \
+            app/src/main/java/app/ownplay/mobile/playback/ui/PlayerLocalControlHud.kt \
+            app/src/main/java/app/ownplay/mobile/playback/ui/PlayerLocalControls.kt \
+            app/src/test/java/app/ownplay/mobile/playback/PlayerLocalControlPolicyTest.kt \
+            docs/audit/STAGE_12_STABILIZATION.txt | sort)"
+          test "$actual" = "$expected"
+          echo "$actual"
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK 36
+        shell: bash
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Set up Gradle 9.6.0
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.6.0'
+          cache-read-only: true
+
+      - name: Commit candidate locally
+        id: candidate
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            app/src/main/java/app/ownplay/mobile/MainActivity.kt \
+            app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryShell.kt \
+            app/src/main/java/app/ownplay/mobile/feature/live/ui/LiveShell.kt \
+            app/src/main/java/app/ownplay/mobile/playback/domain/PlayerLocalControlPolicy.kt \
+            app/src/main/java/app/ownplay/mobile/playback/ui/PlayerLocalControlHud.kt \
+            app/src/main/java/app/ownplay/mobile/playback/ui/PlayerLocalControls.kt \
+            app/src/test/java/app/ownplay/mobile/playback/PlayerLocalControlPolicyTest.kt \
+            docs/audit/STAGE_12_STABILIZATION.txt
+          git commit -m "Add transient player volume and brightness HUD"
+          final_sha="$(git rev-parse HEAD)"
+          echo "sha=$final_sha" >> "$GITHUB_OUTPUT"
+          test -z "$(git status --porcelain)"
+          echo "Candidate source HEAD: $final_sha"
+
+      - name: Validate exact candidate source without APK
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "${{ steps.candidate.outputs.sha }}"
+          bash tools/validate-source-no-apk.sh
+          test "$(git rev-parse HEAD)" = "${{ steps.candidate.outputs.sha }}"
+          test -z "$(git status --porcelain)"
+          echo "Exact candidate source validation PASS: ${{ steps.candidate.outputs.sha }}"
+
+      - name: Fast-forward target only after exact-head PASS
+        shell: bash
+        run: |
+          git fetch origin "$TARGET_BRANCH"
+          remote="$(git rev-parse "origin/$TARGET_BRANCH")"
+          test "$remote" = "$EXPECTED_BASE"
+          test "$(git rev-parse HEAD^)" = "$EXPECTED_BASE"
+          test "$(git rev-parse HEAD)" = "${{ steps.candidate.outputs.sha }}"
+          git push origin "HEAD:$TARGET_BRANCH"
+          echo "Fast-forwarded $TARGET_BRANCH to ${{ steps.candidate.outputs.sha }}"
