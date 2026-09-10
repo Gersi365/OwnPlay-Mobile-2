@@ -1,0 +1,124 @@
+name: Stage 12 personalization and settings candidate
+
+on:
+  push:
+    branches:
+      - stage12-personalization-settings-runner
+
+permissions:
+  contents: write
+
+jobs:
+  build-candidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      BASE_SHA: 9b111874e5eeef398a750808cb2b9b271ec49447
+      CANDIDATE_BRANCH: stage12-personalization-settings-candidate
+
+    steps:
+      - name: Checkout tooling branch
+        uses: actions/checkout@v4
+        with:
+          ref: stage12-personalization-settings-runner
+          path: tooling
+          persist-credentials: false
+
+      - name: Checkout exact audited source
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir source
+          cd source
+          git init
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git fetch --depth=1 origin "$BASE_SHA"
+          git checkout --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "$BASE_SHA"
+          test -z "$(git status --porcelain)"
+          echo "Exact source base verified: $(git rev-parse HEAD)"
+
+      - name: Apply personalization and settings source patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source
+          python3 ../tooling/.github/scripts/stage12_personalization_settings_patch.py
+          git diff --check
+          test -n "$(git status --porcelain)"
+          echo "Changed source files:"
+          git status --short
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK 36
+        shell: bash
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Set up Gradle 9.6.0
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.6.0'
+
+      - name: Generate Room v2 schema without packaging
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source
+          gradle :app:compileDebugKotlin --rerun-tasks --no-build-cache --stacktrace
+          test -f app/schemas/app.ownplay.mobile.data.db.OwnPlayDatabase/2.json
+          if find . -type f \( -name '*.apk' -o -name '*.aab' \) -not -path './.git/*' | grep -q .; then
+            echo "Packaged artifact generated unexpectedly" >&2
+            exit 4
+          fi
+
+      - name: Commit exact candidate including generated schema
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/src app/schemas docs/audit/STAGE_12_STABILIZATION.txt
+          git diff --cached --check
+          git commit -m "Add Live personalization and functional settings"
+          echo "Candidate HEAD: $(git rev-parse HEAD)"
+          test "$(git rev-parse HEAD^)" = "$BASE_SHA"
+          test -z "$(git status --porcelain)"
+
+      - name: Validate exact candidate source without APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source
+          candidate_sha="$(git rev-parse HEAD)"
+          bash tools/validate-source-no-apk.sh
+          gradle :app:compileReleaseKotlin --rerun-tasks --no-build-cache --stacktrace
+          test "$(git rev-parse HEAD)" = "$candidate_sha"
+          test -z "$(git status --porcelain)"
+          if find . -type f \( -name '*.apk' -o -name '*.aab' \) -not -path './.git/*' | grep -q .; then
+            echo "Packaged artifact generated unexpectedly" >&2
+            exit 4
+          fi
+          echo "Exact candidate source validation PASS: $candidate_sha"
+
+      - name: Guard candidate branch and push fast-forward only
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          cd source
+          remote_sha="$(git ls-remote origin "refs/heads/$CANDIDATE_BRANCH" | cut -f1)"
+          test "$remote_sha" = "$BASE_SHA"
+          git push origin "HEAD:refs/heads/$CANDIDATE_BRANCH"
+          echo "Candidate branch fast-forwarded to $(git rev-parse HEAD)"
