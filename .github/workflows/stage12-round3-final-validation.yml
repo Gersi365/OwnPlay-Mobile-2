@@ -1,0 +1,62 @@
+name: Stage 12 round 3 exact-head validation
+
+on:
+  push:
+    branches:
+      - stage12-round3-final-validation
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      SOURCE_SHA: 65bb1545c938126efdbb8413f677cbbf16f48db2
+
+    steps:
+      - name: Checkout exact final source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Verify exact final source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          test -z "$(git status --porcelain)"
+          echo "Exact final source: $(git rev-parse HEAD)"
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK 36
+        shell: bash
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Set up Gradle 9.6.0
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "9.6.0"
+          cache-read-only: true
+
+      - name: Validate exact final source without APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x tools/validate-source-no-apk.sh
+          ./tools/validate-source-no-apk.sh
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          test -z "$(git status --porcelain)"
+          test -z "$(find . -type f \( -name '*.apk' -o -name '*.aab' \) -not -path './.git/*' -print)"
+          echo "PASS exact final source: $SOURCE_SHA"
