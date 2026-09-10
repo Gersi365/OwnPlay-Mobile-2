@@ -1,0 +1,79 @@
+OwnPlay Mobile 2 — Stage 12 Stabilization Audit
+
+Status
+- Stage: 12 — Stabilization
+- Branch: stage-12-stabilization
+- Base branch: stage-11-qa-candidate-preflight
+- Exact Stage 11 QA candidate source base: 6eed1090b623db6402fcaf53600248a1cda04870
+- Draft PR: #13
+- This stage is source-only until a replacement QA APK is separately and explicitly authorized.
+
+Physical QA finding that opened Stage 12
+- The user reported that an Xtream source could be added, but Live channels and Library content did not populate and manual Refresh returned “Refresh failed”.
+- No provider URL, username, password, token, or other source secret is recorded in this audit.
+- The failure was observed with the Stage 11 QA candidate built from exact source SHA 6eed1090b623db6402fcaf53600248a1cda04870.
+
+Verified source defects
+1. Provider-source contract and Android runtime network policy were inconsistent.
+   - OwnPlay source validation intentionally accepted both http:// and https:// Xtream and remote M3U/M3U8 locators.
+   - The Stage 11 Android manifest did not permit cleartext HTTP traffic.
+   - Therefore a legitimate user-configured HTTP provider could be accepted and stored by OwnPlay, then blocked by Android at request time before catalog refresh could succeed.
+2. Refresh diagnostics were too lossy.
+   - ProviderHttpTransport collapsed IOException failures into a generic NETWORK code.
+   - SourceRepositoryImpl retained raw provider section failures in refresh state but returned only a generic REFRESH_FAILED message when every section failed.
+   - SourceManagementScreen therefore could not distinguish network, DNS, timeout, TLS, HTTP status, authentication-like rejection, or incompatible Xtream payload failures.
+
+Corrections
+- AndroidManifest.xml now explicitly permits cleartext traffic so the Android runtime behavior matches the existing source contract for arbitrary user-configured HTTP/HTTPS providers.
+- SourceConnectionSecurityPolicy identifies HTTP locators and presents a clear warning that HTTP does not protect provider credentials or traffic with TLS; HTTPS remains preferred when the provider supports it.
+- ProviderTransportFailurePolicy safely classifies cleartext-policy blocks, DNS failures, timeouts, TLS failures, refused connections, and generic network failures without exposing exception text.
+- SourceRefreshFailurePolicy converts raw transport/provider codes into actionable, credential-safe user messages for authentication-like failures, network reachability, DNS, timeout, TLS, HTTP 404, HTTP 429, provider 5xx errors, invalid URLs, incompatible Xtream payloads, response-read failures, and fallback failures.
+- SourceRepositoryImpl now preserves the provider failure classification on total refresh failure while continuing to preserve the last known catalog.
+- SourceManagementScreen now displays the safe mapped failure message and warns when an HTTP source is configured or edited.
+- Focused unit tests cover transport failure classification, HTTP-vs-HTTPS warning behavior, credential-safe diagnostics, authentication priority, HTTP 404/503 mapping, and incompatible Xtream payload guidance.
+
+Security boundary and tradeoff
+- Allowing cleartext traffic is an explicit compatibility tradeoff because OwnPlay accepts user-selected provider endpoints and some legitimate Xtream/M3U providers expose only HTTP.
+- HTTP is not treated as secure: the UI warns that provider credentials and traffic are not protected by TLS and recommends HTTPS when available.
+- Xtream credentials remain in Android Keystore-backed credential storage rather than Room.
+- Provider URLs, usernames, passwords, tokens, and runtime credential-bearing stream URLs are not written into these new diagnostic messages or audit evidence.
+- Transport exception text is not surfaced to the user.
+- Existing URL redaction and runtime-only credential-bearing locator boundaries remain unchanged.
+
+Persistence/data boundary
+- Room remains database version 1 with the existing entity set.
+- No migration or destructive fallback was introduced.
+- No Room schema file changed.
+- Failed refresh still preserves the last known catalog.
+
+Implementation validation
+- Exact implementation HEAD validated: 64baf1d5825885b0d9c650f84276de0a68d98e25
+- GitHub Actions workflow: Android source validation (no APK)
+- Run: #52 / 34464767945
+- Job: 102830649835
+- Checkout and exact SHA verification: PASS
+- compileDebugKotlin: PASS
+- testDebugUnitTest: PASS
+- lintDebug: PASS
+- Build result: BUILD SUCCESSFUL
+- Generated Room schema matches committed HEAD: PASS
+- Room schema tree clean: PASS
+- Source-only artifact guard: PASS — no APK/AAB produced
+- Five previously known non-blocking Kotlin compiler warnings remain in DownloadRepositoryImpl.kt and LibraryShell.kt; they are unrelated to this stabilization defect.
+- GitHub Actions infrastructure also emitted Node/setup-action deprecation warnings; these are CI tooling warnings, not application validation failures.
+
+Physical QA boundary
+- Source/CI PASS does not prove that a real provider now refreshes successfully on a device.
+- It does not prove Live or Library population, real provider authentication semantics, provider-specific API compatibility, playback, downloads, PiP, surface continuity, accessibility, performance, or visual-reference acceptance.
+- The Stage 11 QA APK still contains the defect because it was built from 6eed1090b623db6402fcaf53600248a1cda04870.
+- A replacement QA APK must be built from the final Stage 12 exact HEAD and installed/retested on the physical device before this defect can receive physical PASS.
+- Replacement QA APK generation requires separate explicit user authorization for that exact Stage 12 HEAD.
+
+Restricted-action record
+- No merge performed.
+- PR #13 remains Draft and unmerged.
+- No ready-for-review transition performed.
+- No release, publication, or deployment performed.
+- No production/release signing change performed.
+- No reset, rebase, force-push, history rewrite, or destructive repository/database operation performed.
+- No replacement QA APK generated in Stage 12 source work.
