@@ -784,7 +784,7 @@ private fun LibraryFullscreenPlayer(
     var overlayVisible by remember(playback.contentId) { mutableStateOf(true) }
     var pendingSeekMs by remember(playback.contentId) { mutableStateOf<Long?>(null) }
 
-    suspend fun persistCurrent(snapshot: PlaybackSnapshot = playbackController.currentSnapshot()) {
+    suspend fun persistSnapshot(snapshot: PlaybackSnapshot) {
         if (snapshot.mediaId != playback.contentId) return
         val duration = snapshot.durationMs ?: playback.knownDurationMs ?: return
         if (duration <= 0L) return
@@ -798,6 +798,10 @@ private fun LibraryFullscreenPlayer(
                 ended = snapshot.phase == PlaybackPhase.ENDED,
             ),
         )
+    }
+
+    suspend fun persistCurrent() {
+        persistSnapshot(playbackController.currentSnapshot())
     }
 
     fun closePlayer() {
@@ -824,7 +828,7 @@ private fun LibraryFullscreenPlayer(
             val snapshot = playbackController.currentSnapshot()
             persistCountdown += 1
             if (persistCountdown >= 3) {
-                persistCurrent(snapshot)
+                persistSnapshot(snapshot)
                 persistCountdown = 0
             }
         }
@@ -832,9 +836,9 @@ private fun LibraryFullscreenPlayer(
 
     LaunchedEffect(playback.contentId, playerState.phase) {
         if (playerState.mediaId == playback.contentId && playerState.phase == PlaybackPhase.READY) {
-            persistCurrent(playerState)
+            persistSnapshot(playerState)
         } else if (playerState.mediaId == playback.contentId && playerState.phase == PlaybackPhase.ENDED) {
-            persistCurrent(playerState)
+            persistSnapshot(playerState)
         }
     }
 
@@ -958,7 +962,7 @@ private fun LibraryFullscreenPlayer(
                             modifier = Modifier.weight(0.8f),
                         )
                         OwnPlayPrimaryButton(
-                            text = if (playerState.isPlaying) "Pause" else "Play",
+                            text = if (playerState.playWhenReady) "Pause" else "Play",
                             onClick = {
                                 scope.launch { playbackController.setPlayWhenReady(!playerState.playWhenReady) }
                             },
