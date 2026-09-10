@@ -46,6 +46,7 @@ jobs:
           set -euo pipefail
           cd source
           python3 ../tooling/.github/scripts/stage12_personalization_settings_patch.py
+          python3 ../tooling/.github/scripts/stage12_personalization_settings_compile_fix.py
           git diff --check
           test -n "$(git status --porcelain)"
           echo "Changed source files:"
