@@ -6,37 +6,51 @@ Status
 - Base branch: stage-11-qa-candidate-preflight
 - Exact Stage 11 QA candidate source base: 6eed1090b623db6402fcaf53600248a1cda04870
 - Draft PR: #13
-- This stage is source-only until a replacement QA APK is separately and explicitly authorized.
+- Stage 12 remains in physical-QA stabilization; source validation is not a physical PASS.
 
-Physical QA finding that opened Stage 12
-- The user reported that an Xtream source could be added, but Live channels and Library content did not populate and manual Refresh returned “Refresh failed”.
+Physical QA findings
+1. Initial provider-refresh failure
+   - The Stage 11 QA candidate built from exact source SHA 6eed1090b623db6402fcaf53600248a1cda04870 could save an Xtream source, while Live and Library remained empty and manual Refresh failed.
+   - Source inspection confirmed that the source contract accepted both http:// and https:// provider locators while the Stage 11 Android manifest did not permit cleartext HTTP traffic.
+2. Large-catalog ANR after the HTTP compatibility correction
+   - The user retested with a legitimate HTTP-only Xtream provider on the Stage 12 replacement QA APK built from exact source SHA 94774775c9cd1760d3a227f3eba3210f268eb5df.
+   - The provider catalog did load, confirming that HTTP transport was usable on-device.
+   - The UI then became unresponsive and Android reported that OwnPlay was not responding.
+   - The user also reported that the HTTP notice read as if HTTP might be unsupported even though this provider does not expose HTTPS.
 - No provider URL, username, password, token, or other source secret is recorded in this audit.
-- The failure was observed with the Stage 11 QA candidate built from exact source SHA 6eed1090b623db6402fcaf53600248a1cda04870.
 
-Verified source defects
-1. Provider-source contract and Android runtime network policy were inconsistent.
+Verified source defects and risk factors
+1. Stage 11 provider-source contract and Android runtime network policy were inconsistent.
    - OwnPlay source validation intentionally accepted both http:// and https:// Xtream and remote M3U/M3U8 locators.
    - The Stage 11 Android manifest did not permit cleartext HTTP traffic.
-   - Therefore a legitimate user-configured HTTP provider could be accepted and stored by OwnPlay, then blocked by Android at request time before catalog refresh could succeed.
 2. Refresh diagnostics were too lossy.
-   - ProviderHttpTransport collapsed IOException failures into a generic NETWORK code.
-   - SourceRepositoryImpl retained raw provider section failures in refresh state but returned only a generic REFRESH_FAILED message when every section failed.
-   - SourceManagementScreen therefore could not distinguish network, DNS, timeout, TLS, HTTP status, authentication-like rejection, or incompatible Xtream payload failures.
+   - Provider failures previously collapsed into a generic Refresh failed presentation.
+3. CPU-heavy provider catalog transformation could resume on the caller/Main dispatcher.
+   - ProviderHttpTransport itself uses asynchronous OkHttp callbacks, but JSON parsing and provider-to-domain catalog mapping executed after suspension on the caller context.
+   - A large Xtream response could therefore monopolize the UI thread during parse/map work.
+4. Large provider collections were eagerly composed.
+   - Live used a vertically scrolling Column and channels.forEachIndexed, causing every Live channel row to be composed eagerly.
+   - Library Movies, Series, and Downloaded Media used horizontalScroll Rows with forEach, causing every item in those collections to be composed eagerly.
+   - Large real-world Xtream catalogs can contain thousands of entries, making those structures unsuitable for bounded UI work.
+5. The HTTP warning was technically correct but ambiguous for HTTP-only providers.
+   - It recommended HTTPS when available without explicitly stating that OwnPlay supports HTTP providers.
 
 Corrections
-- AndroidManifest.xml now explicitly permits cleartext traffic so the Android runtime behavior matches the existing source contract for arbitrary user-configured HTTP/HTTPS providers.
-- SourceConnectionSecurityPolicy identifies HTTP locators and presents a clear warning that HTTP does not protect provider credentials or traffic with TLS; HTTPS remains preferred when the provider supports it.
-- ProviderTransportFailurePolicy safely classifies cleartext-policy blocks, DNS failures, timeouts, TLS failures, refused connections, and generic network failures without exposing exception text.
-- SourceRefreshFailurePolicy converts raw transport/provider codes into actionable, credential-safe user messages for authentication-like failures, network reachability, DNS, timeout, TLS, HTTP 404, HTTP 429, provider 5xx errors, invalid URLs, incompatible Xtream payloads, response-read failures, and fallback failures.
-- SourceRepositoryImpl now preserves the provider failure classification on total refresh failure while continuing to preserve the last known catalog.
-- SourceManagementScreen now displays the safe mapped failure message and warns when an HTTP source is configured or edited.
-- Focused unit tests cover transport failure classification, HTTP-vs-HTTPS warning behavior, credential-safe diagnostics, authentication priority, HTTP 404/503 mapping, and incompatible Xtream payload guidance.
+- AndroidManifest.xml explicitly permits cleartext traffic so runtime behavior matches the supported HTTP/HTTPS source contract.
+- ProviderTransportFailurePolicy and SourceRefreshFailurePolicy retain safe, credential-free diagnostics for cleartext blocks, DNS, timeout, TLS, refused connection, HTTP status, auth-like rejection, malformed/unsupported Xtream payloads, read failures, and fallback failures.
+- Failed refresh continues to preserve the last known catalog.
+- SourceCatalogLoader now performs provider catalog loading, JSON result transformation, and catalog mapping inside Dispatchers.Default rather than allowing CPU-heavy catalog work to run on the Main dispatcher.
+- Live browse rendering now uses LazyColumn with stable channel keys and itemsIndexed; channel rows are composed on demand instead of all at once.
+- Library Movies, Series, and Downloaded Media rows now use keyed LazyRow items; large provider collections are composed on demand instead of eagerly.
+- HTTP provider copy now states explicitly that HTTP is supported when a provider does not offer HTTPS, while retaining the TLS-security warning.
+- Source Management labels the notice as an HTTP provider notice rather than an HTTP connection error-like state.
+- Focused tests continue to cover transport classification and now assert that the HTTP warning states that HTTP is supported.
 
 Security boundary and tradeoff
 - Allowing cleartext traffic is an explicit compatibility tradeoff because OwnPlay accepts user-selected provider endpoints and some legitimate Xtream/M3U providers expose only HTTP.
-- HTTP is not treated as secure: the UI warns that provider credentials and traffic are not protected by TLS and recommends HTTPS when available.
+- HTTP is supported but is not secure transport: credentials and traffic are not protected by TLS.
 - Xtream credentials remain in Android Keystore-backed credential storage rather than Room.
-- Provider URLs, usernames, passwords, tokens, and runtime credential-bearing stream URLs are not written into these new diagnostic messages or audit evidence.
+- Provider URLs, usernames, passwords, tokens, and runtime credential-bearing stream URLs are not written into diagnostic messages or audit evidence.
 - Transport exception text is not surfaced to the user.
 - Existing URL redaction and runtime-only credential-bearing locator boundaries remain unchanged.
 
@@ -46,28 +60,31 @@ Persistence/data boundary
 - No Room schema file changed.
 - Failed refresh still preserves the last known catalog.
 
-Implementation validation
-- Exact implementation HEAD validated: 64baf1d5825885b0d9c650f84276de0a68d98e25
-- GitHub Actions workflow: Android source validation (no APK)
-- Run: #52 / 34464767945
-- Job: 102830649835
-- Checkout and exact SHA verification: PASS
-- compileDebugKotlin: PASS
-- testDebugUnitTest: PASS
-- lintDebug: PASS
-- Build result: BUILD SUCCESSFUL
-- Generated Room schema matches committed HEAD: PASS
-- Room schema tree clean: PASS
-- Source-only artifact guard: PASS — no APK/AAB produced
-- Five previously known non-blocking Kotlin compiler warnings remain in DownloadRepositoryImpl.kt and LibraryShell.kt; they are unrelated to this stabilization defect.
-- GitHub Actions infrastructure also emitted Node/setup-action deprecation warnings; these are CI tooling warnings, not application validation failures.
+Source validation history
+- Stage 12 HTTP/diagnostic implementation HEAD: 64baf1d5825885b0d9c650f84276de0a68d98e25
+  - Android source validation Run #52 / 34464767945, job 102830649835: PASS.
+- Stage 12 HTTP/diagnostic evidence HEAD: 94774775c9cd1760d3a227f3eba3210f268eb5df
+  - Android source validation Run #53 / 34465306708, job 102832373020: PASS.
+- Large-catalog ANR implementation HEAD: 052c2e7791f911e5d87fbebe4c77b4b34482847b
+  - Exact-base patch and source-only validation Run 34470561135, job 102849217046: PASS before the validated commit was fast-forwarded to stage-12-stabilization.
+  - Validation included compileDebugKotlin, testDebugUnitTest, lintDebug, generated Room schema equality, clean schema tree, and the explicit no-APK/AAB artifact guard.
+- The audit evidence commit created after 052c2e7791f911e5d87fbebe4c77b4b34482847b must receive exact-final-HEAD source-only CI before Stage 12 source closure is claimed.
+
+QA APK history and signing boundary
+- Stage 11 QA APK source: 6eed1090b623db6402fcaf53600248a1cda04870.
+- Stage 12 replacement QA APK source: 94774775c9cd1760d3a227f3eba3210f268eb5df.
+- Replacement APK SHA-256: 89dc51ed5c7cda40e6a6935672884194a4998db4d5b52e7c8c36986ec8aabaf1.
+- Package: app.ownplay.mobile; versionCode 1; versionName 0.1.0-dev.
+- Replacement signer certificate SHA-256: e47aa8bfac74d9b62ec2758ebce120e9ee279e83cb494a1c91aa1dc1bc6341df.
+- The replacement QA signer was generated ephemerally on a hosted runner after explicit user authorization. Its private key was deliberately not committed or uploaded, so that signer cannot provide future update continuity.
+- The user has now required that future QA APKs install as updates. Meeting that requirement requires one stable QA signing identity whose private key is stored outside the repository in an authorized secret store and reused for future QA builds, together with monotonically increasing versionCode values.
+- No new stable signing identity is created by this source stabilization work. Creating/persisting one remains a restricted signing change requiring explicit authorization.
 
 Physical QA boundary
-- Source/CI PASS does not prove that a real provider now refreshes successfully on a device.
-- It does not prove Live or Library population, real provider authentication semantics, provider-specific API compatibility, playback, downloads, PiP, surface continuity, accessibility, performance, or visual-reference acceptance.
-- The Stage 11 QA APK still contains the defect because it was built from 6eed1090b623db6402fcaf53600248a1cda04870.
-- A replacement QA APK must be built from the final Stage 12 exact HEAD and installed/retested on the physical device before this defect can receive physical PASS.
-- Replacement QA APK generation requires separate explicit user authorization for that exact Stage 12 HEAD.
+- Source/CI PASS cannot prove that the ANR is eliminated on the user's real device or provider catalog.
+- The replacement APK built from 94774775c9cd1760d3a227f3eba3210f268eb5df does not contain the large-catalog ANR corrections recorded after that SHA.
+- A later QA APK containing the final Stage 12 source must be installed and the same HTTP-only Xtream provider retested.
+- Real-provider catalog size, rendering responsiveness, playback, downloads/offline, PiP, surface continuity, background/rotation behavior, accessibility, performance, and visual-reference acceptance remain physical-device evidence.
 
 Restricted-action record
 - No merge performed.
@@ -75,5 +92,6 @@ Restricted-action record
 - No ready-for-review transition performed.
 - No release, publication, or deployment performed.
 - No production/release signing change performed.
-- No reset, rebase, force-push, history rewrite, or destructive repository/database operation performed.
-- No replacement QA APK generated in Stage 12 source work.
+- No reset, rebase, force-push, or history rewrite performed.
+- No destructive repository/database operation performed.
+- No APK/AAB was generated by the large-catalog source stabilization change or its source-only validation.
