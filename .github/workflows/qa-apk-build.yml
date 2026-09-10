@@ -14,7 +14,6 @@ jobs:
     timeout-minutes: 30
     env:
       CANDIDATE_SHA: 94774775c9cd1760d3a227f3eba3210f268eb5df
-      EXPECTED_SIGNER_SHA256: f88558b74db2d58b5a320f0aff7a952ec2ac02ca67c312163d4af0c3c67b4c9b
 
     steps:
       - name: Checkout exact QA candidate
@@ -44,21 +43,24 @@ jobs:
         run: |
           sdkmanager "platforms;android-36" "build-tools;36.0.0"
 
-      - name: Preserve QA signing identity
+      - name: Create authorized new QA debug signer
         shell: bash
         run: |
           set -euo pipefail
+          mkdir -p "$HOME/.android"
           DEBUG_KEYSTORE="$HOME/.android/debug.keystore"
-          if [[ ! -f "$DEBUG_KEYSTORE" ]]; then
-            echo "::error::Previous QA debug signing key is not present on this hosted runner. Refusing to create a replacement APK with a different signer."
-            exit 1
-          fi
-          actual_signer="$(keytool -list -v -keystore "$DEBUG_KEYSTORE" -storepass android -alias androiddebugkey 2>/dev/null | awk -F': ' '/SHA256:/{print $2; exit}' | tr -d ':' | tr '[:upper:]' '[:lower:]')"
-          if [[ "$actual_signer" != "$EXPECTED_SIGNER_SHA256" ]]; then
-            echo "::error::Hosted runner debug signer does not match the Stage 11 QA APK signer. Refusing signing-identity change."
-            exit 1
-          fi
-          echo "QA debug signer continuity verified: $actual_signer"
+          rm -f "$DEBUG_KEYSTORE"
+          keytool -genkeypair -noprompt \
+            -keystore "$DEBUG_KEYSTORE" \
+            -storepass android \
+            -alias androiddebugkey \
+            -keypass android \
+            -dname "CN=Android Debug,O=Android,C=US" \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000
+          chmod 600 "$DEBUG_KEYSTORE"
+          echo "Authorized replacement QA debug signer created for this build only. Private key will not be uploaded."
 
       - name: Set up Gradle 9.6.0
         uses: gradle/actions/setup-gradle@v4
@@ -87,7 +89,8 @@ jobs:
             echo "source_branch=stage-12-stabilization"
             echo "artifact=OwnPlay-QA-9477477.apk"
             echo "build_task=:app:assembleDebug"
-            echo "expected_signer_sha256=$EXPECTED_SIGNER_SHA256"
+            echo "signer_policy=user-authorized-new-qa-debug-signer"
+            echo "clean_reinstall_required=true"
           } > qa-artifact/QA_BUILD_METADATA.txt
 
       - name: Upload QA APK artifact
