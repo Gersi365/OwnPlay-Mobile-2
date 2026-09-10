@@ -10,6 +10,10 @@ object SourceRefreshFailurePolicy {
 
         fun has(code: String): Boolean = codes.any { it.equals(code, ignoreCase = true) }
         fun hasPrefix(prefix: String): Boolean = codes.any { it.startsWith(prefix, ignoreCase = true) }
+        fun hasHttpStatus(range: IntRange): Boolean = codes.any { code ->
+            code.removePrefix("HTTP_").takeIf { code.startsWith("HTTP_", ignoreCase = true) }
+                ?.toIntOrNull() in range
+        }
 
         return when {
             has("XTREAM_AUTH") || has("HTTP_401") || has("HTTP_403") -> SourceError(
@@ -52,9 +56,7 @@ object SourceRefreshFailurePolicy {
                 safeMessage = "The provider is temporarily rate-limiting requests. Wait briefly, then refresh again.",
             )
 
-            codes.any { code ->
-                code.startsWith("HTTP_5", ignoreCase = true) && code.drop(6).toIntOrNull() != null
-            } -> SourceError(
+            hasHttpStatus(500..599) -> SourceError(
                 code = "REFRESH_PROVIDER_HTTP",
                 safeMessage = "The provider server returned an error. Try refreshing again later.",
             )
