@@ -18,6 +18,24 @@ data class LiveChannelView(
     val sortOrder: Int,
 )
 
+data class EpisodeLibraryView(
+    val episodeId: String,
+    val seriesId: String,
+    val sourceId: String,
+    val seriesName: String,
+    val providerEpisodeId: String,
+    val seasonNumber: Int,
+    val episodeNumber: Int,
+    val title: String,
+    val durationMs: Long?,
+    val extension: String?,
+    val available: Boolean,
+    val progressPositionMs: Long?,
+    val progressDurationMs: Long?,
+    val progressCompleted: Boolean?,
+    val progressUpdatedAt: Long?,
+)
+
 @Dao
 interface SourceDao {
     @Query("SELECT * FROM sources ORDER BY updatedAt DESC, createdAt ASC, sourceId ASC")
@@ -124,6 +142,170 @@ interface CatalogDao {
         """,
     )
     suspend fun markMissingSeriesUnavailable(sourceId: String, generation: Long)
+}
+
+@Dao
+interface LibraryDao {
+    @Query(
+        """
+        SELECT * FROM movies
+        WHERE sourceId = :sourceId AND available = 1
+        ORDER BY providerOrder ASC, name COLLATE NOCASE ASC, movieId ASC
+        """,
+    )
+    fun observeAvailableMovies(sourceId: String): Flow<List<MovieEntity>>
+
+    @Query(
+        """
+        SELECT * FROM series
+        WHERE sourceId = :sourceId AND available = 1
+        ORDER BY providerOrder ASC, name COLLATE NOCASE ASC, seriesId ASC
+        """,
+    )
+    fun observeAvailableSeries(sourceId: String): Flow<List<SeriesEntity>>
+
+    @Query(
+        """
+        SELECT
+            e.episodeId AS episodeId,
+            e.seriesId AS seriesId,
+            s.sourceId AS sourceId,
+            s.name AS seriesName,
+            e.providerEpisodeId AS providerEpisodeId,
+            e.seasonNumber AS seasonNumber,
+            e.episodeNumber AS episodeNumber,
+            e.title AS title,
+            e.durationMs AS durationMs,
+            e.extension AS extension,
+            e.available AS available,
+            p.positionMs AS progressPositionMs,
+            p.durationMs AS progressDurationMs,
+            p.completed AS progressCompleted,
+            p.updatedAt AS progressUpdatedAt
+        FROM episodes AS e
+        INNER JOIN series AS s ON s.seriesId = e.seriesId
+        LEFT JOIN playback_progress AS p
+          ON p.sourceId = s.sourceId
+         AND p.mediaKind = 'EPISODE'
+         AND p.contentId = e.episodeId
+        WHERE s.sourceId = :sourceId
+          AND s.available = 1
+          AND e.available = 1
+        ORDER BY s.providerOrder ASC, e.seasonNumber ASC, e.episodeNumber ASC, e.episodeId ASC
+        """,
+    )
+    fun observeAvailableEpisodes(sourceId: String): Flow<List<EpisodeLibraryView>>
+
+    @Query(
+        """
+        SELECT * FROM playback_progress
+        WHERE sourceId = :sourceId
+          AND completed = 0
+          AND positionMs > 0
+        ORDER BY updatedAt DESC, contentId ASC
+        """,
+    )
+    fun observeIncompleteProgress(sourceId: String): Flow<List<PlaybackProgressEntity>>
+
+    @Query(
+        """
+        SELECT * FROM downloads
+        WHERE sourceId = :sourceId
+          AND state = 'COMPLETED'
+          AND localReference IS NOT NULL
+          AND integrityMetadata IS NOT NULL
+        ORDER BY createdAt DESC, downloadId ASC
+        """,
+    )
+    fun observeCompletedDownloads(sourceId: String): Flow<List<DownloadEntity>>
+
+    @Query("SELECT * FROM movies WHERE movieId = :movieId LIMIT 1")
+    suspend fun getMovie(movieId: String): MovieEntity?
+
+    @Query("SELECT * FROM series WHERE seriesId = :seriesId LIMIT 1")
+    suspend fun getSeries(seriesId: String): SeriesEntity?
+
+    @Query(
+        """
+        SELECT
+            e.episodeId AS episodeId,
+            e.seriesId AS seriesId,
+            s.sourceId AS sourceId,
+            s.name AS seriesName,
+            e.providerEpisodeId AS providerEpisodeId,
+            e.seasonNumber AS seasonNumber,
+            e.episodeNumber AS episodeNumber,
+            e.title AS title,
+            e.durationMs AS durationMs,
+            e.extension AS extension,
+            e.available AS available,
+            p.positionMs AS progressPositionMs,
+            p.durationMs AS progressDurationMs,
+            p.completed AS progressCompleted,
+            p.updatedAt AS progressUpdatedAt
+        FROM episodes AS e
+        INNER JOIN series AS s ON s.seriesId = e.seriesId
+        LEFT JOIN playback_progress AS p
+          ON p.sourceId = s.sourceId
+         AND p.mediaKind = 'EPISODE'
+         AND p.contentId = e.episodeId
+        WHERE e.episodeId = :episodeId
+        LIMIT 1
+        """,
+    )
+    suspend fun getEpisode(episodeId: String): EpisodeLibraryView?
+
+    @Query(
+        """
+        SELECT
+            e.episodeId AS episodeId,
+            e.seriesId AS seriesId,
+            s.sourceId AS sourceId,
+            s.name AS seriesName,
+            e.providerEpisodeId AS providerEpisodeId,
+            e.seasonNumber AS seasonNumber,
+            e.episodeNumber AS episodeNumber,
+            e.title AS title,
+            e.durationMs AS durationMs,
+            e.extension AS extension,
+            e.available AS available,
+            p.positionMs AS progressPositionMs,
+            p.durationMs AS progressDurationMs,
+            p.completed AS progressCompleted,
+            p.updatedAt AS progressUpdatedAt
+        FROM episodes AS e
+        INNER JOIN series AS s ON s.seriesId = e.seriesId
+        LEFT JOIN playback_progress AS p
+          ON p.sourceId = s.sourceId
+         AND p.mediaKind = 'EPISODE'
+         AND p.contentId = e.episodeId
+        WHERE e.seriesId = :seriesId
+          AND e.available = 1
+        ORDER BY e.seasonNumber ASC, e.episodeNumber ASC, e.episodeId ASC
+        """,
+    )
+    suspend fun getEpisodesForSeries(seriesId: String): List<EpisodeLibraryView>
+
+    @Query(
+        """
+        SELECT * FROM playback_progress
+        WHERE sourceId = :sourceId
+          AND mediaKind = :mediaKind
+          AND contentId = :contentId
+        LIMIT 1
+        """,
+    )
+    suspend fun getProgress(
+        sourceId: String,
+        mediaKind: String,
+        contentId: String,
+    ): PlaybackProgressEntity?
+
+    @Upsert
+    suspend fun upsertProgress(entity: PlaybackProgressEntity)
+
+    @Query("UPDATE episodes SET available = 0 WHERE seriesId = :seriesId")
+    suspend fun markEpisodesUnavailable(seriesId: String)
 }
 
 @Dao

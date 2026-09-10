@@ -158,6 +158,13 @@ class Media3PlaybackController(
         }
     }
 
+    override suspend fun currentSnapshot(): PlaybackSnapshot {
+        mutateOnPlayerThread {
+            refreshSnapshot()
+        }
+        return state.value
+    }
+
     override suspend fun retry() {
         mutateOnPlayerThread {
             mutableState.value = mutableState.value.copy(errorCode = null)

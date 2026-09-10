@@ -5,6 +5,8 @@ import app.ownplay.mobile.data.db.OwnPlayDatabase
 import app.ownplay.mobile.data.prefs.ActiveSourcePreferences
 import app.ownplay.mobile.data.security.CredentialStore
 import app.ownplay.mobile.data.security.KeystoreCredentialStore
+import app.ownplay.mobile.feature.library.data.LibraryRepositoryImpl
+import app.ownplay.mobile.feature.library.domain.LibraryRepository
 import app.ownplay.mobile.feature.live.data.LiveRepositoryImpl
 import app.ownplay.mobile.feature.live.domain.LiveRepository
 import app.ownplay.mobile.playback.Media3PlaybackController
@@ -15,6 +17,7 @@ import app.ownplay.mobile.sources.data.SourceRepositoryImpl
 import app.ownplay.mobile.sources.data.m3u.M3uParser
 import app.ownplay.mobile.sources.data.m3u.OkHttpM3uClient
 import app.ownplay.mobile.sources.data.xtream.OkHttpXtreamClient
+import app.ownplay.mobile.sources.data.xtream.XtreamClient
 import app.ownplay.mobile.sources.domain.SourceRepository
 import java.util.concurrent.TimeUnit
 import okhttp3.OkHttpClient
@@ -45,11 +48,18 @@ class OwnPlayServices private constructor(
             .build()
     }
 
+    private val providerTransport: ProviderHttpTransport by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        ProviderHttpTransport(httpClient)
+    }
+
+    private val xtreamClient: XtreamClient by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        OkHttpXtreamClient(providerTransport)
+    }
+
     val sourceRepository: SourceRepository by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
-        val transport = ProviderHttpTransport(httpClient)
         val catalogLoader = SourceCatalogLoader(
-            xtreamClient = OkHttpXtreamClient(transport),
-            m3uClient = OkHttpM3uClient(transport),
+            xtreamClient = xtreamClient,
+            m3uClient = OkHttpM3uClient(providerTransport),
             m3uParser = M3uParser(),
         )
         SourceRepositoryImpl(
@@ -68,6 +78,18 @@ class OwnPlayServices private constructor(
             sourceDao = database.sourceDao(),
             catalogDao = database.catalogDao(),
             credentialStore = credentialStore,
+        )
+    }
+
+    val libraryRepository: LibraryRepository by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        LibraryRepositoryImpl(
+            database = database,
+            sourceRepository = sourceRepository,
+            sourceDao = database.sourceDao(),
+            catalogDao = database.catalogDao(),
+            libraryDao = database.libraryDao(),
+            credentialStore = credentialStore,
+            xtreamClient = xtreamClient,
         )
     }
 

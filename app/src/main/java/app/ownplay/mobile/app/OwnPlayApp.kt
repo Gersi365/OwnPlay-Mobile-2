@@ -27,24 +27,24 @@ fun OwnPlayApp(services: OwnPlayServices) {
         var selectedDestination by rememberSaveable {
             mutableStateOf(AppDestination.Live)
         }
-        var liveFullscreen by rememberSaveable { mutableStateOf(false) }
+        var contentFullscreen by rememberSaveable { mutableStateOf(false) }
         val scope = rememberCoroutineScope()
 
         Scaffold(
             containerColor = OwnPlayColors.Background,
             bottomBar = {
-                if (!liveFullscreen) {
+                if (!contentFullscreen) {
                     OwnPlayBottomBar(
                         selectedDestination = selectedDestination,
                         onDestinationSelected = { destination ->
                             if (
-                                selectedDestination == AppDestination.Live &&
-                                destination != AppDestination.Live
+                                selectedDestination != destination &&
+                                selectedDestination != AppDestination.Settings
                             ) {
                                 scope.launch {
                                     services.playbackController.stop(clearMedia = true)
                                 }
-                                liveFullscreen = false
+                                contentFullscreen = false
                             }
                             selectedDestination = destination
                         },
@@ -55,16 +55,21 @@ fun OwnPlayApp(services: OwnPlayServices) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(if (liveFullscreen) PaddingValues(0.dp) else innerPadding),
+                    .padding(if (contentFullscreen) PaddingValues(0.dp) else innerPadding),
             ) {
                 when (selectedDestination) {
                     AppDestination.Live -> LiveShell(
                         liveRepository = services.liveRepository,
                         playbackController = services.playbackController,
-                        onFullscreenChanged = { liveFullscreen = it },
+                        onFullscreenChanged = { contentFullscreen = it },
                     )
 
-                    AppDestination.Library -> LibraryShell()
+                    AppDestination.Library -> LibraryShell(
+                        libraryRepository = services.libraryRepository,
+                        playbackController = services.playbackController,
+                        onFullscreenChanged = { contentFullscreen = it },
+                    )
+
                     AppDestination.Settings -> SettingsShell()
                 }
             }
