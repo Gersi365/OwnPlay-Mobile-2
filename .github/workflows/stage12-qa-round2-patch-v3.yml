@@ -31,18 +31,10 @@ jobs:
 
           python3 <<'PY'
           from pathlib import Path
-
           path = Path("app/src/test/java/app/ownplay/mobile/feature/library/domain/LibraryPoliciesTest.kt")
           text = path.read_text()
-          old = '''        movieId = id,
-        sourceId = "source",
-        name = name,
-'''
-          new = '''        movieId = id,
-        sourceId = "source",
-        categoryKey = null,
-        name = name,
-'''
+          old = '        movieId = id,\n        sourceId = "source",\n        name = name,\n'
+          new = '        movieId = id,\n        sourceId = "source",\n        categoryKey = null,\n        name = name,\n'
           if text.count(old) != 1:
               raise SystemExit("Expected exactly one LibraryMovie test-helper anchor")
           path.write_text(text.replace(old, new, 1))
