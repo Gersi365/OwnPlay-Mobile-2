@@ -21,7 +21,7 @@ object SourceLocatorPolicy {
             null,
             uri.host,
             uri.port,
-            uri.path,
+            null,
             null,
             null,
         ).toString()

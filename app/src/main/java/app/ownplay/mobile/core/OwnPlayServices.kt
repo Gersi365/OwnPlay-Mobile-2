@@ -28,6 +28,7 @@ import app.ownplay.mobile.sources.data.xtream.OkHttpXtreamClient
 import app.ownplay.mobile.sources.data.xtream.XtreamClient
 import app.ownplay.mobile.sources.domain.SourceRepository
 import java.util.concurrent.TimeUnit
+import okhttp3.Dispatcher
 import okhttp3.OkHttpClient
 
 class OwnPlayServices private constructor(
@@ -70,8 +71,23 @@ class OwnPlayServices private constructor(
         ProviderRefreshScheduler(applicationContext)
     }
 
+    private val providerHttpDispatcher: Dispatcher by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        Dispatcher().apply {
+            maxRequests = MAX_PROVIDER_REQUESTS
+            maxRequestsPerHost = MAX_PROVIDER_REQUESTS_PER_HOST
+        }
+    }
+
+    private val downloadHttpDispatcher: Dispatcher by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        Dispatcher().apply {
+            maxRequests = MAX_DOWNLOAD_REQUESTS
+            maxRequestsPerHost = MAX_DOWNLOAD_REQUESTS_PER_HOST
+        }
+    }
+
     private val httpClient: OkHttpClient by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         OkHttpClient.Builder()
+            .dispatcher(providerHttpDispatcher)
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .callTimeout(45, TimeUnit.SECONDS)
@@ -81,6 +97,7 @@ class OwnPlayServices private constructor(
 
     private val downloadHttpClient: OkHttpClient by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         httpClient.newBuilder()
+            .dispatcher(downloadHttpDispatcher)
             .readTimeout(60, TimeUnit.SECONDS)
             .callTimeout(0, TimeUnit.MILLISECONDS)
             .build()
@@ -148,6 +165,11 @@ class OwnPlayServices private constructor(
     }
 
     companion object {
+        private const val MAX_PROVIDER_REQUESTS = 12
+        private const val MAX_PROVIDER_REQUESTS_PER_HOST = 4
+        private const val MAX_DOWNLOAD_REQUESTS = 4
+        private const val MAX_DOWNLOAD_REQUESTS_PER_HOST = 2
+
         fun create(context: Context): OwnPlayServices = OwnPlayServices(context)
     }
 }

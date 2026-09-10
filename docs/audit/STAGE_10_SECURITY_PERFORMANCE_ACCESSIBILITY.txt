@@ -1,0 +1,62 @@
+STAGE 10 — SECURITY, PERFORMANCE & ACCESSIBILITY
+Date: 2026-09-10
+Repository: Gersi365/OwnPlay-Mobile-2
+Branch: stage-10-security-performance-accessibility
+Base branch: stage-9-integration-hardening
+Base source HEAD: b4eebf059af7ed3978aeb74f6ccf6af46932e1f6
+Initial Stage 10 source HEAD: 940841a7462ea8e3aa06355c672f1565b571afb2
+Draft PR: #11
+
+PRE-CHANGE AUDIT
+- Stage 9 closure run 34458274906 / job 102809720441 completed SUCCESS on the exact base source.
+- Stage 9 remained open, draft, and unmerged before Stage 10 was branched.
+- The Stage 10 branch was created from the exact validated Stage 9 source HEAD.
+- No historical OwnPlay implementation repository or source was opened or used.
+- No restricted action was authorized or performed.
+
+SECURITY HARDENING
+- Android automatic backup remains disabled (`android:allowBackup="false"`).
+- Provider credentials remain AES/GCM encrypted with a 256-bit AndroidKeyStore key and source-specific associated data.
+- OwnPlay backup v1 remains credential-free; M3U remote locators are not exported.
+- Credential writes are now bounded to 16 KiB per UTF-8 field before encryption/storage.
+- Existing encrypted credential reads retain the prior 1 MiB defensive decode cap to avoid a breaking compatibility change.
+- M3U Room-facing base-locator metadata now retains only scheme, host, and optional port. User info, path, query, and fragment remain outside Room; the full remote locator remains in the encrypted credential record.
+- No existing database row was destructively rewritten and no Room schema change was made.
+
+PERFORMANCE HARDENING
+- Provider/catalog HTTP traffic is explicitly bounded at 12 concurrent requests and 4 requests per host.
+- Download HTTP traffic uses a separate dispatcher bounded at 4 concurrent requests and 2 requests per host so long-running transfers cannot consume the provider request pool.
+- Existing provider auto-refresh remains unique periodic work, network constrained, and sequential.
+- No benchmark, latency, memory, thermal, or battery claim is made from source CI.
+
+ACCESSIBILITY HARDENING
+- Bottom navigation destinations expose tab role and selected-state semantics while preserving approved OwnPlay geometry.
+- Settings boolean rows expose switch role/state semantics.
+- Settings navigation/action rows expose button semantics.
+- OwnPlay custom visuals remain unchanged; no generic Material preference UI was introduced.
+- Physical TalkBack, font-scaling, contrast, touch-target, and visual acceptance remain pending physical QA.
+
+FOCUSED TESTS
+- CredentialInputPolicyTest covers boundary acceptance, oversized Xtream rejection, and UTF-8 byte-bound enforcement.
+- SourceLocatorPolicyTest covers origin-only Room-facing M3U metadata and preservation of the full encrypted remote locator path through validation.
+- Existing backup and Xtream redaction tests continue to cover credential-free export and URL/path redaction behavior.
+
+SOURCE VALIDATION
+- Initial Stage 10 run: 34459430075
+- Job: 102813459308
+- Validated exact source: 940841a7462ea8e3aa06355c672f1565b571afb2
+- Result: SUCCESS
+- compileDebugKotlin: PASS
+- testDebugUnitTest: PASS
+- lintDebug: PASS
+- committed Room schema check: PASS / clean
+- APK/AAB guard: PASS; no APK/AAB was produced.
+- Existing non-blocking Kotlin warnings remain in DownloadRepositoryImpl and LibraryShell; none were introduced by the Stage 10 changes.
+- A final exact-head source-only closure validation is required after this evidence-only commit.
+
+BOUNDARIES
+- No APK/AAB generated.
+- No physical-device or visual QA performed.
+- No TalkBack/device-performance claim made.
+- No merge, ready-for-review, signing, release, or deployment action performed.
+- No Room schema migration, destructive database operation, or user-data rewrite performed.
