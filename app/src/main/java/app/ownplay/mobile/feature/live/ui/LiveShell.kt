@@ -136,21 +136,28 @@ fun LiveShell(
 
     fun dispatch(intent: LiveIntent) {
         val transition = LivePresentationReducer.reduce(presentationState, intent)
+        val wasFullscreen = presentationState.presentation == LivePresentation.FULLSCREEN
+        val isFullscreen = transition.state.presentation == LivePresentation.FULLSCREEN
+        if (wasFullscreen != isFullscreen) {
+            onFullscreenChanged(isFullscreen)
+        }
         presentationState = transition.state
         transition.effects.forEach(::applyEffect)
     }
 
     val channels = catalog?.channels.orEmpty()
-    val categories = catalog?.categories.orEmpty()
+    val categories = LiveBrowsePolicy.visibleCategories(catalog?.categories.orEmpty())
     var selectedCategoryKey by remember(catalog?.activeSourceId) { mutableStateOf<String?>(null) }
-    val visibleChannels = selectedCategoryKey?.let { key ->
+    val activeCategoryKey = LiveBrowsePolicy.activeCategoryKey(categories, selectedCategoryKey)
+    val visibleChannels = activeCategoryKey?.let { key ->
         channels.filter { channel -> channel.categoryKey == key }
     } ?: channels
     val selectedChannel = channels.firstOrNull { it.channelId == presentationState.selectedChannelId }
 
     LaunchedEffect(categories, selectedCategoryKey) {
-        if (selectedCategoryKey != null && categories.none { it.categoryKey == selectedCategoryKey }) {
-            selectedCategoryKey = null
+        val resolvedCategoryKey = LiveBrowsePolicy.activeCategoryKey(categories, selectedCategoryKey)
+        if (selectedCategoryKey != resolvedCategoryKey) {
+            selectedCategoryKey = resolvedCategoryKey
         }
     }
 
@@ -160,10 +167,6 @@ fun LiveShell(
             fallbackLoadRequest = null
             playbackController.load(fallback)
         }
-    }
-
-    LaunchedEffect(presentationState.presentation) {
-        onFullscreenChanged(presentationState.presentation == LivePresentation.FULLSCREEN)
     }
 
     DisposableEffect(Unit) {
@@ -197,8 +200,16 @@ fun LiveShell(
             catalog = catalog,
             channels = visibleChannels,
             categories = categories,
-            selectedCategoryKey = selectedCategoryKey,
-            onCategorySelected = { selectedCategoryKey = it },
+            selectedCategoryKey = activeCategoryKey,
+            onCategorySelected = { categoryKey ->
+                selectedCategoryKey = categoryKey
+                if (
+                    presentationState.presentation == LivePresentation.PREVIEW &&
+                    selectedChannel?.categoryKey != categoryKey
+                ) {
+                    dispatch(LiveIntent.BackPressed)
+                }
+            },
             selectedChannel = selectedChannel,
             playbackController = playbackController,
             controllerScope = scope,
@@ -235,26 +246,13 @@ private fun LiveBrowseAndPreview(
         }
 
         item {
-            Column(
-                modifier = Modifier.padding(horizontal = OwnPlaySpacing.Lg),
-                verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Lg),
-            ) {
-                PreviewSurface(
-                    selectedChannel = selectedChannel,
-                    playbackController = playbackController,
-                    controllerScope = controllerScope,
-                    playbackPhase = playbackPhase,
-                    resolutionError = resolutionError,
-                )
-
-                NowPlayingPanel(selectedChannel = selectedChannel)
-
+            Box(modifier = Modifier.padding(horizontal = OwnPlaySpacing.Lg)) {
                 OwnPlaySectionHeader(
-                    title = "All Channels",
+                    title = "Channels",
                     actionLabel = if (selectedChannel == null) {
                         "Tap a channel to preview"
                     } else {
-                        "Tap the selected channel for fullscreen"
+                        "Tap the selected channel again for fullscreen"
                     },
                 )
             }
@@ -302,17 +300,33 @@ private fun LiveBrowseAndPreview(
                 items = channels,
                 key = { _, channel -> channel.channelId },
             ) { index, channel ->
-                Box(
+                val selected = channel.channelId == selectedChannel?.channelId
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = OwnPlaySpacing.Lg, vertical = OwnPlaySpacing.Xs),
+                    verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Xs),
                 ) {
+                    if (selected) {
+                        PreviewSurface(
+                            selectedChannel = channel,
+                            playbackController = playbackController,
+                            controllerScope = controllerScope,
+                            playbackPhase = playbackPhase,
+                            resolutionError = resolutionError,
+                        )
+                    }
+
                     ChannelRow(
                         number = (index + 1).toString().padStart(3, '0'),
                         channel = channel,
-                        selected = channel.channelId == selectedChannel?.channelId,
+                        selected = selected,
                         onClick = { onChannelTapped(channel) },
                     )
+
+                    if (selected) {
+                        NowPlayingPanel(selectedChannel = channel)
+                    }
                 }
             }
         }
@@ -333,9 +347,6 @@ private fun LiveCategoryStrip(
         contentPadding = PaddingValues(horizontal = OwnPlaySpacing.Lg),
         horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm),
     ) {
-        item(key = "all") {
-            ProviderCategoryChip("All", selectedCategoryKey == null) { onSelected(null) }
-        }
         items(categories, key = { it.categoryKey }) { category ->
             ProviderCategoryChip(category.name, selectedCategoryKey == category.categoryKey) {
                 onSelected(category.categoryKey)
