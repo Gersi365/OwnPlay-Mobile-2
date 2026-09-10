@@ -1,0 +1,201 @@
+name: OwnPlay QA APK cce01a0 v2
+
+on:
+  push:
+    branches:
+      - qa-build-cce01a0-v2
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      SOURCE_SHA: cce01a02fe9726b6040c6993a5bd8281925b4f21
+      VERSION_CODE: "2"
+      APK_NAME: OwnPlay-QA-cce01a0-v2.apk
+
+    steps:
+      - name: Checkout exact authorized source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Verify exact authorized source
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual_sha="$(git rev-parse HEAD)"
+          test "$actual_sha" = "$SOURCE_SHA"
+          test -z "$(git status --porcelain)"
+          echo "Validated source HEAD: $actual_sha"
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK 36
+        shell: bash
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Set up Gradle 9.6.0
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "9.6.0"
+          cache-read-only: true
+
+      - name: Apply authorized versionCode build override
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("app/build.gradle.kts")
+          text = path.read_text()
+          needle = "versionCode = 1"
+          replacement = "versionCode = 2"
+          if text.count(needle) != 1:
+              raise SystemExit("Expected exactly one versionCode = 1 declaration")
+          path.write_text(text.replace(needle, replacement))
+          PY
+          test "$(git diff --name-only)" = "app/build.gradle.kts"
+          grep -q 'versionCode = 2' app/build.gradle.kts
+          echo "Applied approved build-only versionCode override: 1 -> 2"
+
+      - name: Build unsigned release APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle --no-daemon :app:assembleRelease
+          test -f app/build/outputs/apk/release/app-release-unsigned.apk
+
+      - name: Generate stable QA signer, sign APK, and wrap signer secret
+        shell: bash
+        run: |
+          set -euo pipefail
+          BUILD_TOOLS="$ANDROID_HOME/build-tools/36.0.0"
+          OUT="$RUNNER_TEMP/qa-output"
+          SIGNER="$RUNNER_TEMP/qa-signer"
+          mkdir -p "$OUT" "$SIGNER/private"
+
+          STORE_PASS="$(openssl rand -base64 48 | tr -d '\n' | tr '/+' 'Aa' | cut -c1-40)"
+          echo "::add-mask::$STORE_PASS"
+
+          keytool -genkeypair \
+            -keystore "$SIGNER/private/ownplay-qa-stable.p12" \
+            -storetype PKCS12 \
+            -storepass "$STORE_PASS" \
+            -keypass "$STORE_PASS" \
+            -alias ownplay-qa \
+            -keyalg RSA \
+            -keysize 3072 \
+            -validity 3650 \
+            -dname "CN=OwnPlay QA,O=OwnPlay,C=US" \
+            -noprompt
+
+          printf 'storePassword=%s\nkeyPassword=%s\nalias=ownplay-qa\nstoreType=PKCS12\n' \
+            "$STORE_PASS" "$STORE_PASS" > "$SIGNER/private/qa-signing-secret.txt"
+          chmod 600 "$SIGNER/private/ownplay-qa-stable.p12" "$SIGNER/private/qa-signing-secret.txt"
+
+          keytool -exportcert -rfc \
+            -keystore "$SIGNER/private/ownplay-qa-stable.p12" \
+            -storetype PKCS12 \
+            -storepass "$STORE_PASS" \
+            -alias ownplay-qa \
+            -file "$OUT/OwnPlay-QA-Stable-Cert.pem"
+
+          "$BUILD_TOOLS/zipalign" -p -f 4 \
+            app/build/outputs/apk/release/app-release-unsigned.apk \
+            "$RUNNER_TEMP/ownplay-aligned.apk"
+
+          "$BUILD_TOOLS/apksigner" sign \
+            --ks "$SIGNER/private/ownplay-qa-stable.p12" \
+            --ks-type PKCS12 \
+            --ks-key-alias ownplay-qa \
+            --ks-pass "pass:$STORE_PASS" \
+            --key-pass "pass:$STORE_PASS" \
+            --out "$OUT/$APK_NAME" \
+            "$RUNNER_TEMP/ownplay-aligned.apk"
+
+          "$BUILD_TOOLS/apksigner" verify --verbose --print-certs "$OUT/$APK_NAME" \
+            | tee "$OUT/APKSIGNER_CERTS.txt"
+          "$BUILD_TOOLS/aapt" dump badging "$OUT/$APK_NAME" \
+            | tee "$OUT/PACKAGE_BADGING.txt"
+          grep -q "package: name='app.ownplay.mobile'" "$OUT/PACKAGE_BADGING.txt"
+          grep -q "versionCode='2'" "$OUT/PACKAGE_BADGING.txt"
+          sha256sum "$OUT/$APK_NAME" | tee "$OUT/APK_SHA256.txt"
+
+          CERT_SHA256="$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' "$OUT/APKSIGNER_CERTS.txt" | head -n 1)"
+          test -n "$CERT_SHA256"
+          cat > "$OUT/QA_BUILD_METADATA.txt" <<EOF
+          sourceSha=$SOURCE_SHA
+          package=app.ownplay.mobile
+          versionCode=2
+          versionName=0.1.0-dev
+          buildType=release
+          signingIdentity=stable-qa
+          signerCertificateSha256=$CERT_SHA256
+          sourceCheckoutCleanBeforeOverride=true
+          buildOnlyVersionCodeOverride=1-to-2
+          EOF
+
+          cat > "$RUNNER_TEMP/wrap-public.pem" <<'PUBKEY'
+          -----BEGIN PUBLIC KEY-----
+          MIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEA4ksj3cs1jfwUykoZc5Om
+          wGAlsfwby7XKOU4VMHKQjPCy/TgnVfC8iZgFtvVc0Y3w/E7D0PswIg5P6o3bs7fL
+          Ts1jYcqNeM2e1ov3XAgLonC8TrlnXg9oA14xyVbJ9S2/GN+PDsg8NhHbg8fVBi4E
+          dXfdnYmd+z7hobJcUpQmoS9NJf/23WKm2ZROtoD+oDwPBlP2w0580Dn59gZxQuJO
+          9X9XpOx8KyhFxJW//KpDoI6zGhMhI2LnXQRmJczOh4GtE3R0xBoxWbgX1Fw4douu
+          qJD/Pk0e7m7ZJAOdEUoGf4iyNfU9ZKFUOe2WNlJx5/7m9U9qAE7c02TpiCd3CjDu
+          nwgj3Hvo56FmphKCWn12LD3JGxYakiED3e9MGaIW+J/KmYjwgApoBCi3x2m5DZQ6
+          YZ05ab07KAT5xpI2iOaW1LXqzeoHGq3MTkGmnMfdSN7mL7uZ+VtRBxc8PT1be8JP
+          OKIGstBHOCvYPhFio2AB6JJcnT+i0DfjwYbC9IvSfRWFAgMBAAE=
+          -----END PUBLIC KEY-----
+          PUBKEY
+
+          tar -C "$SIGNER/private" -czf "$RUNNER_TEMP/qa-signer-private.tar.gz" .
+          openssl rand -hex 32 > "$RUNNER_TEMP/wrap-pass.txt"
+          openssl enc -aes-256-cbc -salt -pbkdf2 -iter 200000 \
+            -pass file:"$RUNNER_TEMP/wrap-pass.txt" \
+            -in "$RUNNER_TEMP/qa-signer-private.tar.gz" \
+            -out "$SIGNER/ownplay-qa-stable-signer.tar.gz.enc"
+          openssl pkeyutl -encrypt -pubin \
+            -inkey "$RUNNER_TEMP/wrap-public.pem" \
+            -in "$RUNNER_TEMP/wrap-pass.txt" \
+            -out "$SIGNER/wrap-pass.rsa" \
+            -pkeyopt rsa_padding_mode:oaep \
+            -pkeyopt rsa_oaep_md:sha256
+          sha256sum "$SIGNER/ownplay-qa-stable-signer.tar.gz.enc" \
+            > "$SIGNER/SIGNER_BUNDLE_SHA256.txt"
+          cp "$OUT/OwnPlay-QA-Stable-Cert.pem" "$SIGNER/OwnPlay-QA-Stable-Cert.pem"
+
+          rm -rf "$SIGNER/private" "$RUNNER_TEMP/qa-signer-private.tar.gz" "$RUNNER_TEMP/wrap-pass.txt" "$RUNNER_TEMP/ownplay-aligned.apk"
+
+      - name: Upload QA APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ownplay-qa-apk-cce01a0-v2
+          path: ${{ runner.temp }}/qa-output/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload wrapped stable signer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ownplay-qa-signer-wrapped-cce01a0
+          path: |
+            ${{ runner.temp }}/qa-signer/ownplay-qa-stable-signer.tar.gz.enc
+            ${{ runner.temp }}/qa-signer/wrap-pass.rsa
+            ${{ runner.temp }}/qa-signer/SIGNER_BUNDLE_SHA256.txt
+            ${{ runner.temp }}/qa-signer/OwnPlay-QA-Stable-Cert.pem
+          if-no-files-found: error
+          retention-days: 1
