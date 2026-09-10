@@ -1,9 +1,11 @@
 package app.ownplay.mobile.feature.live.ui
 
+import android.graphics.BitmapFactory
 import android.view.OrientationEventListener
 import android.view.SurfaceView
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -34,6 +36,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -41,6 +44,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -74,17 +80,23 @@ import app.ownplay.mobile.playback.domain.PlaybackPhase
 import app.ownplay.mobile.playback.domain.VideoTarget
 import app.ownplay.mobile.playback.ui.PlayerLocalControlHudOverlay
 import app.ownplay.mobile.playback.ui.playerLocalVerticalControls
+import java.io.ByteArrayOutputStream
+import java.net.HttpURLConnection
+import java.net.URL
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
 fun LiveShell(
     liveRepository: LiveRepository,
     playbackController: PlaybackController,
+    showChannelLogos: Boolean,
     onFullscreenChanged: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -277,6 +289,7 @@ fun LiveShell(
             resolutionError = resolutionError,
             selectedGuide = selectedGuide,
             audioCompatibilityMessage = audioCompatibilityMessage,
+            showChannelLogos = showChannelLogos,
             onChannelTapped = { channel ->
                 dispatch(LiveIntent.ChannelTapped(channel.channelId))
             },
@@ -300,6 +313,7 @@ private fun LiveBrowseAndPreview(
     resolutionError: String?,
     selectedGuide: LiveNowNext,
     audioCompatibilityMessage: String?,
+    showChannelLogos: Boolean,
     onChannelTapped: (LiveChannel) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -389,6 +403,7 @@ private fun LiveBrowseAndPreview(
                         channel = channel,
                         selected = selected,
                         guide = guide,
+                        showChannelLogos = showChannelLogos,
                         onClick = { onChannelTapped(channel) },
                     )
 
@@ -575,6 +590,7 @@ private fun ChannelRow(
     channel: LiveChannel,
     selected: Boolean,
     guide: LiveNowNext,
+    showChannelLogos: Boolean,
     onClick: () -> Unit,
 ) {
     Surface(
@@ -598,21 +614,10 @@ private fun ChannelRow(
                 color = OwnPlayColors.TextSecondary,
                 modifier = Modifier.width(44.dp),
             )
-            Box(
-                modifier = Modifier
-                    .size(46.dp)
-                    .clip(OwnPlayShapeTokens.Small)
-                    .background(if (selected) OwnPlayColors.AccentStrong else OwnPlayColors.SurfaceElevated),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = channel.name.firstOrNull()?.uppercaseChar()?.toString() ?: "•",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = OwnPlayColors.TextPrimary,
-                    fontWeight = FontWeight.Bold,
-                )
+            if (showChannelLogos) {
+                ChannelLogoIdentity(channel = channel, selected = selected)
+                Spacer(modifier = Modifier.width(OwnPlaySpacing.Md))
             }
-            Spacer(modifier = Modifier.width(OwnPlaySpacing.Md))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = channel.name,
@@ -643,6 +648,66 @@ private fun ChannelRow(
         }
     }
 }
+
+@Composable
+private fun ChannelLogoIdentity(channel: LiveChannel, selected: Boolean) {
+    val bitmap by produceState<ImageBitmap?>(initialValue = null, key1 = channel.logoUrl) {
+        value = channel.logoUrl?.takeIf { it.isNotBlank() }?.let { loadChannelLogo(it) }
+    }
+    Box(
+        modifier = Modifier
+            .size(46.dp)
+            .clip(OwnPlayShapeTokens.Small)
+            .background(if (selected) OwnPlayColors.AccentStrong else OwnPlayColors.SurfaceElevated),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (bitmap != null) {
+            Image(
+                bitmap = bitmap!!,
+                contentDescription = "${channel.name} logo",
+                modifier = Modifier.fillMaxSize().padding(4.dp),
+                contentScale = ContentScale.Fit,
+            )
+        } else {
+            Text(
+                text = channel.name.firstOrNull()?.uppercaseChar()?.toString() ?: "•",
+                style = MaterialTheme.typography.titleMedium,
+                color = OwnPlayColors.TextPrimary,
+                fontWeight = FontWeight.Bold,
+            )
+        }
+    }
+}
+
+private suspend fun loadChannelLogo(locator: String) = withContext(Dispatchers.IO) {
+    runCatching {
+        val connection = URL(locator).openConnection() as? HttpURLConnection ?: return@runCatching null
+        connection.connectTimeout = 4_000
+        connection.readTimeout = 5_000
+        connection.instanceFollowRedirects = true
+        try {
+            if (connection.responseCode !in 200..299) return@runCatching null
+            val output = ByteArrayOutputStream()
+            connection.inputStream.use { input ->
+                val buffer = ByteArray(8_192)
+                var total = 0
+                while (true) {
+                    val count = input.read(buffer)
+                    if (count <= 0) break
+                    total += count
+                    if (total > MAX_CHANNEL_LOGO_BYTES) return@runCatching null
+                    output.write(buffer, 0, count)
+                }
+            }
+            val bytes = output.toByteArray()
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
+        } finally {
+            connection.disconnect()
+        }
+    }.getOrNull()
+}
+
+private const val MAX_CHANNEL_LOGO_BYTES = 2 * 1024 * 1024
 
 @Composable
 private fun FullscreenLive(

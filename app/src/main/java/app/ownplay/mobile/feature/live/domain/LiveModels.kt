@@ -25,6 +25,33 @@ data class LiveCatalog(
     val channels: List<LiveChannel> = emptyList(),
 )
 
+data class ManageableLiveCategory(
+    val sourceId: String,
+    val categoryKey: String,
+    val name: String,
+    val providerOrder: Int,
+    val hidden: Boolean,
+    val manualOrder: Int?,
+)
+
+data class ManageableLiveChannel(
+    val channelId: String,
+    val sourceId: String,
+    val categoryKey: String?,
+    val name: String,
+    val logoUrl: String?,
+    val providerOrder: Int,
+    val hidden: Boolean,
+    val manualOrder: Int?,
+)
+
+data class LiveManagementCatalog(
+    val activeSourceId: String? = null,
+    val activeSourceName: String? = null,
+    val categories: List<ManageableLiveCategory> = emptyList(),
+    val channels: List<ManageableLiveChannel> = emptyList(),
+)
+
 data class LiveProgram(
     val title: String,
     val startEpochSeconds: Long?,
@@ -58,6 +85,11 @@ sealed interface LivePlaybackResolution {
 
 interface LiveRepository {
     fun observeCatalog(): Flow<LiveCatalog>
+    fun observeManagementCatalog(): Flow<LiveManagementCatalog>
     suspend fun loadNowNext(channelId: String): LiveNowNext
     suspend fun resolvePlayback(channelId: String): LivePlaybackResolution
+    suspend fun setCategoryHidden(sourceId: String, categoryKey: String, hidden: Boolean)
+    suspend fun setChannelHidden(channelId: String, hidden: Boolean)
+    suspend fun setCategoryOrder(sourceId: String, orderedCategoryKeys: List<String>)
+    suspend fun setChannelOrder(orderedChannelIds: List<String>)
 }

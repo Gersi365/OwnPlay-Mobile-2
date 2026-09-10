@@ -91,6 +91,7 @@ fun LibraryShell(
     libraryRepository: LibraryRepository,
     downloadRepository: DownloadRepository,
     playbackController: PlaybackController,
+    resumePlaybackEnabled: Boolean,
     onFullscreenChanged: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -248,6 +249,7 @@ fun LibraryShell(
                 movie = selectedMovie,
                 downloadItem = downloadItem,
                 errorMessage = resolutionError,
+                preferResume = resumePlaybackEnabled,
                 onBack = {
                     selectedMovieId = null
                     resolutionError = null
@@ -273,6 +275,7 @@ fun LibraryShell(
             detail = seriesDetail,
             warning = seriesWarning,
             errorMessage = detailError ?: resolutionError,
+            preferResume = resumePlaybackEnabled,
             onBack = {
                 selectedSeriesId = null
                 seriesDetail = null
@@ -746,6 +749,7 @@ private fun MovieDetail(
     movie: LibraryMovie,
     downloadItem: DownloadItem?,
     errorMessage: String?,
+    preferResume: Boolean,
     onBack: () -> Unit,
     onResume: () -> Unit,
     onBeginning: () -> Unit,
@@ -790,17 +794,11 @@ private fun MovieDetail(
                 OwnPlayStatePanel(title = "Action unavailable", message = errorMessage)
             }
             if (movie.resumePositionMs != null) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),
-                ) {
-                    OwnPlayPrimaryButton(text = "Resume", onClick = onResume, modifier = Modifier.weight(1f))
-                    OwnPlaySecondaryButton(
-                        text = "Play from Beginning",
-                        onClick = onBeginning,
-                        modifier = Modifier.weight(1f),
-                    )
-                }
+                PlaybackChoiceButtons(
+                    preferResume = preferResume,
+                    onResume = onResume,
+                    onBeginning = onBeginning,
+                )
             } else {
                 OwnPlayPrimaryButton(text = "Play", onClick = onBeginning, modifier = Modifier.fillMaxWidth())
             }
@@ -816,6 +814,7 @@ private fun SeriesDetail(
     detail: LibrarySeriesDetail?,
     warning: String?,
     errorMessage: String?,
+    preferResume: Boolean,
     onBack: () -> Unit,
     onResumeEpisode: (LibraryEpisode) -> Unit,
     onBeginningEpisode: (LibraryEpisode) -> Unit,
@@ -884,6 +883,7 @@ private fun SeriesDetail(
                         EpisodeRow(
                             episode = episode,
                             downloadItem = downloadItem,
+                            preferResume = preferResume,
                             onResume = { onResumeEpisode(episode) },
                             onBeginning = { onBeginningEpisode(episode) },
                             onDownloadAction = { action -> onDownloadAction(episode, downloadItem, action) },
@@ -900,6 +900,7 @@ private fun SeriesDetail(
 private fun EpisodeRow(
     episode: LibraryEpisode,
     downloadItem: DownloadItem?,
+    preferResume: Boolean,
     onResume: () -> Unit,
     onBeginning: () -> Unit,
     onDownloadAction: (DownloadAction) -> Unit,
@@ -927,21 +928,35 @@ private fun EpisodeRow(
                 }
             }
             if (episode.resumePositionMs != null) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),
-                ) {
-                    OwnPlayPrimaryButton(text = "Resume", onClick = onResume, modifier = Modifier.weight(1f))
-                    OwnPlaySecondaryButton(
-                        text = "Play from Beginning",
-                        onClick = onBeginning,
-                        modifier = Modifier.weight(1f),
-                    )
-                }
+                PlaybackChoiceButtons(
+                    preferResume = preferResume,
+                    onResume = onResume,
+                    onBeginning = onBeginning,
+                )
             } else {
                 OwnPlayPrimaryButton(text = "Play", onClick = onBeginning, modifier = Modifier.fillMaxWidth())
             }
             DownloadControls(item = downloadItem, onAction = onDownloadAction)
+        }
+    }
+}
+
+@Composable
+private fun PlaybackChoiceButtons(
+    preferResume: Boolean,
+    onResume: () -> Unit,
+    onBeginning: () -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),
+    ) {
+        if (preferResume) {
+            OwnPlayPrimaryButton("Resume", onResume, Modifier.weight(1f))
+            OwnPlaySecondaryButton("Play from Beginning", onBeginning, Modifier.weight(1f))
+        } else {
+            OwnPlayPrimaryButton("Play from Beginning", onBeginning, Modifier.weight(1f))
+            OwnPlaySecondaryButton("Resume", onResume, Modifier.weight(1f))
         }
     }
 }

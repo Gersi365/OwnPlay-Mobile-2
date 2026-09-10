@@ -1,15 +1,22 @@
 package app.ownplay.mobile.feature.live.data
 
+import androidx.room.withTransaction
 import app.ownplay.mobile.data.db.CatalogDao
+import app.ownplay.mobile.data.db.CategoryPersonalizationEntity
+import app.ownplay.mobile.data.db.ChannelPersonalizationEntity
+import app.ownplay.mobile.data.db.OwnPlayDatabase
 import app.ownplay.mobile.data.db.SourceDao
 import app.ownplay.mobile.data.security.CredentialStore
 import app.ownplay.mobile.feature.live.domain.LiveCatalog
 import app.ownplay.mobile.feature.live.domain.LiveGuidePolicy
+import app.ownplay.mobile.feature.live.domain.LiveManagementCatalog
 import app.ownplay.mobile.feature.live.domain.LiveNowNext
 import app.ownplay.mobile.feature.live.domain.LiveProgram
 import app.ownplay.mobile.feature.live.domain.LiveCategory
 import app.ownplay.mobile.feature.live.domain.LiveChannel
 import app.ownplay.mobile.feature.live.domain.LivePlaybackResolution
+import app.ownplay.mobile.feature.live.domain.ManageableLiveCategory
+import app.ownplay.mobile.feature.live.domain.ManageableLiveChannel
 import app.ownplay.mobile.feature.live.domain.LiveRepository
 import app.ownplay.mobile.feature.live.domain.ResolvedLivePlayback
 import app.ownplay.mobile.playback.domain.PlaybackStreamFormat
@@ -31,6 +38,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 
 class LiveRepositoryImpl(
+    private val database: OwnPlayDatabase,
     private val sourceRepository: SourceRepository,
     private val sourceDao: SourceDao,
     private val catalogDao: CatalogDao,
@@ -79,6 +87,98 @@ class LiveRepositoryImpl(
                 }
             }
         }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    override fun observeManagementCatalog(): Flow<LiveManagementCatalog> =
+        sourceRepository.observeActiveSource().flatMapLatest { source ->
+            if (source == null) {
+                flowOf(LiveManagementCatalog())
+            } else {
+                combine(
+                    catalogDao.observeManageableLiveCategories(source.sourceId),
+                    catalogDao.observeManageableLiveChannels(source.sourceId),
+                ) { categoryRows, channelRows ->
+                    LiveManagementCatalog(
+                        activeSourceId = source.sourceId,
+                        activeSourceName = source.displayName,
+                        categories = categoryRows
+                            .filterNot { ProviderCategoryVisibility.isUtilityLabel(it.name) }
+                            .map { row ->
+                                ManageableLiveCategory(
+                                    sourceId = row.sourceId,
+                                    categoryKey = row.categoryKey,
+                                    name = row.name,
+                                    providerOrder = row.providerOrder,
+                                    hidden = row.hidden,
+                                    manualOrder = row.manualOrder,
+                                )
+                            },
+                        channels = channelRows
+                            .filterNot { ProviderCategoryVisibility.isUtilityLabel(it.name) }
+                            .map { row ->
+                                ManageableLiveChannel(
+                                    channelId = row.channelId,
+                                    sourceId = row.sourceId,
+                                    categoryKey = row.categoryKey,
+                                    name = row.name,
+                                    logoUrl = row.logoUrl,
+                                    providerOrder = row.providerOrder,
+                                    hidden = row.hidden,
+                                    manualOrder = row.manualOrder,
+                                )
+                            },
+                    )
+                }
+            }
+        }
+
+    override suspend fun setCategoryHidden(sourceId: String, categoryKey: String, hidden: Boolean) {
+        if (sourceId.isBlank() || categoryKey.isBlank()) return
+        database.withTransaction {
+            val current = catalogDao.getCategoryPersonalization(sourceId, LIVE_KIND, categoryKey)
+            catalogDao.upsertCategoryPersonalization(
+                (current ?: CategoryPersonalizationEntity(sourceId, LIVE_KIND, categoryKey)).copy(hidden = hidden),
+            )
+        }
+    }
+
+    override suspend fun setChannelHidden(channelId: String, hidden: Boolean) {
+        if (channelId.isBlank()) return
+        database.withTransaction {
+            if (catalogDao.getLiveChannel(channelId) == null) return@withTransaction
+            val current = catalogDao.getChannelPersonalization(channelId)
+            catalogDao.upsertChannelPersonalization(
+                (current ?: ChannelPersonalizationEntity(channelId = channelId)).copy(hidden = hidden),
+            )
+        }
+    }
+
+    override suspend fun setCategoryOrder(sourceId: String, orderedCategoryKeys: List<String>) {
+        if (sourceId.isBlank()) return
+        val ordered = orderedCategoryKeys.distinct().filter { it.isNotBlank() }
+        database.withTransaction {
+            ordered.forEachIndexed { index, categoryKey ->
+                val current = catalogDao.getCategoryPersonalization(sourceId, LIVE_KIND, categoryKey)
+                catalogDao.upsertCategoryPersonalization(
+                    (current ?: CategoryPersonalizationEntity(sourceId, LIVE_KIND, categoryKey))
+                        .copy(manualOrder = index),
+                )
+            }
+        }
+    }
+
+    override suspend fun setChannelOrder(orderedChannelIds: List<String>) {
+        val ordered = orderedChannelIds.distinct().filter { it.isNotBlank() }
+        database.withTransaction {
+            ordered.forEachIndexed { index, channelId ->
+                if (catalogDao.getLiveChannel(channelId) == null) return@forEachIndexed
+                val current = catalogDao.getChannelPersonalization(channelId)
+                catalogDao.upsertChannelPersonalization(
+                    (current ?: ChannelPersonalizationEntity(channelId = channelId)).copy(manualOrder = index),
+                )
+            }
+        }
+    }
 
     override suspend fun loadNowNext(channelId: String): LiveNowNext {
         if (channelId.isBlank()) return LiveNowNext()
@@ -194,5 +294,6 @@ class LiveRepositoryImpl(
 
     private companion object {
         const val GUIDE_CACHE_TTL_MS = 120_000L
+        const val LIVE_KIND = "LIVE"
     }
 }

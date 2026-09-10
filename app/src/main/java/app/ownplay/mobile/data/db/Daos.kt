@@ -19,6 +19,26 @@ data class LiveChannelView(
     val sortOrder: Int,
 )
 
+data class ManageableLiveCategoryView(
+    val sourceId: String,
+    val categoryKey: String,
+    val name: String,
+    val providerOrder: Int,
+    val hidden: Boolean,
+    val manualOrder: Int?,
+)
+
+data class ManageableLiveChannelView(
+    val channelId: String,
+    val sourceId: String,
+    val categoryKey: String?,
+    val name: String,
+    val logoUrl: String?,
+    val providerOrder: Int,
+    val hidden: Boolean,
+    val manualOrder: Int?,
+)
+
 data class EpisodeLibraryView(
     val episodeId: String,
     val seriesId: String,
@@ -77,14 +97,52 @@ interface CatalogDao {
 
     @Query(
         """
-        SELECT * FROM provider_categories
-        WHERE sourceId = :sourceId
-          AND kind = :kind
-          AND available = 1
-        ORDER BY providerOrder ASC, name COLLATE NOCASE ASC, categoryKey ASC
+        SELECT c.*
+        FROM provider_categories AS c
+        LEFT JOIN category_personalization AS p
+          ON p.sourceId = c.sourceId
+         AND p.kind = c.kind
+         AND p.categoryKey = c.categoryKey
+        WHERE c.sourceId = :sourceId
+          AND c.kind = :kind
+          AND c.available = 1
+          AND COALESCE(p.hidden, 0) = 0
+        ORDER BY
+            CASE WHEN p.manualOrder IS NULL THEN 1 ELSE 0 END,
+            COALESCE(p.manualOrder, c.providerOrder),
+            c.providerOrder,
+            c.name COLLATE NOCASE,
+            c.categoryKey
         """,
     )
     fun observeAvailableCategories(sourceId: String, kind: String): Flow<List<ProviderCategoryEntity>>
+
+    @Query(
+        """
+        SELECT
+            c.sourceId AS sourceId,
+            c.categoryKey AS categoryKey,
+            c.name AS name,
+            c.providerOrder AS providerOrder,
+            COALESCE(p.hidden, 0) AS hidden,
+            p.manualOrder AS manualOrder
+        FROM provider_categories AS c
+        LEFT JOIN category_personalization AS p
+          ON p.sourceId = c.sourceId
+         AND p.kind = c.kind
+         AND p.categoryKey = c.categoryKey
+        WHERE c.sourceId = :sourceId
+          AND c.kind = 'LIVE'
+          AND c.available = 1
+        ORDER BY
+            CASE WHEN p.manualOrder IS NULL THEN 1 ELSE 0 END,
+            COALESCE(p.manualOrder, c.providerOrder),
+            c.providerOrder,
+            c.name COLLATE NOCASE,
+            c.categoryKey
+        """,
+    )
+    fun observeManageableLiveCategories(sourceId: String): Flow<List<ManageableLiveCategoryView>>
 
     @Query(
         """
@@ -99,9 +157,14 @@ interface CatalogDao {
             COALESCE(p.manualOrder, c.providerOrder) AS sortOrder
         FROM live_channels AS c
         LEFT JOIN channel_personalization AS p ON p.channelId = c.channelId
+        LEFT JOIN category_personalization AS cp
+          ON cp.sourceId = c.sourceId
+         AND cp.kind = 'LIVE'
+         AND cp.categoryKey = c.categoryKey
         WHERE c.sourceId = :sourceId
           AND c.available = 1
           AND COALESCE(p.hidden, 0) = 0
+          AND COALESCE(cp.hidden, 0) = 0
         ORDER BY
             CASE WHEN p.manualOrder IS NULL THEN 1 ELSE 0 END,
             COALESCE(p.manualOrder, c.providerOrder),
@@ -112,8 +175,55 @@ interface CatalogDao {
     )
     fun observeAvailableLiveChannels(sourceId: String): Flow<List<LiveChannelView>>
 
+    @Query(
+        """
+        SELECT
+            c.channelId AS channelId,
+            c.sourceId AS sourceId,
+            c.categoryKey AS categoryKey,
+            COALESCE(p.localName, c.name) AS name,
+            COALESCE(p.localLogo, c.logoUrl) AS logoUrl,
+            c.providerOrder AS providerOrder,
+            COALESCE(p.hidden, 0) AS hidden,
+            p.manualOrder AS manualOrder
+        FROM live_channels AS c
+        LEFT JOIN channel_personalization AS p ON p.channelId = c.channelId
+        WHERE c.sourceId = :sourceId
+          AND c.available = 1
+        ORDER BY
+            CASE WHEN p.manualOrder IS NULL THEN 1 ELSE 0 END,
+            COALESCE(p.manualOrder, c.providerOrder),
+            c.providerOrder,
+            c.name COLLATE NOCASE,
+            c.channelId
+        """,
+    )
+    fun observeManageableLiveChannels(sourceId: String): Flow<List<ManageableLiveChannelView>>
+
     @Query("SELECT * FROM live_channels WHERE channelId = :channelId LIMIT 1")
     suspend fun getLiveChannel(channelId: String): LiveChannelEntity?
+
+    @Query("SELECT * FROM channel_personalization WHERE channelId = :channelId LIMIT 1")
+    suspend fun getChannelPersonalization(channelId: String): ChannelPersonalizationEntity?
+
+    @Upsert
+    suspend fun upsertChannelPersonalization(row: ChannelPersonalizationEntity)
+
+    @Query(
+        """
+        SELECT * FROM category_personalization
+        WHERE sourceId = :sourceId AND kind = :kind AND categoryKey = :categoryKey
+        LIMIT 1
+        """,
+    )
+    suspend fun getCategoryPersonalization(
+        sourceId: String,
+        kind: String,
+        categoryKey: String,
+    ): CategoryPersonalizationEntity?
+
+    @Upsert
+    suspend fun upsertCategoryPersonalization(row: CategoryPersonalizationEntity)
 
     @Query(
         """

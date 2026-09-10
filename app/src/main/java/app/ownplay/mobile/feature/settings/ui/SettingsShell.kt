@@ -40,6 +40,8 @@ import app.ownplay.mobile.design.OwnPlayPanel
 import app.ownplay.mobile.design.OwnPlayShapeTokens
 import app.ownplay.mobile.design.OwnPlaySpacing
 import app.ownplay.mobile.design.OwnPlayTopBar
+import app.ownplay.mobile.downloads.domain.DownloadRepository
+import app.ownplay.mobile.feature.live.domain.LiveRepository
 import app.ownplay.mobile.feature.settings.domain.BackupRepository
 import app.ownplay.mobile.feature.settings.domain.SettingsSnapshot
 import app.ownplay.mobile.sources.domain.SourceRepository
@@ -49,19 +51,22 @@ private enum class SettingsPage {
     MAIN,
     SOURCES,
     BACKUP_RESTORE,
+    MANAGE_LIVE,
+    MANAGE_DOWNLOADS,
+    HELP,
+    PRIVACY,
 }
 
 private sealed interface SettingTrailing {
     data class Toggle(val checked: Boolean) : SettingTrailing
     data object Chevron : SettingTrailing
-    data object None : SettingTrailing
 }
 
 private data class SettingRowModel(
     val title: String,
     val summary: String,
     val trailing: SettingTrailing,
-    val onClick: (() -> Unit)? = null,
+    val onClick: () -> Unit,
 )
 
 @Composable
@@ -69,6 +74,9 @@ fun SettingsShell(
     sourceRepository: SourceRepository,
     settingsPreferences: SettingsPreferences,
     backupRepository: BackupRepository,
+    liveRepository: LiveRepository,
+    downloadRepository: DownloadRepository,
+    onOpenLibrary: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var pageName by rememberSaveable { mutableStateOf(SettingsPage.MAIN.name) }
@@ -83,6 +91,10 @@ fun SettingsShell(
             settingsPreferences = settingsPreferences,
             onOpenSources = { pageName = SettingsPage.SOURCES.name },
             onOpenBackupRestore = { pageName = SettingsPage.BACKUP_RESTORE.name },
+            onManageLive = { pageName = SettingsPage.MANAGE_LIVE.name },
+            onManageDownloads = { pageName = SettingsPage.MANAGE_DOWNLOADS.name },
+            onHelp = { pageName = SettingsPage.HELP.name },
+            onPrivacy = { pageName = SettingsPage.PRIVACY.name },
             modifier = modifier,
         )
 
@@ -98,6 +110,42 @@ fun SettingsShell(
             onBack = { pageName = SettingsPage.MAIN.name },
             modifier = modifier,
         )
+
+        SettingsPage.MANAGE_LIVE -> LiveManagementScreen(
+            liveRepository = liveRepository,
+            onBack = { pageName = SettingsPage.MAIN.name },
+            modifier = modifier,
+        )
+
+        SettingsPage.MANAGE_DOWNLOADS -> DownloadManagementScreen(
+            downloadRepository = downloadRepository,
+            onOpenLibrary = onOpenLibrary,
+            onBack = { pageName = SettingsPage.MAIN.name },
+            modifier = modifier,
+        )
+
+        SettingsPage.HELP -> SettingsInfoScreen(
+            title = "Help & support",
+            paragraphs = listOf(
+                "Add and refresh providers from Settings › Sources. Live and Library use the active source.",
+                "In Live, tap a channel once for inline Preview and tap the selected channel again for fullscreen. Back returns fullscreen to Preview, then Preview to browsing.",
+                "Use Settings › Manage Live channels to hide or reorder categories and individual channels. Long-press the drag handle and move vertically.",
+                "Backup & restore is versioned and deliberately excludes provider credentials; reconnect credentials after restoring when required.",
+            ),
+            onBack = { pageName = SettingsPage.MAIN.name },
+            modifier = modifier,
+        )
+
+        SettingsPage.PRIVACY -> SettingsInfoScreen(
+            title = "Privacy",
+            paragraphs = listOf(
+                "Provider credentials are kept outside the OwnPlay backup document and are not exported by Backup & restore.",
+                "Playback and provider requests are made for the sources you configure. OwnPlay does not display credentials in playback diagnostics.",
+                "Removing a source removes its local catalog relationship. Use Backup & restore before destructive device-level actions when you need portability.",
+            ),
+            onBack = { pageName = SettingsPage.MAIN.name },
+            modifier = modifier,
+        )
     }
 }
 
@@ -106,6 +154,10 @@ private fun MainSettings(
     settingsPreferences: SettingsPreferences,
     onOpenSources: () -> Unit,
     onOpenBackupRestore: () -> Unit,
+    onManageLive: () -> Unit,
+    onManageDownloads: () -> Unit,
+    onHelp: () -> Unit,
+    onPrivacy: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val settingsFlow = remember(settingsPreferences) { settingsPreferences.settings }
@@ -113,150 +165,106 @@ private fun MainSettings(
     val scope = rememberCoroutineScope()
 
     Column(
-        modifier = modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState()),
+        modifier = modifier.fillMaxSize().verticalScroll(rememberScrollState()),
     ) {
         OwnPlayTopBar(showTagline = true)
-
         Column(
             modifier = Modifier.padding(horizontal = OwnPlaySpacing.Lg),
             verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),
         ) {
+            Text("Settings", style = MaterialTheme.typography.headlineMedium, color = OwnPlayColors.TextPrimary)
             Text(
-                text = "Settings",
-                style = MaterialTheme.typography.headlineMedium,
-                color = OwnPlayColors.TextPrimary,
-            )
-            Text(
-                text = "Personalize your viewing experience",
+                "Personalize your viewing experience",
                 style = MaterialTheme.typography.bodyLarge,
                 color = OwnPlayColors.TextSecondary,
             )
 
             SettingsSection(
                 title = "Playback",
-                subtitle = "Control how your content plays",
+                subtitle = "Controls that change playback behavior",
                 marker = "▶",
                 rows = listOf(
                     SettingRowModel(
-                        title = "Picture in Picture",
-                        summary = "Keep watching while using other apps",
-                        trailing = SettingTrailing.Toggle(settings.pictureInPictureEnabled),
-                        onClick = {
-                            scope.launch {
-                                settingsPreferences.setPictureInPictureEnabled(!settings.pictureInPictureEnabled)
-                            }
-                        },
-                    ),
+                        "Picture in Picture",
+                        "Keep watching while using other apps",
+                        SettingTrailing.Toggle(settings.pictureInPictureEnabled),
+                    ) { scope.launch { settingsPreferences.setPictureInPictureEnabled(!settings.pictureInPictureEnabled) } },
                     SettingRowModel(
-                        title = "Resume playback",
-                        summary = "Prefer your saved position when playback resumes",
-                        trailing = SettingTrailing.Toggle(settings.resumePlaybackEnabled),
-                        onClick = {
-                            scope.launch {
-                                settingsPreferences.setResumePlaybackEnabled(!settings.resumePlaybackEnabled)
-                            }
-                        },
-                    ),
-                    SettingRowModel(
-                        title = "Default playback quality",
-                        summary = "Auto (Best Available)",
-                        trailing = SettingTrailing.None,
-                    ),
+                        "Resume playback",
+                        "Make Resume the preferred action when saved progress exists",
+                        SettingTrailing.Toggle(settings.resumePlaybackEnabled),
+                    ) { scope.launch { settingsPreferences.setResumePlaybackEnabled(!settings.resumePlaybackEnabled) } },
                 ),
             )
 
             SettingsSection(
                 title = "Live & EPG",
-                subtitle = "Keep your channels up to date",
+                subtitle = "Provider, visibility, and guide controls",
                 marker = "●",
                 rows = listOf(
+                    SettingRowModel("Sources", "Add, edit, select, remove, and refresh providers", SettingTrailing.Chevron, onOpenSources),
+                    SettingRowModel("Manage Live channels", "Hide/show and drag categories or individual channels", SettingTrailing.Chevron, onManageLive),
                     SettingRowModel(
-                        title = "Sources",
-                        summary = "Add, edit, select, remove, and refresh providers",
-                        trailing = SettingTrailing.Chevron,
-                        onClick = onOpenSources,
-                    ),
+                        "Auto-refresh providers",
+                        "Refresh configured sources when a network is available",
+                        SettingTrailing.Toggle(settings.autoRefreshProviders),
+                    ) { scope.launch { settingsPreferences.setAutoRefreshProviders(!settings.autoRefreshProviders) } },
                     SettingRowModel(
-                        title = "Auto-refresh providers",
-                        summary = "Refresh configured sources when a network is available",
-                        trailing = SettingTrailing.Toggle(settings.autoRefreshProviders),
-                        onClick = {
-                            scope.launch {
-                                settingsPreferences.setAutoRefreshProviders(!settings.autoRefreshProviders)
-                            }
-                        },
-                    ),
+                        "Update interval",
+                        settings.providerRefreshInterval.summary,
+                        SettingTrailing.Chevron,
+                    ) { scope.launch { settingsPreferences.setProviderRefreshInterval(settings.providerRefreshInterval.next()) } },
                     SettingRowModel(
-                        title = "Update interval",
-                        summary = settings.providerRefreshInterval.summary,
-                        trailing = SettingTrailing.Chevron,
-                        onClick = {
-                            scope.launch {
-                                settingsPreferences.setProviderRefreshInterval(settings.providerRefreshInterval.next())
-                            }
-                        },
-                    ),
-                    SettingRowModel(
-                        title = "Show channel logos",
-                        summary = "Display provider channel artwork when available",
-                        trailing = SettingTrailing.Toggle(settings.showChannelLogos),
-                        onClick = {
-                            scope.launch {
-                                settingsPreferences.setShowChannelLogos(!settings.showChannelLogos)
-                            }
-                        },
-                    ),
+                        "Show channel logos",
+                        "Load provider artwork in Live rows; disable to use text-only rows",
+                        SettingTrailing.Toggle(settings.showChannelLogos),
+                    ) { scope.launch { settingsPreferences.setShowChannelLogos(!settings.showChannelLogos) } },
                 ),
             )
 
             SettingsSection(
                 title = "Downloads",
-                subtitle = "Watch offline, on your terms",
+                subtitle = "Manage offline work",
                 marker = "↓",
                 rows = listOf(
-                    SettingRowModel("Download quality", "Original source", SettingTrailing.None),
-                    SettingRowModel("Storage location", "Internal app storage", SettingTrailing.None),
-                    SettingRowModel("Manage downloads", "Library · Downloaded Media", SettingTrailing.None),
+                    SettingRowModel("Manage downloads", "Pause, resume, retry, remove, or open completed media", SettingTrailing.Chevron, onManageDownloads),
                 ),
             )
 
             SettingsSection(
-                title = "Appearance",
-                subtitle = "OwnPlay visual system",
-                marker = "◐",
+                title = "Data",
+                subtitle = "Portability and recovery",
+                marker = "↕",
                 rows = listOf(
                     SettingRowModel(
-                        title = "Theme",
-                        summary = "OwnPlay Dark",
-                        trailing = SettingTrailing.None,
-                    ),
-                    SettingRowModel(
-                        title = "Accent",
-                        summary = "OwnPlay blue",
-                        trailing = SettingTrailing.None,
+                        "Backup & restore",
+                        "Versioned backup without provider credentials",
+                        SettingTrailing.Chevron,
+                        onOpenBackupRestore,
                     ),
                 ),
             )
 
             SettingsSection(
                 title = "About",
-                subtitle = "App information and portability",
+                subtitle = "Product information",
                 marker = "i",
                 rows = listOf(
-                    SettingRowModel("App version", "0.1.0-dev", SettingTrailing.None),
-                    SettingRowModel(
-                        title = "Backup & restore",
-                        summary = "Versioned backup without provider credentials",
-                        trailing = SettingTrailing.Chevron,
-                        onClick = onOpenBackupRestore,
-                    ),
-                    SettingRowModel("Help & support", "Support surface reserved", SettingTrailing.None),
-                    SettingRowModel("Privacy policy", "Privacy surface reserved", SettingTrailing.None),
+                    SettingRowModel("Help & support", "Usage guidance for OwnPlay", SettingTrailing.Chevron, onHelp),
+                    SettingRowModel("Privacy policy", "How OwnPlay handles configured source data", SettingTrailing.Chevron, onPrivacy),
                 ),
             )
 
+            FixedStatusSection(
+                rows = listOf(
+                    "Playback quality" to "Auto · Best available",
+                    "Download quality" to "Original source",
+                    "Storage location" to "Internal app storage",
+                    "Theme" to "OwnPlay Dark",
+                    "Accent" to "OwnPlay blue",
+                    "App version" to "0.1.0-dev",
+                ),
+            )
             Spacer(modifier = Modifier.height(OwnPlaySpacing.Xl))
         }
     }
@@ -276,44 +284,40 @@ private fun SettingsSection(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Box(
-                    modifier = Modifier
-                        .size(44.dp)
-                        .clip(OwnPlayShapeTokens.Small)
-                        .background(OwnPlayColors.SurfaceElevated),
+                    modifier = Modifier.size(44.dp).clip(OwnPlayShapeTokens.Small).background(OwnPlayColors.SurfaceElevated),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text(
-                        text = marker,
-                        style = MaterialTheme.typography.titleMedium,
-                        color = OwnPlayColors.Accent,
-                        fontWeight = FontWeight.Bold,
-                    )
+                    Text(marker, style = MaterialTheme.typography.titleMedium, color = OwnPlayColors.Accent, fontWeight = FontWeight.Bold)
                 }
                 Spacer(modifier = Modifier.width(OwnPlaySpacing.Md))
                 Column {
-                    Text(
-                        text = title,
-                        style = MaterialTheme.typography.titleMedium,
-                        color = OwnPlayColors.TextPrimary,
-                    )
-                    Text(
-                        text = subtitle,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = OwnPlayColors.TextSecondary,
-                    )
+                    Text(title, style = MaterialTheme.typography.titleMedium, color = OwnPlayColors.TextPrimary)
+                    Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = OwnPlayColors.TextSecondary)
                 }
             }
-
             rows.forEachIndexed { index, row ->
-                if (index > 0) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(1.dp)
-                            .background(OwnPlayColors.Divider),
-                    )
-                }
+                if (index > 0) DividerLine()
                 SettingRow(row)
+            }
+        }
+    }
+}
+
+@Composable
+private fun FixedStatusSection(rows: List<Pair<String, String>>) {
+    OwnPlayPanel(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(OwnPlaySpacing.Md), verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm)) {
+            Text("Current configuration", style = MaterialTheme.typography.titleMedium, color = OwnPlayColors.TextPrimary)
+            Text(
+                "These values are fixed by the current build and are shown as status, not interactive settings.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = OwnPlayColors.TextSecondary,
+            )
+            rows.forEach { (title, value) ->
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    Text(title, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, color = OwnPlayColors.TextSecondary)
+                    Text(value, style = MaterialTheme.typography.bodyMedium, color = OwnPlayColors.TextPrimary)
+                }
             }
         }
     }
@@ -322,52 +326,25 @@ private fun SettingsSection(
 @Composable
 private fun SettingRow(row: SettingRowModel) {
     val interactionModifier = when (val trailing = row.trailing) {
-        is SettingTrailing.Toggle -> row.onClick?.let { action ->
-            Modifier.toggleable(
-                value = trailing.checked,
-                role = Role.Switch,
-                onValueChange = { action() },
-            )
-        } ?: Modifier
-
-        SettingTrailing.Chevron -> row.onClick?.let { action ->
-            Modifier.clickable(
-                role = Role.Button,
-                onClick = action,
-            )
-        } ?: Modifier
-
-        SettingTrailing.None -> Modifier
+        is SettingTrailing.Toggle -> Modifier.toggleable(
+            value = trailing.checked,
+            role = Role.Switch,
+            onValueChange = { row.onClick() },
+        )
+        SettingTrailing.Chevron -> Modifier.clickable(role = Role.Button, onClick = row.onClick)
     }
-
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .then(interactionModifier)
-            .padding(vertical = OwnPlaySpacing.Sm),
+        modifier = Modifier.fillMaxWidth().then(interactionModifier).padding(vertical = OwnPlaySpacing.Sm),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = row.title,
-                style = MaterialTheme.typography.bodyLarge,
-                color = OwnPlayColors.TextPrimary,
-            )
-            Text(
-                text = row.summary,
-                style = MaterialTheme.typography.bodyMedium,
-                color = OwnPlayColors.TextSecondary,
-            )
+            Text(row.title, style = MaterialTheme.typography.bodyLarge, color = OwnPlayColors.TextPrimary)
+            Text(row.summary, style = MaterialTheme.typography.bodyMedium, color = OwnPlayColors.TextSecondary)
         }
         Spacer(modifier = Modifier.width(OwnPlaySpacing.Md))
         when (val trailing = row.trailing) {
-            is SettingTrailing.Toggle -> OwnPlayToggle(checked = trailing.checked)
-            SettingTrailing.Chevron -> Text(
-                text = "›",
-                style = MaterialTheme.typography.titleLarge,
-                color = OwnPlayColors.TextSecondary,
-            )
-            SettingTrailing.None -> Unit
+            is SettingTrailing.Toggle -> OwnPlayToggle(trailing.checked)
+            SettingTrailing.Chevron -> Text("›", style = MaterialTheme.typography.titleLarge, color = OwnPlayColors.TextSecondary)
         }
     }
 }
@@ -375,19 +352,42 @@ private fun SettingRow(row: SettingRowModel) {
 @Composable
 private fun OwnPlayToggle(checked: Boolean) {
     Box(
-        modifier = Modifier
-            .width(52.dp)
-            .height(30.dp)
-            .clip(CircleShape)
-            .background(if (checked) OwnPlayColors.AccentStrong else OwnPlayColors.Divider)
-            .padding(3.dp),
+        modifier = Modifier.width(52.dp).height(30.dp).clip(CircleShape)
+            .background(if (checked) OwnPlayColors.AccentStrong else OwnPlayColors.Divider).padding(3.dp),
         contentAlignment = if (checked) Alignment.CenterEnd else Alignment.CenterStart,
     ) {
-        Box(
-            modifier = Modifier
-                .size(24.dp)
-                .clip(CircleShape)
-                .background(OwnPlayColors.TextPrimary),
-        )
+        Box(modifier = Modifier.size(24.dp).clip(CircleShape).background(OwnPlayColors.TextPrimary))
     }
+}
+
+@Composable
+private fun SettingsInfoScreen(
+    title: String,
+    paragraphs: List<String>,
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    BackHandler(onBack = onBack)
+    Column(modifier = modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+        OwnPlayTopBar(showTagline = false)
+        Column(
+            modifier = Modifier.padding(horizontal = OwnPlaySpacing.Lg),
+            verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),
+        ) {
+            Text("‹ Settings", modifier = Modifier.clickable(onClick = onBack), style = MaterialTheme.typography.labelLarge, color = OwnPlayColors.Accent)
+            Text(title, style = MaterialTheme.typography.headlineMedium, color = OwnPlayColors.TextPrimary)
+            OwnPlayPanel(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(OwnPlaySpacing.Lg), verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md)) {
+                    paragraphs.forEach { paragraph ->
+                        Text(paragraph, style = MaterialTheme.typography.bodyLarge, color = OwnPlayColors.TextSecondary)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DividerLine() {
+    Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(OwnPlayColors.Divider))
 }
