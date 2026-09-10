@@ -71,7 +71,11 @@ fun OwnPlayApp(services: OwnPlayServices) {
                         onFullscreenChanged = { contentFullscreen = it },
                     )
 
-                    AppDestination.Settings -> SettingsShell()
+                    AppDestination.Settings -> SettingsShell(
+                        sourceRepository = services.sourceRepository,
+                        settingsPreferences = services.settingsPreferences,
+                        backupRepository = services.backupRepository,
+                    )
                 }
             }
         }

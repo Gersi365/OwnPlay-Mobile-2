@@ -145,6 +145,7 @@ class SourceRepositoryImpl(
                 displayName = input.displayName?.trim()?.takeIf(String::isNotBlank) ?: existing.displayName,
                 enabled = input.enabled ?: existing.enabled,
                 baseLocator = baseLocator,
+                credentialReference = if (replacementCredential != null) existing.sourceId else existing.credentialReference,
                 updatedAt = nowMillis(),
             )
         } catch (_: Exception) {
@@ -156,8 +157,12 @@ class SourceRepositoryImpl(
             try {
                 sourceDao.update(updated)
             } catch (exception: Exception) {
-                if (replacementCredential != null && priorCredential != null) {
-                    runCatching { credentialStore.put(existing.sourceId, priorCredential) }
+                if (replacementCredential != null) {
+                    if (priorCredential != null) {
+                        runCatching { credentialStore.put(existing.sourceId, priorCredential) }
+                    } else {
+                        runCatching { credentialStore.remove(existing.sourceId) }
+                    }
                 }
                 throw exception
             }
@@ -201,6 +206,9 @@ class SourceRepositoryImpl(
             val source = sourceDao.get(sourceId)?.toDomain()
                 ?: return failure("SOURCE_NOT_FOUND", "Source was not found.")
             if (!source.enabled) return failure("SOURCE_DISABLED", "Disabled sources cannot be selected.")
+            if (source.requiresCredentials) {
+                return failure("CREDENTIAL_MISSING", "Reconnect this source before selecting it.")
+            }
         }
         return try {
             activeSourcePreferences.setSelectedSourceId(sourceId)
@@ -213,6 +221,7 @@ class SourceRepositoryImpl(
     override suspend fun refresh(sourceId: String): SourceResult<RefreshSummary> {
         val source = sourceDao.get(sourceId)?.toDomain()
             ?: return failure("SOURCE_NOT_FOUND", "Source was not found.")
+        if (!source.enabled) return failure("SOURCE_DISABLED", "Enable this source before refreshing it.")
         val credential = try {
             credentialStore.get(sourceId)
         } catch (_: Exception) {
@@ -401,6 +410,7 @@ class SourceRepositoryImpl(
         enabled = enabled,
         createdAt = createdAt,
         updatedAt = updatedAt,
+        requiresCredentials = credentialReference == null,
     )
 
     private fun <T> RemoteSection<List<T>>.successSize(): Int =

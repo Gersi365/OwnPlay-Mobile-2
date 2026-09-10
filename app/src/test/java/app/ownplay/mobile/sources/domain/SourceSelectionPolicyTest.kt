@@ -25,11 +25,26 @@ class SourceSelectionPolicyTest {
     }
 
     @Test
+    fun excludesRestoredSourceThatRequiresCredentials() {
+        val sources = listOf(
+            source("restored", enabled = true, updatedAt = 30, requiresCredentials = true),
+            source("ready", enabled = true, updatedAt = 20),
+        )
+
+        assertEquals("ready", SourceSelectionPolicy.resolve("restored", sources)?.sourceId)
+    }
+
+    @Test
     fun returnsNullWhenNoSourceIsEnabled() {
         assertNull(SourceSelectionPolicy.resolve(null, listOf(source("a", false, 1))))
     }
 
-    private fun source(id: String, enabled: Boolean, updatedAt: Long) = Source(
+    private fun source(
+        id: String,
+        enabled: Boolean,
+        updatedAt: Long,
+        requiresCredentials: Boolean = false,
+    ) = Source(
         sourceId = id,
         displayName = id,
         type = SourceType.M3U,
@@ -37,5 +52,6 @@ class SourceSelectionPolicyTest {
         enabled = enabled,
         createdAt = 1,
         updatedAt = updatedAt,
+        requiresCredentials = requiresCredentials,
     )
 }
