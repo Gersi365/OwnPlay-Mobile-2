@@ -1,0 +1,142 @@
+OWNPLAY MOBILE 2 — STAGE 3 SOURCES + PERSISTENCE AUDIT
+
+Purpose
+-------
+Implement the clean-room source, persistence, credential, provider-ingestion, and refresh foundation on top of the validated Design System + App Shell branch without merging earlier stages.
+
+Authoritative base inspected
+----------------------------
+Repository: Gersi365/OwnPlay-Mobile-2
+Base branch: stage-2-design-system-shell
+Base HEAD: d2730789811d71122c30fb0571f4c4ced8c3877f
+Base PR #3 remained open, draft, and unmerged at stage start.
+
+Authority used
+--------------
+- latest explicit user approval to continue after the Sources + Persistence scope was described
+- 00_READ_ME_FIRST.md
+- 01_PROJECT_INSTRUCTIONS.md
+- 02_PRODUCT_SOURCE_AUTHORITY.md
+- 04_ENGINEERING_WORKFLOW.md
+- 05_BUILD_BLUEPRINT.md
+- 06_QA_ACCEPTANCE_CONTRACT.md
+- verified GitHub source state at the exact base HEAD above
+- current stable dependency documentation for Room/DataStore and provider-network libraries
+
+Clean-room evidence
+-------------------
+No previous OwnPlay repository, schema, migration, networking client, credential implementation, package structure, or tests were opened or copied.
+
+Schema v1 review decision
+-------------------------
+Room schema version 1 is independently defined for the new application and separates provider metadata from local personalization/state.
+
+Tables introduced:
+- sources
+- provider_categories
+- live_channels
+- channel_personalization
+- custom_groups
+- custom_group_memberships
+- movies
+- series
+- episodes
+- media_favorites
+- playback_progress
+- downloads
+- refresh_state
+
+Design invariants:
+- source identity is stable and explicit
+- provider refresh uses upsert rather than replace/delete-all semantics
+- provider records carry availability + last-seen generation
+- channel personalization lives outside provider-owned rows
+- media favorites and playback progress live outside provider-owned rows
+- source removal is the only source-level cascade boundary designed into schema v1
+- no destructive migration fallback is configured
+- schema starts at version 1; no old schema or migration history is present
+
+Credential boundary
+-------------------
+- Room stores only a credential reference
+- Xtream username/password are encrypted with an Android Keystore-backed AES-GCM key before persistence
+- remote M3U locator is also kept in the secure credential store so tokenized playlist URLs are not stored as ordinary source configuration
+- credential values are redacted from toString()
+- network failure mapping does not include request URLs or response bodies
+- no HTTP logging interceptor is installed
+- Xtream persisted stream locators are opaque non-secret identifiers; provider credentials are resolved only when an actual request/stream URL is needed
+
+Source behavior
+---------------
+- add/edit/select/remove source contracts
+- persisted active-source ID in Preferences DataStore
+- deterministic active-source fallback when the persisted source is missing or disabled
+- Xtream-compatible independent endpoint client for account, Live, VOD, Series, series info, and short EPG
+- deterministic tolerant M3U parser with BOM, CRLF/LF, quoted attributes, Unicode, malformed-entry isolation, and diagnostic codes
+- stable Xtream identities scoped by source + provider identifier
+- stable M3U identities preferring unique tvg-id, then normalized stream locator
+- refresh sections are reconciled independently
+- failed provider sections do not mark the last known good local section stale
+- successful refresh sections advance generation and mark only unseen provider metadata unavailable
+- local personalization tables are not replaced during provider refresh
+
+Implementation boundary
+-----------------------
+This stage establishes source/data infrastructure and pure source-management state. It does not yet wire source-management forms into the approved Settings UI, and it does not implement Live playback, Library details, Media3 ownership, downloads orchestration, backup/restore, or physical provider QA.
+
+Validation contract
+-------------------
+The branch must pass the source-only validation path at the exact final HEAD:
+
+  bash tools/validate-source-no-apk.sh
+
+Required evidence:
+- Room/KSP code generation succeeds
+- compileDebugKotlin
+- focused unit tests
+- lintDebug
+- committed Room schema v1 matches generated schema
+- no APK/AAB is produced
+
+Physical/integration QA boundary
+--------------------------------
+Real provider behavior, secure-store behavior on physical Android hardware, network edge cases, and visual/source-management interaction acceptance are not claimed by source CI.
+
+Generated-schema bootstrap closure
+----------------------------------
+Continuation pre-mutation audit (2026-09-10):
+- authoritative repository: Gersi365/OwnPlay-Mobile-2 (id 1363013518)
+- existing branch: stage-3-sources-persistence
+- audited HEAD: 1692205dcc88cbec481c90626293710680912d8f
+- PR #4: open, draft, unmerged; base stage-2-design-system-shell at
+  d2730789811d71122c30fb0571f4c4ced8c3877f
+- active path: android-validation-no-apk.yml -> tools/validate-source-no-apk.sh
+- bootstrap workflow still had contents: write, schema dump, and schema commit step
+
+Bootstrap provenance:
+- run 34408631313 / job 102657556036 completed successfully on source
+  33fda7982e30557c920aca0ed1d62f9c60ddaa4f
+- logs verified exact source checkout, BUILD SUCCESSFUL, and zero APK/AAB
+- the successful bootstrap step created 1692205dcc88cbec481c90626293710680912d8f
+  with only app/schemas/app.ownplay.mobile.data.db.OwnPlayDatabase/1.json
+- decoded schema from that CI log matched the committed file byte-for-byte
+- schema version: 1; entities: 13
+- Room identity hash: ffe45d65c6c41732b9dfa8e2255ba486
+- schema SHA-256: 71acb8e5c2ad6a40b3d6f41ab7840a0804eaed50dd70d2be443f50f2c0122597
+- run 34408932234 for the bot schema commit ended action_required with no jobs;
+  it is not a validation PASS for that HEAD
+
+Permanent validation:
+- restore workflow permissions to contents: read
+- disable checkout credential persistence
+- remove automatic schema commit/push and compressed schema log dump
+- require schema v1 to exist in both the working tree and committed HEAD
+- reject staged, unstaged, untracked, or ignored schema-tree changes before/after build
+- rerun validation tasks without build-cache reuse so Room generation executes
+- retain Kotlin compilation, unit tests, lint, and no-APK/AAB checks
+- final exact-HEAD CI outcome must be read live and reported after this commit;
+  this audit does not predeclare that future run successful
+
+Scope remains source-only on the existing Stage 3 branch. No application/database
+model changes, merge, ready-for-review, APK/AAB generation, signing, release,
+deployment, legacy-repository access, or physical-device QA occurred in closure.
