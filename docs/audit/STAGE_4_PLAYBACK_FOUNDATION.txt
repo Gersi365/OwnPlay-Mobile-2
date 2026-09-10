@@ -56,9 +56,10 @@ requires custom transient presentation controls.
 
 The controller explicitly pins ExoPlayer's application looper to Android's main
 looper so all player calls and listener callbacks share the same application
-thread. Media3 currently marks Builder.setLooper as UnstableApi; the opt-in is
-scoped to the player construction property instead of enabling project-wide
-unstable API access.
+thread. Media3 currently marks Builder.setLooper as UnstableApi. The usage site
+uses androidx.annotation.OptIn with the Media3 marker, scoped only to the player
+construction property. Kotlin's kotlin.OptIn is intentionally not used because
+Media3's lint contract uses the AndroidX opt-in annotation.
 
 Focused source tests
 --------------------
@@ -68,8 +69,8 @@ and Play-from-Beginning preservation semantics.
 VideoTargetOwnershipReducerTest verifies Preview/fullscreen ownership transfer,
 stale release safety, active release to NONE, and idempotent reacquisition.
 
-Validation correction
----------------------
+Validation corrections
+----------------------
 Initial Stage 4 validation:
 - source HEAD: 821d5f93761472ab067b32094e5b9879514c014f
 - workflow run: 34440485827 / job 102754310929
@@ -77,10 +78,21 @@ Initial Stage 4 validation:
 - unit tests: passed
 - failure: lint UnsafeOptInUsageError on ExoPlayer.Builder.setLooper
 
-The failure was classified as a source lint defect, not a runtime or environment
-failure. The correction is intentionally narrow: retain deterministic main-looper
-ownership and add a property-scoped @OptIn(UnstableApi::class). No lint baseline,
-suppression, version rollback, or architecture change was introduced.
+The first correction retained deterministic main-looper ownership and added a
+property-scoped @OptIn(UnstableApi::class), but the unqualified annotation
+resolved to kotlin.OptIn. The next exact-head validation showed the compiler
+warning that kotlin.OptIn had no effect and lint correctly continued to reject
+the Media3 unstable API usage:
+- source HEAD: 068716857a052713087f515acfaa525556585567
+- workflow run: 34440821874 / job 102755308878
+- Kotlin compile: passed
+- unit tests: passed
+- failure: lint UnsafeOptInUsageError on ExoPlayer.Builder.setLooper
+
+Current correction follows Media3's documented requirement exactly by importing
+androidx.annotation.OptIn and retaining the property-scoped opt-in. No lint
+baseline, project-wide suppression, version rollback, or architecture change is
+introduced.
 
 Explicit exclusions
 -------------------
