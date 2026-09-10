@@ -5,6 +5,8 @@ import app.ownplay.mobile.data.db.OwnPlayDatabase
 import app.ownplay.mobile.data.prefs.ActiveSourcePreferences
 import app.ownplay.mobile.data.security.CredentialStore
 import app.ownplay.mobile.data.security.KeystoreCredentialStore
+import app.ownplay.mobile.feature.live.data.LiveRepositoryImpl
+import app.ownplay.mobile.feature.live.domain.LiveRepository
 import app.ownplay.mobile.playback.Media3PlaybackController
 import app.ownplay.mobile.playback.PlaybackController
 import app.ownplay.mobile.sources.data.ProviderHttpTransport
@@ -57,6 +59,15 @@ class OwnPlayServices private constructor(
             activeSourcePreferences = ActiveSourcePreferences(applicationContext),
             credentialStore = credentialStore,
             catalogLoader = catalogLoader,
+        )
+    }
+
+    val liveRepository: LiveRepository by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        LiveRepositoryImpl(
+            sourceRepository = sourceRepository,
+            sourceDao = database.sourceDao(),
+            catalogDao = database.catalogDao(),
+            credentialStore = credentialStore,
         )
     }
 

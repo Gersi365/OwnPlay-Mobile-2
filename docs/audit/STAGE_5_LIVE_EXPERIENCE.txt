@@ -1,0 +1,69 @@
+# Stage 5 — Live Experience
+
+## Purpose
+
+Implement the user-approved Live experience on top of the validated Playback Foundation without crossing merge, release, signing, APK/AAB, or physical-QA boundaries.
+
+## Verified base
+
+- Repository: `Gersi365/OwnPlay-Mobile-2`
+- Base branch: `stage-4-playback-foundation`
+- Exact base HEAD: `1d4cba1bb917486ab856639fb9290a65d2447933`
+- Base Draft PR #5 remained open, draft, and unmerged at Stage 5 start.
+- Base source-only validation run `34441574171` completed successfully on the exact base HEAD.
+
+## Authoritative Live contract applied
+
+- Primary navigation remains exactly Live / Library / Settings.
+- A different channel tap opens or updates Preview.
+- Tapping the same previewed channel again enters fullscreen without reloading media.
+- Back from fullscreen returns to the same Preview presentation.
+- Back from Preview closes Preview and stops Live playback.
+- Preview exposes no generic transport controls.
+- Fullscreen remains video-first with a transient OwnPlay overlay.
+- One existing process-wide PlaybackController is reused; Composables do not own independent players.
+- Video target ownership is transferred through the Stage 4 Preview / Fullscreen target contract.
+- EPG absence never blocks playback and is represented explicitly rather than with fabricated guide data.
+
+## Implemented scope
+
+- Added Live domain catalog/playback contracts.
+- Added a pure Live presentation reducer and contract-centric JVM tests.
+- Added Room-backed observation of available active-source channels while respecting hidden/local-name/local-logo/manual-order personalization.
+- Added secure Live stream resolution:
+  - M3U channels use the persisted resolved stream locator.
+  - Xtream channels keep opaque provider stream identity in Room and reconstruct playback URLs only at playback resolution time using credentials from the credential store.
+  - Resolved playback objects redact stream URIs from `toString()`.
+- Added Live repository wiring to `OwnPlayServices`.
+- Replaced the static Live shell preview with a real SurfaceView target bound to the shared PlaybackController.
+- Added channel selection, Preview, same-channel fullscreen transition, Back transitions, transient fullscreen OwnPlay/LIVE overlay, and source/catalog empty states.
+- Leaving Live through bottom navigation requests playback stop.
+- No generic Media3 controller UI was introduced.
+
+## Data and schema boundary
+
+- No Room entity/table/schema version change is intended in Stage 5.
+- Stage 5 adds DAO read projections/queries only.
+- Existing committed Room schema must remain clean under source-only validation.
+
+## Explicit exclusions
+
+- No Activity Picture-in-Picture entry/exit wiring yet.
+- No physical-device Preview/fullscreen/surface/rotation/background QA is claimed.
+- No EPG ingestion/persistence implementation is added here.
+- No Library/VOD integration.
+- No download/offline orchestration.
+- No signing, release, publication, deployment, merge, or ready-for-review transition.
+- NO APK/AAB generation is authorized.
+
+## Validation contract
+
+The stage must pass the repository source-only validation path on its exact final HEAD:
+
+- `:app:compileDebugKotlin`
+- `:app:testDebugUnitTest`
+- `:app:lintDebug`
+- committed Room schema clean-tree verification
+- explicit guard confirming no APK/AAB was produced
+
+Physical behavior remains unverified until an explicitly authorized physical-QA candidate exists.
