@@ -1,0 +1,55 @@
+name: Stage 12 round 2 exact-head validation
+
+on:
+  push:
+    branches:
+      - stage12-round2-validation-runner
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact Stage 12 head
+        uses: actions/checkout@v4
+        with:
+          ref: a62767867ed2c8dbf9453bbb663f3adf6d6f35a8
+          fetch-depth: 0
+
+      - name: Verify exact source SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "a62767867ed2c8dbf9453bbb663f3adf6d6f35a8"
+          git diff --exit-code
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK 36
+        shell: bash
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Set up Gradle 9.6.0
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.6.0'
+
+      - name: Validate exact source without APK generation
+        shell: bash
+        run: bash tools/validate-source-no-apk.sh
+
+      - name: Verify source remains exact and clean
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "a62767867ed2c8dbf9453bbb663f3adf6d6f35a8"
+          git diff --exit-code
