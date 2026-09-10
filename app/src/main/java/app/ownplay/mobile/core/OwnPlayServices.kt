@@ -1,10 +1,14 @@
 package app.ownplay.mobile.core
 
 import android.content.Context
+import androidx.work.WorkManager
 import app.ownplay.mobile.data.db.OwnPlayDatabase
 import app.ownplay.mobile.data.prefs.ActiveSourcePreferences
 import app.ownplay.mobile.data.security.CredentialStore
 import app.ownplay.mobile.data.security.KeystoreCredentialStore
+import app.ownplay.mobile.downloads.data.DownloadRepositoryImpl
+import app.ownplay.mobile.downloads.data.DownloadStreamResolver
+import app.ownplay.mobile.downloads.domain.DownloadRepository
 import app.ownplay.mobile.feature.library.data.LibraryRepositoryImpl
 import app.ownplay.mobile.feature.library.domain.LibraryRepository
 import app.ownplay.mobile.feature.live.data.LiveRepositoryImpl
@@ -45,6 +49,13 @@ class OwnPlayServices private constructor(
             .readTimeout(30, TimeUnit.SECONDS)
             .callTimeout(45, TimeUnit.SECONDS)
             .retryOnConnectionFailure(true)
+            .build()
+    }
+
+    private val downloadHttpClient: OkHttpClient by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        httpClient.newBuilder()
+            .readTimeout(60, TimeUnit.SECONDS)
+            .callTimeout(0, TimeUnit.MILLISECONDS)
             .build()
     }
 
@@ -90,6 +101,22 @@ class OwnPlayServices private constructor(
             libraryDao = database.libraryDao(),
             credentialStore = credentialStore,
             xtreamClient = xtreamClient,
+        )
+    }
+
+    val downloadRepository: DownloadRepository by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        DownloadRepositoryImpl(
+            context = applicationContext,
+            sourceRepository = sourceRepository,
+            downloadDao = database.downloadDao(),
+            libraryDao = database.libraryDao(),
+            streamResolver = DownloadStreamResolver(
+                sourceDao = database.sourceDao(),
+                libraryDao = database.libraryDao(),
+                credentialStore = credentialStore,
+            ),
+            workManager = WorkManager.getInstance(applicationContext),
+            httpClient = downloadHttpClient,
         )
     }
 

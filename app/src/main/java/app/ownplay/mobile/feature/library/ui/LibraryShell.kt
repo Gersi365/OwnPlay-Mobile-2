@@ -17,10 +17,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
@@ -53,6 +51,11 @@ import app.ownplay.mobile.design.OwnPlaySpacing
 import app.ownplay.mobile.design.OwnPlayStatePanel
 import app.ownplay.mobile.design.OwnPlayTopBar
 import app.ownplay.mobile.design.OwnPlayWordmark
+import app.ownplay.mobile.downloads.domain.DownloadAction
+import app.ownplay.mobile.downloads.domain.DownloadItem
+import app.ownplay.mobile.downloads.domain.DownloadOperationResult
+import app.ownplay.mobile.downloads.domain.DownloadRepository
+import app.ownplay.mobile.downloads.ui.DownloadControls
 import app.ownplay.mobile.feature.library.domain.ContinueWatchingItem
 import app.ownplay.mobile.feature.library.domain.LibraryCatalog
 import app.ownplay.mobile.feature.library.domain.LibraryDownloadedMedia
@@ -82,12 +85,20 @@ import kotlinx.coroutines.launch
 @Composable
 fun LibraryShell(
     libraryRepository: LibraryRepository,
+    downloadRepository: DownloadRepository,
     playbackController: PlaybackController,
     onFullscreenChanged: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val catalogFlow = remember(libraryRepository) { libraryRepository.observeCatalog() }
+    val downloadsFlow = remember(downloadRepository) { downloadRepository.observeDownloads() }
     val catalog by catalogFlow.collectAsState(initial = null)
+    val downloads by downloadsFlow.collectAsState(initial = emptyList())
+    val downloadsByContent = remember(downloads) {
+        downloads.associateBy { item ->
+            DownloadContentKey(item.sourceId, item.mediaKind, item.contentId)
+        }
+    }
     val scope = rememberCoroutineScope()
 
     var selectedMovieId by remember { mutableStateOf<String?>(null) }
@@ -101,35 +112,79 @@ fun LibraryShell(
     val selectedMovie = catalog?.movies?.firstOrNull { it.movieId == selectedMovieId }
     val selectedSeries = catalog?.series?.firstOrNull { it.seriesId == selectedSeriesId }
 
+    fun downloadFor(sourceId: String, mediaKind: LibraryMediaKind, contentId: String): DownloadItem? =
+        downloadsByContent[DownloadContentKey(sourceId, mediaKind, contentId)]
+
+    fun acceptResolution(resolved: LibraryPlaybackResolution) {
+        when (resolved) {
+            is LibraryPlaybackResolution.Success -> {
+                scope.launch {
+                    playbackController.load(resolved.value.toLoadRequest())
+                    activePlayback = resolved.value
+                }
+            }
+
+            is LibraryPlaybackResolution.Failure -> resolutionError = resolved.safeMessage
+        }
+    }
+
     fun startMovie(movieId: String, startMode: LibraryStartMode) {
         scope.launch {
             resolutionError = null
-            when (val resolved = libraryRepository.resolveMoviePlayback(movieId, startMode)) {
-                is LibraryPlaybackResolution.Success -> {
-                    val value = resolved.value
-                    playbackController.load(value.toLoadRequest())
-                    activePlayback = value
-                }
-
-                is LibraryPlaybackResolution.Failure -> {
-                    resolutionError = resolved.safeMessage
-                }
-            }
+            acceptResolution(libraryRepository.resolveMoviePlayback(movieId, startMode))
         }
     }
 
     fun startEpisode(episodeId: String, startMode: LibraryStartMode) {
         scope.launch {
             resolutionError = null
-            when (val resolved = libraryRepository.resolveEpisodePlayback(episodeId, startMode)) {
-                is LibraryPlaybackResolution.Success -> {
-                    val value = resolved.value
-                    playbackController.load(value.toLoadRequest())
-                    activePlayback = value
+            acceptResolution(libraryRepository.resolveEpisodePlayback(episodeId, startMode))
+        }
+    }
+
+    fun performDownloadAction(
+        item: DownloadItem?,
+        sourceId: String,
+        mediaKind: LibraryMediaKind,
+        contentId: String,
+        title: String,
+        action: DownloadAction,
+    ) {
+        scope.launch {
+            resolutionError = null
+            when (action) {
+                DownloadAction.PLAY_OFFLINE,
+                DownloadAction.RESUME_OFFLINE,
+                -> {
+                    val downloadId = item?.downloadId ?: return@launch
+                    val startMode = if (action == DownloadAction.RESUME_OFFLINE) {
+                        LibraryStartMode.RESUME
+                    } else {
+                        LibraryStartMode.BEGINNING
+                    }
+                    acceptResolution(downloadRepository.resolveOfflinePlayback(downloadId, startMode))
                 }
 
-                is LibraryPlaybackResolution.Failure -> {
-                    resolutionError = resolved.safeMessage
+                else -> {
+                    val result = when (action) {
+                        DownloadAction.DOWNLOAD -> downloadRepository.requestDownload(
+                            sourceId = sourceId,
+                            mediaKind = mediaKind,
+                            contentId = contentId,
+                            title = title,
+                        )
+
+                        DownloadAction.PAUSE -> item?.let { downloadRepository.pause(it.downloadId) }
+                        DownloadAction.RESUME -> item?.let { downloadRepository.resume(it.downloadId) }
+                        DownloadAction.RETRY -> item?.let { downloadRepository.retry(it.downloadId) }
+                        DownloadAction.REMOVE -> item?.let { downloadRepository.remove(it.downloadId) }
+                        DownloadAction.PLAY_OFFLINE,
+                        DownloadAction.RESUME_OFFLINE,
+                        -> null
+                    }
+                    if (result is DownloadOperationResult.Failure) {
+                        resolutionError = result.safeMessage
+                    }
                 }
             }
         }
@@ -147,9 +202,7 @@ fun LibraryShell(
                     seriesWarning = result.refreshWarning
                 }
 
-                is LibrarySeriesDetailResult.Failure -> {
-                    detailError = result.safeMessage
-                }
+                is LibrarySeriesDetailResult.Failure -> detailError = result.safeMessage
             }
         }
     }
@@ -185,17 +238,31 @@ fun LibraryShell(
             modifier = modifier,
         )
 
-        selectedMovie != null -> MovieDetail(
-            movie = selectedMovie,
-            errorMessage = resolutionError,
-            onBack = {
-                selectedMovieId = null
-                resolutionError = null
-            },
-            onResume = { startMovie(selectedMovie.movieId, LibraryStartMode.RESUME) },
-            onBeginning = { startMovie(selectedMovie.movieId, LibraryStartMode.BEGINNING) },
-            modifier = modifier,
-        )
+        selectedMovie != null -> {
+            val downloadItem = downloadFor(selectedMovie.sourceId, LibraryMediaKind.MOVIE, selectedMovie.movieId)
+            MovieDetail(
+                movie = selectedMovie,
+                downloadItem = downloadItem,
+                errorMessage = resolutionError,
+                onBack = {
+                    selectedMovieId = null
+                    resolutionError = null
+                },
+                onResume = { startMovie(selectedMovie.movieId, LibraryStartMode.RESUME) },
+                onBeginning = { startMovie(selectedMovie.movieId, LibraryStartMode.BEGINNING) },
+                onDownloadAction = { action ->
+                    performDownloadAction(
+                        item = downloadItem,
+                        sourceId = selectedMovie.sourceId,
+                        mediaKind = LibraryMediaKind.MOVIE,
+                        contentId = selectedMovie.movieId,
+                        title = selectedMovie.name,
+                        action = action,
+                    )
+                },
+                modifier = modifier,
+            )
+        }
 
         selectedSeries != null -> SeriesDetail(
             series = selectedSeries,
@@ -211,11 +278,25 @@ fun LibraryShell(
             },
             onResumeEpisode = { episode -> startEpisode(episode.episodeId, LibraryStartMode.RESUME) },
             onBeginningEpisode = { episode -> startEpisode(episode.episodeId, LibraryStartMode.BEGINNING) },
+            downloadForEpisode = { episode ->
+                downloadFor(episode.sourceId, LibraryMediaKind.EPISODE, episode.episodeId)
+            },
+            onDownloadAction = { episode, item, action ->
+                performDownloadAction(
+                    item = item,
+                    sourceId = episode.sourceId,
+                    mediaKind = LibraryMediaKind.EPISODE,
+                    contentId = episode.episodeId,
+                    title = "${episode.seriesName} • ${episode.title}",
+                    action = action,
+                )
+            },
             modifier = modifier,
         )
 
         else -> LibraryHome(
             catalog = catalog,
+            downloads = downloads,
             errorMessage = resolutionError,
             onContinueResume = { item ->
                 when (item.mediaKind) {
@@ -237,6 +318,16 @@ fun LibraryShell(
                 resolutionError = null
                 selectedSeriesId = series.seriesId
             },
+            onDownloadedAction = { media, item, action ->
+                performDownloadAction(
+                    item = item,
+                    sourceId = media.sourceId,
+                    mediaKind = media.mediaKind,
+                    contentId = media.contentId,
+                    title = media.title,
+                    action = action,
+                )
+            },
             modifier = modifier,
         )
     }
@@ -245,11 +336,13 @@ fun LibraryShell(
 @Composable
 private fun LibraryHome(
     catalog: LibraryCatalog?,
+    downloads: List<DownloadItem>,
     errorMessage: String?,
     onContinueResume: (ContinueWatchingItem) -> Unit,
     onContinueBeginning: (ContinueWatchingItem) -> Unit,
     onMovieSelected: (LibraryMovie) -> Unit,
     onSeriesSelected: (LibrarySeries) -> Unit,
+    onDownloadedAction: (LibraryDownloadedMedia, DownloadItem, DownloadAction) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -264,10 +357,7 @@ private fun LibraryHome(
             verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Lg),
         ) {
             if (errorMessage != null) {
-                OwnPlayStatePanel(
-                    title = "Playback unavailable",
-                    message = errorMessage,
-                )
+                OwnPlayStatePanel(title = "Action unavailable", message = errorMessage)
             }
 
             OwnPlaySectionHeader(title = "Continue Watching")
@@ -287,41 +377,60 @@ private fun LibraryHome(
                     message = "Movies and episodes with saved progress will appear here.",
                 )
 
-                else -> ContinueWatchingCard(
-                    item = catalog.continueWatching.first(),
-                    onResume = { onContinueResume(catalog.continueWatching.first()) },
-                    onBeginning = { onContinueBeginning(catalog.continueWatching.first()) },
-                )
+                else -> {
+                    val item = catalog.continueWatching.first()
+                    ContinueWatchingCard(
+                        item = item,
+                        onResume = { onContinueResume(item) },
+                        onBeginning = { onContinueBeginning(item) },
+                    )
+                }
             }
 
-            OwnPlaySectionHeader(title = "Movies", actionLabel = catalog?.movies?.size?.takeIf { it > 0 }?.let { "$it titles" })
-            if (catalog != null && catalog.activeSourceId != null && catalog.movies.isEmpty()) {
-                OwnPlayStatePanel(
+            OwnPlaySectionHeader(
+                title = "Movies",
+                actionLabel = catalog?.movies?.size?.takeIf { it > 0 }?.let { "$it titles" },
+            )
+            when {
+                catalog != null && catalog.activeSourceId != null && catalog.movies.isEmpty() -> OwnPlayStatePanel(
                     title = "No movies available",
                     message = "Refresh ${catalog.activeSourceName ?: "the active source"} to load movie metadata.",
                 )
-            } else if (!catalog?.movies.isNullOrEmpty()) {
-                MovieRow(items = catalog!!.movies, onMovieSelected = onMovieSelected)
+
+                !catalog?.movies.isNullOrEmpty() -> MovieRow(
+                    items = catalog?.movies.orEmpty(),
+                    onMovieSelected = onMovieSelected,
+                )
             }
 
-            OwnPlaySectionHeader(title = "Series", actionLabel = catalog?.series?.size?.takeIf { it > 0 }?.let { "$it titles" })
-            if (catalog != null && catalog.activeSourceId != null && catalog.series.isEmpty()) {
-                OwnPlayStatePanel(
+            OwnPlaySectionHeader(
+                title = "Series",
+                actionLabel = catalog?.series?.size?.takeIf { it > 0 }?.let { "$it titles" },
+            )
+            when {
+                catalog != null && catalog.activeSourceId != null && catalog.series.isEmpty() -> OwnPlayStatePanel(
                     title = "No series available",
                     message = "Refresh ${catalog.activeSourceName ?: "the active source"} to load series metadata.",
                 )
-            } else if (!catalog?.series.isNullOrEmpty()) {
-                SeriesRow(items = catalog!!.series, onSeriesSelected = onSeriesSelected)
+
+                !catalog?.series.isNullOrEmpty() -> SeriesRow(
+                    items = catalog?.series.orEmpty(),
+                    onSeriesSelected = onSeriesSelected,
+                )
             }
 
             OwnPlaySectionHeader(title = "Downloaded Media")
             if (catalog != null && catalog.activeSourceId != null && catalog.downloadedMedia.isEmpty()) {
                 OwnPlayStatePanel(
                     title = "No completed downloads",
-                    message = "Integrity-verified completed media will appear here when Downloads is implemented.",
+                    message = "Completed media appears here only after its offline file passes integrity verification.",
                 )
             } else if (!catalog?.downloadedMedia.isNullOrEmpty()) {
-                DownloadedRow(items = catalog!!.downloadedMedia)
+                DownloadedRow(
+                    items = catalog?.downloadedMedia.orEmpty(),
+                    downloads = downloads,
+                    onAction = onDownloadedAction,
+                )
             }
 
             Spacer(modifier = Modifier.height(OwnPlaySpacing.Xl))
@@ -417,10 +526,7 @@ private fun ContinueWatchingCard(
 }
 
 @Composable
-private fun MovieRow(
-    items: List<LibraryMovie>,
-    onMovieSelected: (LibraryMovie) -> Unit,
-) {
+private fun MovieRow(items: List<LibraryMovie>, onMovieSelected: (LibraryMovie) -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -438,10 +544,7 @@ private fun MovieRow(
 }
 
 @Composable
-private fun SeriesRow(
-    items: List<LibrarySeries>,
-    onSeriesSelected: (LibrarySeries) -> Unit,
-) {
+private fun SeriesRow(items: List<LibrarySeries>, onSeriesSelected: (LibrarySeries) -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -459,11 +562,7 @@ private fun SeriesRow(
 }
 
 @Composable
-private fun PosterCard(
-    title: String,
-    eyebrow: String,
-    onClick: () -> Unit,
-) {
+private fun PosterCard(title: String, eyebrow: String, onClick: () -> Unit) {
     Surface(
         onClick = onClick,
         modifier = Modifier.width(132.dp),
@@ -500,15 +599,20 @@ private fun PosterCard(
 }
 
 @Composable
-private fun DownloadedRow(items: List<LibraryDownloadedMedia>) {
+private fun DownloadedRow(
+    items: List<LibraryDownloadedMedia>,
+    downloads: List<DownloadItem>,
+    onAction: (LibraryDownloadedMedia, DownloadItem, DownloadAction) -> Unit,
+) {
+    val byId = remember(downloads) { downloads.associateBy { it.downloadId } }
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .horizontalScroll(rememberScrollState()),
         horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),
     ) {
-        items.forEach { item ->
-            OwnPlayPanel(modifier = Modifier.width(220.dp)) {
+        items.forEach { media ->
+            OwnPlayPanel(modifier = Modifier.width(250.dp)) {
                 Column(
                     modifier = Modifier.padding(OwnPlaySpacing.Md),
                     verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm),
@@ -521,7 +625,7 @@ private fun DownloadedRow(items: List<LibraryDownloadedMedia>) {
                             .background(OwnPlayColors.SurfaceElevated),
                     )
                     Text(
-                        text = item.title,
+                        text = media.title,
                         style = MaterialTheme.typography.titleMedium,
                         color = OwnPlayColors.TextPrimary,
                     )
@@ -530,6 +634,12 @@ private fun DownloadedRow(items: List<LibraryDownloadedMedia>) {
                         style = MaterialTheme.typography.labelMedium,
                         color = OwnPlayColors.Accent,
                     )
+                    byId[media.downloadId]?.let { item ->
+                        DownloadControls(
+                            item = item,
+                            onAction = { action -> onAction(media, item, action) },
+                        )
+                    }
                 }
             }
         }
@@ -539,10 +649,12 @@ private fun DownloadedRow(items: List<LibraryDownloadedMedia>) {
 @Composable
 private fun MovieDetail(
     movie: LibraryMovie,
+    downloadItem: DownloadItem?,
     errorMessage: String?,
     onBack: () -> Unit,
     onResume: () -> Unit,
     onBeginning: () -> Unit,
+    onDownloadAction: (DownloadAction) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     BackHandler(onBack = onBack)
@@ -572,27 +684,15 @@ private fun MovieDetail(
                 contentAlignment = Alignment.BottomStart,
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Xs)) {
-                    Text(
-                        text = "MOVIE",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = OwnPlayColors.Accent,
-                    )
-                    Text(
-                        text = movie.name,
-                        style = MaterialTheme.typography.headlineMedium,
-                        color = OwnPlayColors.TextPrimary,
-                    )
+                    Text("MOVIE", style = MaterialTheme.typography.labelMedium, color = OwnPlayColors.Accent)
+                    Text(movie.name, style = MaterialTheme.typography.headlineMedium, color = OwnPlayColors.TextPrimary)
                     movie.rating?.let { rating ->
-                        Text(
-                            text = "★ $rating",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = OwnPlayColors.TextSecondary,
-                        )
+                        Text("★ $rating", style = MaterialTheme.typography.bodyMedium, color = OwnPlayColors.TextSecondary)
                     }
                 }
             }
             if (errorMessage != null) {
-                OwnPlayStatePanel(title = "Playback unavailable", message = errorMessage)
+                OwnPlayStatePanel(title = "Action unavailable", message = errorMessage)
             }
             if (movie.resumePositionMs != null) {
                 Row(
@@ -607,12 +707,9 @@ private fun MovieDetail(
                     )
                 }
             } else {
-                OwnPlayPrimaryButton(
-                    text = "Play",
-                    onClick = onBeginning,
-                    modifier = Modifier.fillMaxWidth(),
-                )
+                OwnPlayPrimaryButton(text = "Play", onClick = onBeginning, modifier = Modifier.fillMaxWidth())
             }
+            DownloadControls(item = downloadItem, onAction = onDownloadAction)
             Spacer(modifier = Modifier.height(OwnPlaySpacing.Xl))
         }
     }
@@ -627,6 +724,8 @@ private fun SeriesDetail(
     onBack: () -> Unit,
     onResumeEpisode: (LibraryEpisode) -> Unit,
     onBeginningEpisode: (LibraryEpisode) -> Unit,
+    downloadForEpisode: (LibraryEpisode) -> DownloadItem?,
+    onDownloadAction: (LibraryEpisode, DownloadItem?, DownloadAction) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     BackHandler(onBack = onBack)
@@ -656,37 +755,21 @@ private fun SeriesDetail(
                 contentAlignment = Alignment.BottomStart,
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Xs)) {
-                    Text(
-                        text = "SERIES",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = OwnPlayColors.Accent,
-                    )
-                    Text(
-                        text = series.name,
-                        style = MaterialTheme.typography.headlineMedium,
-                        color = OwnPlayColors.TextPrimary,
-                    )
+                    Text("SERIES", style = MaterialTheme.typography.labelMedium, color = OwnPlayColors.Accent)
+                    Text(series.name, style = MaterialTheme.typography.headlineMedium, color = OwnPlayColors.TextPrimary)
                     series.rating?.let { rating ->
-                        Text(
-                            text = "★ $rating",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = OwnPlayColors.TextSecondary,
-                        )
+                        Text("★ $rating", style = MaterialTheme.typography.bodyMedium, color = OwnPlayColors.TextSecondary)
                     }
                 }
             }
             series.description?.takeIf { it.isNotBlank() }?.let { description ->
-                Text(
-                    text = description,
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = OwnPlayColors.TextSecondary,
-                )
+                Text(description, style = MaterialTheme.typography.bodyLarge, color = OwnPlayColors.TextSecondary)
             }
             if (warning != null) {
                 OwnPlayStatePanel(title = "Using cached episodes", message = warning)
             }
             if (errorMessage != null) {
-                OwnPlayStatePanel(title = "Episodes unavailable", message = errorMessage)
+                OwnPlayStatePanel(title = "Action unavailable", message = errorMessage)
             }
             OwnPlaySectionHeader(title = "Episodes")
             when {
@@ -701,11 +784,14 @@ private fun SeriesDetail(
                 )
 
                 else -> Column(verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm)) {
-                    detail!!.episodes.forEach { episode ->
+                    detail?.episodes.orEmpty().forEach { episode ->
+                        val downloadItem = downloadForEpisode(episode)
                         EpisodeRow(
                             episode = episode,
+                            downloadItem = downloadItem,
                             onResume = { onResumeEpisode(episode) },
                             onBeginning = { onBeginningEpisode(episode) },
+                            onDownloadAction = { action -> onDownloadAction(episode, downloadItem, action) },
                         )
                     }
                 }
@@ -718,8 +804,10 @@ private fun SeriesDetail(
 @Composable
 private fun EpisodeRow(
     episode: LibraryEpisode,
+    downloadItem: DownloadItem?,
     onResume: () -> Unit,
     onBeginning: () -> Unit,
+    onDownloadAction: (DownloadAction) -> Unit,
 ) {
     OwnPlayPanel(modifier = Modifier.fillMaxWidth()) {
         Column(
@@ -737,17 +825,9 @@ private fun EpisodeRow(
                     color = OwnPlayColors.Accent,
                 )
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = episode.title,
-                        style = MaterialTheme.typography.titleMedium,
-                        color = OwnPlayColors.TextPrimary,
-                    )
+                    Text(episode.title, style = MaterialTheme.typography.titleMedium, color = OwnPlayColors.TextPrimary)
                     episode.durationMs?.let { duration ->
-                        Text(
-                            text = formatDuration(duration),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = OwnPlayColors.TextSecondary,
-                        )
+                        Text(formatDuration(duration), style = MaterialTheme.typography.bodyMedium, color = OwnPlayColors.TextSecondary)
                     }
                 }
             }
@@ -766,6 +846,7 @@ private fun EpisodeRow(
             } else {
                 OwnPlayPrimaryButton(text = "Play", onClick = onBeginning, modifier = Modifier.fillMaxWidth())
             }
+            DownloadControls(item = downloadItem, onAction = onDownloadAction)
         }
     }
 }
@@ -781,8 +862,8 @@ private fun LibraryFullscreenPlayer(
     val playerState by playbackController.state.collectAsState()
     val scope = rememberCoroutineScope()
     val interactionSource = remember { MutableInteractionSource() }
-    var overlayVisible by remember(playback.contentId) { mutableStateOf(true) }
-    var pendingSeekMs by remember(playback.contentId) { mutableStateOf<Long?>(null) }
+    var overlayVisible by remember(playback.contentId, playback.offline) { mutableStateOf(true) }
+    var pendingSeekMs by remember(playback.contentId, playback.offline) { mutableStateOf<Long?>(null) }
 
     suspend fun persistSnapshot(snapshot: PlaybackSnapshot) {
         if (snapshot.mediaId != playback.contentId) return
@@ -814,14 +895,14 @@ private fun LibraryFullscreenPlayer(
 
     BackHandler(onBack = ::closePlayer)
 
-    LaunchedEffect(playback.contentId, overlayVisible) {
+    LaunchedEffect(playback.contentId, playback.offline, overlayVisible) {
         if (overlayVisible) {
             delay(4_000)
             overlayVisible = false
         }
     }
 
-    LaunchedEffect(playback.contentId) {
+    LaunchedEffect(playback.contentId, playback.offline) {
         var persistCountdown = 0
         while (true) {
             delay(2_000)
@@ -834,7 +915,7 @@ private fun LibraryFullscreenPlayer(
         }
     }
 
-    LaunchedEffect(playback.contentId, playerState.phase) {
+    LaunchedEffect(playback.contentId, playback.offline, playerState.phase) {
         if (playerState.mediaId == playback.contentId && playerState.phase == PlaybackPhase.READY) {
             persistSnapshot(playerState)
         } else if (playerState.mediaId == playback.contentId && playerState.phase == PlaybackPhase.ENDED) {
@@ -856,10 +937,7 @@ private fun LibraryFullscreenPlayer(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .clickable(
-                    interactionSource = interactionSource,
-                    indication = null,
-                ) {
+                .clickable(interactionSource = interactionSource, indication = null) {
                     overlayVisible = !overlayVisible
                 },
         )
@@ -874,7 +952,7 @@ private fun LibraryFullscreenPlayer(
             ) {
                 OwnPlayWordmark(showTagline = false)
                 Text(
-                    text = playback.mediaKind.name,
+                    text = if (playback.offline) "OFFLINE" else playback.mediaKind.name,
                     style = MaterialTheme.typography.labelLarge,
                     color = OwnPlayColors.Accent,
                 )
@@ -894,23 +972,14 @@ private fun LibraryFullscreenPlayer(
                     modifier = Modifier.padding(OwnPlaySpacing.Lg),
                     verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm),
                 ) {
-                    Text(
-                        text = playback.title,
-                        style = MaterialTheme.typography.titleLarge,
-                        color = OwnPlayColors.TextPrimary,
-                    )
+                    Text(playback.title, style = MaterialTheme.typography.titleLarge, color = OwnPlayColors.TextPrimary)
                     playback.subtitle?.let { subtitle ->
-                        Text(
-                            text = subtitle,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = OwnPlayColors.TextSecondary,
-                        )
+                        Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = OwnPlayColors.TextSecondary)
                     }
 
                     val duration = playerState.durationMs ?: playback.knownDurationMs
                     if (duration != null && duration > 0L) {
-                        val sliderPosition = (pendingSeekMs ?: playerState.positionMs)
-                            .coerceIn(0L, duration)
+                        val sliderPosition = (pendingSeekMs ?: playerState.positionMs).coerceIn(0L, duration)
                         Slider(
                             value = sliderPosition.toFloat(),
                             onValueChange = { value -> pendingSeekMs = value.roundToLong().coerceIn(0L, duration) },
@@ -925,16 +994,12 @@ private fun LibraryFullscreenPlayer(
                         )
                         Row(modifier = Modifier.fillMaxWidth()) {
                             Text(
-                                text = formatDuration(sliderPosition),
+                                formatDuration(sliderPosition),
                                 modifier = Modifier.weight(1f),
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = OwnPlayColors.TextSecondary,
                             )
-                            Text(
-                                text = formatDuration(duration),
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = OwnPlayColors.TextSecondary,
-                            )
+                            Text(formatDuration(duration), style = MaterialTheme.typography.bodyMedium, color = OwnPlayColors.TextSecondary)
                         }
                     } else {
                         Text(
@@ -1009,15 +1074,10 @@ private fun LibraryPlaybackSurface(
 ) {
     val context = LocalContext.current
     val surfaceView = remember(context) {
-        SurfaceView(context).apply {
-            keepScreenOn = true
-        }
+        SurfaceView(context).apply { keepScreenOn = true }
     }
 
-    AndroidView(
-        factory = { surfaceView },
-        modifier = modifier,
-    )
+    AndroidView(factory = { surfaceView }, modifier = modifier)
 
     DisposableEffect(playbackController, surfaceView) {
         controllerScope.launch {
@@ -1036,9 +1096,13 @@ private fun ResolvedLibraryPlayback.toLoadRequest(): PlaybackLoadRequest = Playb
         id = contentId,
         uri = uri,
         title = title,
-        kind = when (mediaKind) {
-            LibraryMediaKind.MOVIE -> PlaybackKind.MOVIE
-            LibraryMediaKind.EPISODE -> PlaybackKind.EPISODE
+        kind = if (offline) {
+            PlaybackKind.OFFLINE
+        } else {
+            when (mediaKind) {
+                LibraryMediaKind.MOVIE -> PlaybackKind.MOVIE
+                LibraryMediaKind.EPISODE -> PlaybackKind.EPISODE
+            }
         },
         streamFormat = streamFormat,
     ),
@@ -1056,3 +1120,9 @@ private fun formatDuration(durationMs: Long): String {
         "%d:%02d".format(minutes, seconds)
     }
 }
+
+private data class DownloadContentKey(
+    val sourceId: String,
+    val mediaKind: LibraryMediaKind,
+    val contentId: String,
+)

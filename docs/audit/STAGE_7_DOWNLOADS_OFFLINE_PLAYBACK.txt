@@ -1,0 +1,76 @@
+STAGE 7 — DOWNLOADS & OFFLINE PLAYBACK
+
+Authority and baseline
+- User-approved phase: Phase 7 — Downloads & Offline Playback.
+- Exact base branch: stage-6-library-media-details.
+- Exact base HEAD: 41ae20b94de15529ca90e94a3aeba068ac7aa8ab.
+- Stage 6 Draft PR #7 was re-inspected before source mutation and was open, draft, unmerged, and mergeable at the audited head.
+- Active Android build path, Room v1 downloads entity, Library playback path, process-wide PlaybackController, source credential boundary, and source-only CI were re-inspected before mutation.
+- Project Instructions, Product & Source Authority, Visual Reference Contract, Engineering Workflow, Build Blueprint, and QA Acceptance Contract govern this phase.
+- No historical OwnPlay repository, source file, schema, migration, resource, test, or build script was opened or used.
+- Restricted actions remain excluded: no merge, ready-for-review transition, APK/AAB generation, signing change, release, deployment, reset, rebase, force-push, destructive database action, or history rewrite.
+
+Scope implemented
+- Add a canonical Room-backed download repository and pure download state policy.
+- Implement the required primary action mapping: unmanaged -> Download; QUEUED/DOWNLOADING -> Pause; PAUSED -> Resume; FAILED -> Retry; COMPLETED -> Play Offline or Resume Offline when resumable progress exists.
+- Permit Remove for managed downloads only outside fullscreen playback UI.
+- Add WorkManager 2.11.2 as the persisted executor with CONNECTED network constraints and a foreground data-sync worker for long-running transfers.
+- Preserve PAUSED in Room before cancelling active unique work so a pause survives worker cancellation and process restart.
+- Preserve partial files across pause/transient retry and use HTTP Range resume when a progressive provider response supports it; safely restart from zero when a provider ignores the Range request or rejects the saved offset.
+- Keep download concurrency bounded to one repository transfer at a time and keep worker mutations conditional on canonical Room state.
+- Keep download ordering based only on createdAt plus stable downloadId; bytesDownloaded and updatedAt progress writes never participate in ordering.
+- Keep online playback independent of the download repository and do not stop, cancel, or mutate active downloads when online playback begins or navigation changes.
+- Add a download-specific OkHttp client derived from the existing configured HTTP layer with no whole-call timeout so large valid transfers are not cut off by the provider-request timeout.
+- Resolve credential-bearing Xtream movie/episode URLs only at worker execution time from CredentialStore and existing catalog metadata; persisted streamIdentity remains opaque.
+- Reject segmented HLS offline downloads rather than incorrectly treating an m3u8 playlist as a complete offline media file. Online HLS playback remains unchanged.
+- Store download payloads under the app-internal files directory using deterministic non-secret file names and relative local references protected by a canonical-path boundary.
+- Compute SHA-256 plus byte-count integrity metadata after transfer, re-verify the final file, and transition to COMPLETED only after verification.
+- Require COMPLETED state, local reference, integrity metadata, canonical-path resolution, size match, and SHA-256 verification before offline playback resolution. A failed integrity check clears the completed local/integrity references and marks the item FAILED for Retry.
+- Reuse the existing process-wide PlaybackController and Library fullscreen surface for offline movie/episode playback. Offline media is represented as PlaybackKind.OFFLINE; no second player/session/target is introduced.
+- Preserve Library Resume / Play from Beginning semantics for offline playback and persist progress through the same existing Library progress path.
+- Wire branded download controls into movie details, episode rows, and completed Downloaded Media without generic Media3 controls or provider/technical chrome.
+
+Persistence boundary
+- Room database version remains 1.
+- The existing 13 entities are unchanged.
+- The existing downloads entity is reused. Phase 7 expands DAO/query/update surface only; no migration and no destructive fallback is introduced.
+- Generated Room schemas must remain identical to committed HEAD; source validation fails if app/schemas changes.
+
+Security and privacy boundary
+- Credentials continue to come only from CredentialStore.
+- Credential-bearing provider URLs are runtime-only values and are not persisted in Room, playback progress, audit evidence, DownloadItem, or UI chrome.
+- ResolvedDownloadSource.toString() redacts the URI and is covered by a focused JVM test.
+- Download UI does not expose localReference, integrityMetadata, credential-bearing URLs, or raw provider failure payloads.
+- Download local references remain relative app-internal paths and are resolved only when their canonical parent is the dedicated OwnPlay downloads directory.
+
+Focused source tests
+- Download state transition tests cover Download, Pause, Resume, Retry, Remove, Play Offline, Resume Offline, and rejection of invalid transitions.
+- Primary-action tests cover completed offline resume selection when progress exists.
+- Ordering tests prove progress/updatedAt changes do not reorder managed downloads.
+- Coexistence policy tests prove online playback does not mutate download state.
+- Integrity tests cover valid complete files, post-download modification, missing files, and malformed metadata.
+- Redaction test proves resolved runtime download URLs do not appear in string representations.
+
+Validation evidence
+- Foundation implementation HEAD 44079abb59c76c6ad7a362dc6d18e21597b49cb8: GitHub Actions run 34449927636 completed successfully before the UI/integration follow-up.
+- Integrated implementation HEAD f3257df88a30002b3661aaa9c01d377cb33407ea: GitHub Actions run 34450395349, job 102784574434, completed successfully.
+- Exact implementation checkout was verified by CI.
+- :app:compileDebugKotlin passed.
+- :app:testDebugUnitTest passed.
+- :app:lintDebug passed.
+- Room schema generation matched committed HEAD and app/schemas remained clean.
+- The validator explicitly reported that source-only validation completed and no APK/AAB was produced.
+- Non-blocking Kotlin warnings remain for one redundant ResponseBody null fallback and several unnecessary safe calls in LibraryShell; they do not alter the green compile/test/lint result and can be removed during hardening.
+- This evidence-only commit changes the branch HEAD after the integrated implementation run; exact-head source-only CI must also pass on the evidence commit before Phase 7 is reported complete.
+
+Explicit exclusions
+- No segmented-HLS offline package/cache implementation; unsupported HLS downloads fail closed with a safe user-facing message instead of producing invalid offline media.
+- No DRM circumvention.
+- No provider marketplace or bundled media.
+- No Activity-level Picture-in-Picture entry/exit work.
+- No signing, release, deployment, merge, or ready-for-review transition.
+- No APK/AAB generation is authorized.
+
+Physical-QA boundary
+- Source/JVM validation cannot prove real download throughput, provider Range behavior, network interruption recovery, foreground notification behavior, filesystem pressure behavior, physical pause/resume timing, actual decoder output from file:// media, black-video absence, duplicate-audio absence, surface continuity, rotation/background behavior, touch ergonomics, or visual fidelity to the approved references.
+- Those items require a later explicitly authorized QA candidate and device evidence under the QA Acceptance Contract.

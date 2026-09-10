@@ -66,6 +66,7 @@ fun OwnPlayApp(services: OwnPlayServices) {
 
                     AppDestination.Library -> LibraryShell(
                         libraryRepository = services.libraryRepository,
+                        downloadRepository = services.downloadRepository,
                         playbackController = services.playbackController,
                         onFullscreenChanged = { contentFullscreen = it },
                     )
