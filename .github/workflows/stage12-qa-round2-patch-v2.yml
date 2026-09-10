@@ -1,0 +1,65 @@
+name: Stage 12 QA round 2 patch v2
+
+on:
+  push:
+    branches:
+      - stage12-qa-round2-runner
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout patch runner
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Prepare exact audited Stage 12 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="cce01a02fe9726b6040c6993a5bd8281925b4f21"
+          remote_sha="$(git ls-remote origin refs/heads/stage-12-stabilization | awk '{print $1}')"
+          test "$remote_sha" = "$expected"
+          cp tools/stage12_qa_round2_patch.py /tmp/stage12_qa_round2_patch.py
+          git checkout --detach "$expected"
+          test "$(git rev-parse HEAD)" = "$expected"
+          python3 /tmp/stage12_qa_round2_patch.py
+          echo "Patched audited source base: $expected"
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK 36
+        shell: bash
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Set up Gradle 9.6.0
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.6.0'
+
+      - name: Validate source without APK generation
+        shell: bash
+        run: bash tools/validate-source-no-apk.sh
+
+      - name: Commit and fast-forward Stage 12
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "Gersi365"
+          git config user.email "Gersi365@outlook.com"
+          git add app/src docs/audit/STAGE_12_STABILIZATION.txt
+          git diff --cached --check
+          git commit -m "Fix source loading categories and Live playback"
+          git push origin HEAD:refs/heads/stage-12-stabilization
+          echo "Stage 12 new HEAD: $(git rev-parse HEAD)"
