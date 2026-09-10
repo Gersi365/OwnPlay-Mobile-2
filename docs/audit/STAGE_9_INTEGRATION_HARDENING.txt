@@ -1,0 +1,87 @@
+STAGE 9 — INTEGRATION & HARDENING
+
+Repository: Gersi365/OwnPlay-Mobile-2
+Base branch: stage-8-settings-sources-backup
+Base exact HEAD: b540c8d879d10193072b1c5b4dba2a3c6527bf39
+Working branch: stage-9-integration-hardening
+Draft PR: #10 https://github.com/Gersi365/OwnPlay-Mobile-2/pull/10
+Implementation HEAD before this evidence commit: 06a3d51ec99d094c16ff529b1ea48eeaee5fd2f6
+Final exact HEAD: the commit containing this evidence file; authoritative closure is the exact-head GitHub Actions validation associated with that commit.
+Status at evidence authoring: IMPLEMENTATION SOURCE-VALIDATED / CLOSURE CI PENDING ON EVIDENCE COMMIT / PHYSICAL QA NOT PERFORMED / NO APK OR AAB AUTHORIZED
+
+PRE-MUTATION AUDIT
+- Verified stage-8-settings-sources-backup at exact HEAD b540c8d879d10193072b1c5b4dba2a3c6527bf39.
+- Verified Stage 8 Draft PR #9 remained open, draft, and unmerged.
+- Verified the active validation workflow at .github/workflows/android-validation-no-apk.yml and validator at tools/validate-source-no-apk.sh.
+- Verified routine validation remains source-only: compileDebugKotlin, testDebugUnitTest, lintDebug, committed Room-schema cleanliness, and APK/AAB guards.
+- Inspected the current MainActivity, OwnPlayApp, OwnPlayApplication, OwnPlayServices, AndroidManifest, playback controller, Live playback surfaces, Library fullscreen playback integration, persisted settings, and provider refresh scheduling path.
+- No historical OwnPlay repository, source file, resource, schema, migration, test, build script, signing material, backup format, or UI geometry was opened or used.
+- No restricted action was authorized: no merge, ready-for-review transition, signing change, QA APK generation, release, deployment, reset, rebase, force-push, or destructive data operation.
+
+IMPLEMENTED
+- Added Activity-level Picture in Picture integration driven by the persisted OwnPlay PiP preference.
+- Declared MainActivity PiP support and handled orientation/screen-size configuration changes in place so fullscreen/PiP transitions do not require Activity recreation by default.
+- Added pre-Android-12 guarded PiP entry from onUserLeaveHint and Android 12+ auto-enter eligibility through PictureInPictureParams.
+- Added a pure PictureInPicturePolicy: entry requires PiP enabled, OwnPlay content fullscreen, a current media item, playWhenReady=true, a FULLSCREEN/PIP video target, and BUFFERING or READY playback.
+- Added focused JVM tests for eligible ready/buffering playback and blocked disabled, paused, preview-target, missing-media, ended, and error states.
+- Kept one process-wide PlaybackController and one ExoPlayer instance; PiP is a presentation destination, not a second playback session.
+- Added PlaybackController.transferVideoTarget so FULLSCREEN <-> PIP ownership can change without reloading media or constructing another player.
+- Hardened SurfaceView ownership with an attach-state listener that clears only the currently bound exact SurfaceView when it detaches.
+- Removes the old detach listener before a replacement surface is installed, preventing a stale detached view from clearing a newer target.
+- Backgrounding outside PiP pauses playback; foreground resumption occurs only when playback had previously been play-when-ready.
+- Finishing the Activity requests a process-scope stop(clearMedia=true), avoiding reliance on a cancelling Activity lifecycleScope for final playback cleanup.
+- Exposed OwnPlay fullscreen state from the Compose app shell to MainActivity while preserving the exact bottom-navigation contract: Live / Library / Settings.
+- No Room entity/version/schema changes, source-provider schema changes, signing changes, or dependency changes were introduced in Stage 9.
+
+SOURCE VALIDATION HISTORY
+Run #35: 34457106383
+Job: 102805952102
+Exact source HEAD: d5cf5864cb2fd4cd49eaa91044d9413aabd787c8
+Result: SUCCESS
+- Exact source checkout verified.
+- compileDebugKotlin passed.
+- testDebugUnitTest passed.
+- lintDebug passed.
+- Generated Room schemas matched committed HEAD and the schema tree was clean.
+- Validator confirmed no APK/AAB was produced.
+
+Post-run hardening review:
+- Tightened PiP eligibility so paused playback cannot auto-enter PiP.
+- Moved Activity-finish playback cleanup to application/process scope while retaining the single playback controller.
+
+Run #36: 34457713863
+Job: 102807894084
+Exact source HEAD: 06a3d51ec99d094c16ff529b1ea48eeaee5fd2f6
+Result: SUCCESS
+- Exact source checkout verified.
+- compileDebugKotlin passed.
+- testDebugUnitTest passed.
+- lintDebug passed.
+- Generated Room schemas matched committed HEAD and the schema tree was clean.
+- Validator confirmed no APK/AAB was produced.
+
+Closure validation:
+- A final exact-head source-only run is intentionally triggered by the evidence commit containing this file.
+- Its run/job identifiers and exact final HEAD are recorded in PR #10 metadata and the Stage 9 completion report without mutating this already-validated evidence file again.
+
+INHERITED NON-BLOCKING WARNINGS
+- DownloadRepositoryImpl.kt currently carries an OkHttp 5 compiler warning where an Elvis operator is redundant for non-null ResponseBody.
+- LibraryShell.kt currently carries several compiler warnings for unnecessary safe calls on non-null receivers.
+- GitHub Actions currently reports infrastructure deprecation warnings for actions targeting Node.js 20 and setup-java v4.
+- These warnings did not fail compilation, tests, lint, Room-schema verification, or the no-artifact guard. They were not introduced as functional Stage 9 blockers and remain candidates for the next hardening phase where appropriate.
+
+ROOM / SECURITY BOUNDARY
+- OwnPlayDatabase remains Room version 1 with the committed schema unchanged.
+- Stage 9 does not add credential logging, stream-locator logging, backup credential export, or URI exposure.
+- The playback StateFlow continues to expose safe playback metadata rather than credential-bearing stream URIs.
+- Existing Stage 8 credential and backup boundaries remain unchanged.
+
+EXPLICIT EXCLUSIONS / PHYSICAL-QA BOUNDARY
+- No APK or AAB generation was authorized or performed by Stage 9 source validation.
+- No merge, ready-for-review transition, signing, release, publication, or deployment is part of Stage 9.
+- Source/CI validation does not prove physical PiP behavior, Home-gesture auto-entry, PiP expand/close behavior, OEM lifecycle behavior, rotation while playing, background/foreground surface continuity, black-video avoidance, audio-only PiP avoidance, duplicate-audio avoidance, stale-surface avoidance, or real-device performance.
+- Source/CI validation does not provide approved-reference visual acceptance; that requires physical screenshots/video against the approved visual references.
+- Real provider/network behavior is not claimed from this source-only stage.
+
+NEXT RECOMMENDED PHASE
+Stage 10 — Security, Performance & Accessibility: perform focused source review and hardening for secret/redaction boundaries, bounded work/network behavior, performance-sensitive state/list patterns, accessibility semantics/touch targets, and safe cleanup of actionable static warnings before QA-candidate generation.
