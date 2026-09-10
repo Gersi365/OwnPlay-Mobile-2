@@ -16,6 +16,7 @@ import app.ownplay.mobile.sources.domain.SourceType
 import java.net.URI
 import java.util.Locale
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
@@ -27,6 +28,7 @@ class LiveRepositoryImpl(
     private val catalogDao: CatalogDao,
     private val credentialStore: CredentialStore,
 ) : LiveRepository {
+    @OptIn(ExperimentalCoroutinesApi::class)
     override fun observeCatalog(): Flow<LiveCatalog> =
         sourceRepository.observeActiveSource().flatMapLatest { source ->
             if (source == null) {
