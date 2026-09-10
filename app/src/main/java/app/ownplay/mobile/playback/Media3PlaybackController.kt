@@ -6,6 +6,7 @@ import android.view.SurfaceView
 import android.view.View
 import androidx.annotation.OptIn
 import androidx.media3.common.C
+import androidx.media3.common.Format
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
@@ -321,6 +322,10 @@ class Media3PlaybackController(
             audioTrackPresent = audio.present,
             audioTrackSupported = audio.supported,
             audioTrackSelected = audio.selected,
+            audioMimeType = audio.mimeType,
+            audioCodecs = audio.codecs,
+            audioChannelCount = audio.channelCount,
+            audioSampleRate = audio.sampleRate,
             errorCode = errorCode,
         )
     }
@@ -329,15 +334,40 @@ class Media3PlaybackController(
         val present: Boolean?,
         val supported: Boolean?,
         val selected: Boolean?,
+        val mimeType: String? = null,
+        val codecs: String? = null,
+        val channelCount: Int? = null,
+        val sampleRate: Int? = null,
     )
 
     private fun currentAudioTrackStatus(): AudioTrackStatus {
         val groups = player.currentTracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }
         if (groups.isEmpty()) return AudioTrackStatus(null, null, null)
+
+        var firstFormat: Format? = null
+        var selectedFormat: Format? = null
+        var supported = false
+        var selected = false
+        groups.forEach { group ->
+            for (trackIndex in 0 until group.length) {
+                val format = group.getTrackFormat(trackIndex)
+                if (firstFormat == null) firstFormat = format
+                if (group.isTrackSupported(trackIndex)) supported = true
+                if (group.isTrackSelected(trackIndex)) {
+                    selected = true
+                    if (selectedFormat == null) selectedFormat = format
+                }
+            }
+        }
+        val format = selectedFormat ?: firstFormat
         return AudioTrackStatus(
             present = true,
-            supported = groups.any { it.isSupported() },
-            selected = groups.any { it.isSelected() },
+            supported = supported,
+            selected = selected,
+            mimeType = format?.sampleMimeType,
+            codecs = format?.codecs,
+            channelCount = format?.channelCount?.takeIf { it > 0 },
+            sampleRate = format?.sampleRate?.takeIf { it > 0 },
         )
     }
 

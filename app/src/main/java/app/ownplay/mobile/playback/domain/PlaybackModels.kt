@@ -89,5 +89,9 @@ data class PlaybackSnapshot(
     val audioTrackPresent: Boolean? = null,
     val audioTrackSupported: Boolean? = null,
     val audioTrackSelected: Boolean? = null,
+    val audioMimeType: String? = null,
+    val audioCodecs: String? = null,
+    val audioChannelCount: Int? = null,
+    val audioSampleRate: Int? = null,
     val errorCode: Int? = null,
 )

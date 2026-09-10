@@ -7,6 +7,7 @@ import app.ownplay.mobile.sources.data.xtream.XtreamClient
 import app.ownplay.mobile.sources.data.xtream.XtreamResult
 import app.ownplay.mobile.sources.domain.Source
 import app.ownplay.mobile.sources.domain.SourceCredential
+import app.ownplay.mobile.sources.domain.ProviderCategoryVisibility
 import app.ownplay.mobile.sources.domain.SourceType
 import java.net.URI
 import java.util.Locale
@@ -112,13 +113,16 @@ class SourceCatalogLoader(
                 val resolvedEntries = parsed.entries.mapNotNull { entry ->
                     resolveLocator(locator, entry.streamLocator)?.let { resolved -> entry to resolved }
                 }
-                val tvgCounts = resolvedEntries
+                val visibleEntries = resolvedEntries.filterNot { (entry, _) ->
+                    ProviderCategoryVisibility.isUtilityLabel(entry.groupTitle.orEmpty())
+                }
+                val tvgCounts = visibleEntries
                     .mapNotNull { (entry, _) -> entry.tvgId?.trim()?.takeIf(String::isNotEmpty) }
                     .groupingBy { it }
                     .eachCount()
 
                 val groupNames = linkedSetOf<String>()
-                resolvedEntries.forEach { (entry, _) ->
+                visibleEntries.forEach { (entry, _) ->
                     groupNames += entry.groupTitle?.trim()?.takeIf(String::isNotEmpty) ?: "Other"
                 }
                 val categories = groupNames.mapIndexed { index, groupName ->
@@ -130,7 +134,7 @@ class SourceCatalogLoader(
                     )
                 }
                 val categoryByName = categories.associateBy({ it.providerKey }, { it.categoryId })
-                val channels = resolvedEntries.mapIndexed { index, (entry, resolvedLocator) ->
+                val channels = visibleEntries.mapIndexed { index, (entry, resolvedLocator) ->
                     val group = entry.groupTitle?.trim()?.takeIf(String::isNotEmpty) ?: "Other"
                     val uniqueTvgId = entry.tvgId?.trim()?.let { tvgCounts[it] == 1 } == true
                     ProviderLiveChannelRecord(
@@ -172,9 +176,11 @@ class SourceCatalogLoader(
         result: XtreamResult<List<app.ownplay.mobile.sources.data.xtream.XtreamCategory>>,
     ): Map<String, String> = when (result) {
         is XtreamResult.Failure -> emptyMap()
-        is XtreamResult.Success -> result.value.associate { category ->
-            category.providerKey to StableIdentity.categoryId(sourceId, kind, category.providerKey)
-        }
+        is XtreamResult.Success -> result.value
+            .filterNot { category -> ProviderCategoryVisibility.isUtilityLabel(category.name) }
+            .associate { category ->
+                category.providerKey to StableIdentity.categoryId(sourceId, kind, category.providerKey)
+            }
     }
 
     private fun mapCategories(
@@ -182,8 +188,10 @@ class SourceCatalogLoader(
         kind: String,
         result: XtreamResult<List<app.ownplay.mobile.sources.data.xtream.XtreamCategory>>,
     ): RemoteSection<List<ProviderCategoryRecord>> = mapXtreamResult(result) { categories ->
-        categories.map { category ->
-            ProviderCategoryRecord(
+        categories
+            .filterNot { category -> ProviderCategoryVisibility.isUtilityLabel(category.name) }
+            .map { category ->
+                ProviderCategoryRecord(
                 categoryId = StableIdentity.categoryId(sourceId, kind, category.providerKey),
                 providerKey = category.providerKey,
                 name = category.name,

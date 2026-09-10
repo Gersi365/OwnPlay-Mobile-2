@@ -121,3 +121,12 @@ Player-local HUD refinement
 - Touch brightness continues to use only the activity Window brightness override; touch and physical +/- volume continue to use only ExoPlayer gain. No system volume or system brightness value is modified.
 - The same HUD is rendered in Live Preview, Live fullscreen, and unified Movie/Series/Offline fullscreen playback. PiP remains outside this control surface.
 - This is source-only evidence. Exact-head source validation is required, and physical-device behavior remains unverified until a later explicitly authorized QA APK is tested.
+
+
+ROUND 4 PHYSICAL-QA FOLLOW-UP
+- Physical QA on v5 still exposed a provider utility category labelled Account Information.
+- Utility-label normalization is now Unicode compatibility-aware (NFKC/NFKD), strips combining/format characters, folds common small-cap Latin forms, and checks compact account-information tokens.
+- Xtream and M3U category ingestion now excludes labels classified as provider utility categories; UI filtering remains in place for already-cached catalogs.
+- Unsupported Live audio now records and displays safe sample MIME/codec diagnostics (plus channel/sample-rate in state) without provider locators or credentials.
+- No third-party FFmpeg binary or GPL decoder dependency is added in this source round. Software decoding remains a separate, evidence-led integration after physical QA reports the exact unsupported sample format.
+- No database schema, credential storage, package ID, signing identity, or auth architecture changes.

@@ -66,6 +66,7 @@ import app.ownplay.mobile.feature.live.domain.LivePresentationReducer
 import app.ownplay.mobile.feature.live.domain.LivePresentationState
 import app.ownplay.mobile.feature.live.domain.LiveRepository
 import app.ownplay.mobile.playback.PlaybackController
+import app.ownplay.mobile.playback.domain.AudioFormatLabelPolicy
 import app.ownplay.mobile.playback.domain.PlaybackKind
 import app.ownplay.mobile.playback.domain.PlaybackLoadRequest
 import app.ownplay.mobile.playback.domain.PlaybackMedia
@@ -167,10 +168,12 @@ fun LiveShell(
         fallbackLoadRequest != null -> null
         playback.phase == PlaybackPhase.READY &&
             playback.audioTrackPresent == true &&
-            playback.audioTrackSupported == false -> "Audio format is not supported by this device."
+            playback.audioTrackSupported == false ->
+            "Unsupported audio: ${AudioFormatLabelPolicy.describe(playback.audioMimeType, playback.audioCodecs)}."
         playback.phase == PlaybackPhase.READY &&
             playback.audioTrackPresent == true &&
-            playback.audioTrackSelected == false -> "The channel audio track could not be selected."
+            playback.audioTrackSelected == false ->
+            "Audio track could not be selected: ${AudioFormatLabelPolicy.describe(playback.audioMimeType, playback.audioCodecs)}."
         else -> null
     }
 
