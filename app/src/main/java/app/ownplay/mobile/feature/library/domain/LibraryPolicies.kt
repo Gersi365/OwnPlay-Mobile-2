@@ -10,7 +10,7 @@ object LibraryStartPolicy {
     ): PlaybackStart = when (startMode) {
         LibraryStartMode.RESUME -> savedPositionMs
             ?.takeIf { it > 0L }
-            ?.let(PlaybackStart::Resume)
+            ?.let { positionMs -> PlaybackStart.Resume(positionMs) }
             ?: PlaybackStart.Beginning
 
         LibraryStartMode.BEGINNING -> PlaybackStart.Beginning
