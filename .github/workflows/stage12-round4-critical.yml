@@ -20,7 +20,7 @@ jobs:
       - name: Checkout helper branch
         uses: actions/checkout@v4
         with:
-          fetch-depth: 4
+          fetch-depth: 5
 
       - name: Pin exact source base and preserve helper
         shell: bash
