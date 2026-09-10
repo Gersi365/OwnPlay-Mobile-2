@@ -1,0 +1,89 @@
+STAGE 4 — PLAYBACK FOUNDATION
+=============================
+
+Scope
+-----
+Create the clean-room playback foundation required by the user-approved Phase 4,
+without wiring Live/Library presentation flows and without generating an APK/AAB.
+
+Pre-mutation audit
+------------------
+Repository: Gersi365/OwnPlay-Mobile-2
+Authoritative predecessor branch: stage-3-sources-persistence
+Validated predecessor HEAD: e35cac7d18587667e61ab21fb3bbf1de386614f6
+Stage 3 PR #4: open, draft, unmerged; base stage-2-design-system-shell
+Stage 3 final source-validation run: 34438336980 / job 102747978406, success
+Stage 3 final validation confirmed exact HEAD, Room schema cleanliness, Kotlin
+compile, unit tests, lint, and zero APK/AAB artifacts.
+
+The Stage 4 branch already existed at audit time and pointed exactly to the
+validated Stage 3 HEAD above. No Stage 4 pull request or Stage 4 source delta
+existed before this implementation.
+
+Authority and clean-room boundary
+---------------------------------
+Read and applied the current OwnPlay Mobile 2 Project Instructions, Product &
+Source Authority, Build Blueprint, Engineering Workflow, and QA Acceptance
+Contract. The latest user-approved phase order places Playback Foundation before
+full Live and Library feature implementation; that user decision takes priority
+over the older recommended stage ordering in Engineering Workflow.
+
+No previous OwnPlay repository, source file, schema, player implementation,
+package layout, test, migration, or build script was opened or used.
+
+Playback contracts implemented
+------------------------------
+- exactly one lazy PlaybackController service for the application process
+- one Media3 ExoPlayer owned by that controller
+- one active video target: NONE, PREVIEW, FULLSCREEN, or PIP
+- serialized controller mutations and explicit surface transfer
+- old SurfaceView is cleared before the next target is bound
+- stale unbind requests cannot clear a newer active surface
+- presentation target transfer does not reload media
+- HLS support through Media3 ExoPlayer HLS
+- playback snapshots intentionally exclude stream URIs and credentials
+- Resume starts from saved progress
+- Play from Beginning starts at zero but does not clear saved progress before
+  successful playback is established
+- explicit stop/retry/play-when-ready/seek/release controller operations
+
+Dependency decision
+-------------------
+Media3 1.11.0 is used for ExoPlayer and HLS. It is the stable Media3 release
+verified from current official Android Developers documentation during this
+stage. Generic Media3 UI controls are deliberately not added because OwnPlay
+requires custom transient presentation controls.
+
+Focused source tests
+--------------------
+PlaybackStartPolicyTest verifies Default, Resume, negative-position clamping,
+and Play-from-Beginning preservation semantics.
+
+VideoTargetOwnershipReducerTest verifies Preview/fullscreen ownership transfer,
+stale release safety, active release to NONE, and idempotent reacquisition.
+
+Explicit exclusions
+-------------------
+- no Live channel activation reducer or Live repository wiring
+- no Preview/fullscreen Composable integration
+- no Activity Picture-in-Picture entry/exit wiring
+- no VOD/series screen integration
+- no progress persistence loop
+- no download/offline orchestration
+- no Room schema/entity change
+- no signing, release, deployment, merge, or ready-for-review transition
+- no APK/AAB generation
+- no physical-device playback or visual acceptance claim
+
+Validation contract
+-------------------
+The final Stage 4 HEAD must pass the repository's read-only source-validation
+workflow on the exact commit: Kotlin compile, focused unit tests, lint, committed
+Room schema clean-tree verification, and the no-APK/AAB artifact guard.
+
+Physical QA boundary
+--------------------
+Source CI cannot prove decoded video rendering, SurfaceView behavior on real
+hardware, Preview/fullscreen continuity, PiP video retention, duplicate-audio
+absence, rotation ownership, or visual fidelity. Those remain physical-device
+QA requirements after an explicitly authorized QA APK exists.
