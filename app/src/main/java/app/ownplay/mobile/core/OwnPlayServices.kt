@@ -52,6 +52,13 @@ class OwnPlayServices private constructor(
             .build()
     }
 
+    private val downloadHttpClient: OkHttpClient by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        httpClient.newBuilder()
+            .readTimeout(60, TimeUnit.SECONDS)
+            .callTimeout(0, TimeUnit.MILLISECONDS)
+            .build()
+    }
+
     private val providerTransport: ProviderHttpTransport by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         ProviderHttpTransport(httpClient)
     }
@@ -109,7 +116,7 @@ class OwnPlayServices private constructor(
                 credentialStore = credentialStore,
             ),
             workManager = WorkManager.getInstance(applicationContext),
-            httpClient = httpClient,
+            httpClient = downloadHttpClient,
         )
     }
 
