@@ -1,0 +1,330 @@
+from pathlib import Path
+
+
+def replace_once(text: str, needle: str, replacement: str, label: str) -> str:
+    if text.count(needle) != 1:
+        raise SystemExit(f"{label} guard failed: expected 1 occurrence, found {text.count(needle)}")
+    return text.replace(needle, replacement)
+
+
+visibility = Path("app/src/main/java/app/ownplay/mobile/sources/domain/ProviderCategoryVisibility.kt")
+visibility.write_text('''package app.ownplay.mobile.sources.domain
+
+import java.text.Normalizer
+import java.util.Locale
+
+object ProviderCategoryVisibility {
+    private val exactUtilityLabels = setOf(
+        "all",
+        "all channels",
+        "all live",
+        "all live channels",
+        "all movies",
+        "all series",
+        "all tv",
+        "all vod",
+    )
+
+    private val compatibilityFold = mapOf(
+        'ᴀ' to 'a', 'ʙ' to 'b', 'ᴄ' to 'c', 'ᴅ' to 'd', 'ᴇ' to 'e',
+        'ꜰ' to 'f', 'ɢ' to 'g', 'ʜ' to 'h', 'ɪ' to 'i', 'ᴊ' to 'j',
+        'ᴋ' to 'k', 'ʟ' to 'l', 'ᴍ' to 'm', 'ɴ' to 'n', 'ᴏ' to 'o',
+        'ᴘ' to 'p', 'ʀ' to 'r', 'ꜱ' to 's', 'ᴛ' to 't', 'ᴜ' to 'u',
+        'ᴠ' to 'v', 'ᴡ' to 'w', 'ʏ' to 'y', 'ᴢ' to 'z',
+    )
+
+    fun isUtilityLabel(label: String): Boolean {
+        val normalized = normalize(label)
+        if (normalized in exactUtilityLabels) return true
+
+        val compact = normalized.replace(" ", "")
+        return compact.contains("accountinformation") || compact.contains("accountinfo")
+    }
+
+    fun normalized(label: String): String = normalize(label)
+
+    private fun normalize(label: String): String {
+        val compatibilityNormalized = Normalizer.normalize(label, Normalizer.Form.NFKC)
+            .lowercase(Locale.US)
+        val folded = buildString(compatibilityNormalized.length) {
+            compatibilityNormalized.forEach { character ->
+                append(compatibilityFold[character] ?: character)
+            }
+        }
+        val decomposed = Normalizer.normalize(folded, Normalizer.Form.NFKD)
+            .replace(Regex("\\p{M}+"), "")
+            .replace(Regex("\\p{Cf}+"), "")
+
+        return decomposed
+            .replace(Regex("[^a-z0-9]+"), " ")
+            .trim()
+            .split(' ')
+            .filter { it.isNotBlank() }
+            .joinToString(" ")
+    }
+}
+''')
+
+visibility_test = Path("app/src/test/java/app/ownplay/mobile/sources/domain/ProviderCategoryVisibilityTest.kt")
+visibility_test.write_text('''package app.ownplay.mobile.sources.domain
+
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class ProviderCategoryVisibilityTest {
+    @Test
+    fun `utility labels tolerate provider punctuation suffixes and unicode styling`() {
+        assertTrue(ProviderCategoryVisibility.isUtilityLabel("All"))
+        assertTrue(ProviderCategoryVisibility.isUtilityLabel("ALL CHANNELS"))
+        assertTrue(ProviderCategoryVisibility.isUtilityLabel("• Account Information •"))
+        assertTrue(ProviderCategoryVisibility.isUtilityLabel("ACCOUNT_INFO [expires soon]"))
+        assertTrue(ProviderCategoryVisibility.isUtilityLabel("Ａｃｃｏｕｎｔ Ｉｎｆｏｒｍａｔｉｏｎ"))
+        assertTrue(ProviderCategoryVisibility.isUtilityLabel("𝐀𝐜𝐜𝐨𝐮𝐧𝐭 𝐈𝐧𝐟𝐨𝐫𝐦𝐚𝐭𝐢𝐨𝐧"))
+        assertTrue(ProviderCategoryVisibility.isUtilityLabel("ᴀᴄᴄᴏᴜɴᴛ ɪɴꜰᴏʀᴍᴀᴛɪᴏɴ"))
+        assertTrue(ProviderCategoryVisibility.isUtilityLabel("Account\u200BInformation"))
+        assertFalse(ProviderCategoryVisibility.isUtilityLabel("All Sports"))
+        assertFalse(ProviderCategoryVisibility.isUtilityLabel("Accountants Information"))
+        assertFalse(ProviderCategoryVisibility.isUtilityLabel("News"))
+    }
+}
+''')
+
+loader = Path("app/src/main/java/app/ownplay/mobile/sources/data/SourceCatalogLoader.kt")
+text = loader.read_text()
+text = replace_once(
+    text,
+    "import app.ownplay.mobile.sources.domain.SourceCredential\n",
+    "import app.ownplay.mobile.sources.domain.SourceCredential\nimport app.ownplay.mobile.sources.domain.ProviderCategoryVisibility\n",
+    "SourceCatalogLoader import",
+)
+text = replace_once(
+    text,
+    "result.value.associate { category ->\n            category.providerKey to StableIdentity.categoryId(sourceId, kind, category.providerKey)\n        }",
+    "result.value\n            .filterNot { category -> ProviderCategoryVisibility.isUtilityLabel(category.name) }\n            .associate { category ->\n                category.providerKey to StableIdentity.categoryId(sourceId, kind, category.providerKey)\n            }",
+    "categoryIdMap",
+)
+text = replace_once(
+    text,
+    "categories.map { category ->\n            ProviderCategoryRecord(",
+    "categories\n            .filterNot { category -> ProviderCategoryVisibility.isUtilityLabel(category.name) }\n            .map { category ->\n                ProviderCategoryRecord(",
+    "mapCategories",
+)
+text = replace_once(
+    text,
+    """                val tvgCounts = resolvedEntries
+                    .mapNotNull { (entry, _) -> entry.tvgId?.trim()?.takeIf(String::isNotEmpty) }
+""",
+    """                val visibleEntries = resolvedEntries.filterNot { (entry, _) ->
+                    ProviderCategoryVisibility.isUtilityLabel(entry.groupTitle.orEmpty())
+                }
+                val tvgCounts = visibleEntries
+                    .mapNotNull { (entry, _) -> entry.tvgId?.trim()?.takeIf(String::isNotEmpty) }
+""",
+    "M3U visible entries",
+)
+text = replace_once(
+    text,
+    "                resolvedEntries.forEach { (entry, _) ->",
+    "                visibleEntries.forEach { (entry, _) ->",
+    "M3U group names",
+)
+text = replace_once(
+    text,
+    "                val channels = resolvedEntries.mapIndexed",
+    "                val channels = visibleEntries.mapIndexed",
+    "M3U channels",
+)
+loader.write_text(text)
+
+models = Path("app/src/main/java/app/ownplay/mobile/playback/domain/PlaybackModels.kt")
+text = models.read_text()
+text = replace_once(
+    text,
+    """    val audioTrackPresent: Boolean? = null,
+    val audioTrackSupported: Boolean? = null,
+    val audioTrackSelected: Boolean? = null,
+    val errorCode: Int? = null,
+""",
+    """    val audioTrackPresent: Boolean? = null,
+    val audioTrackSupported: Boolean? = null,
+    val audioTrackSelected: Boolean? = null,
+    val audioMimeType: String? = null,
+    val audioCodecs: String? = null,
+    val audioChannelCount: Int? = null,
+    val audioSampleRate: Int? = null,
+    val errorCode: Int? = null,
+""",
+    "PlaybackSnapshot",
+)
+models.write_text(text)
+
+audio_policy = Path("app/src/main/java/app/ownplay/mobile/playback/domain/AudioFormatLabelPolicy.kt")
+audio_policy.write_text('''package app.ownplay.mobile.playback.domain
+
+import java.util.Locale
+
+object AudioFormatLabelPolicy {
+    fun describe(mimeType: String?, codecs: String?): String {
+        val normalizedMime = mimeType?.trim()?.lowercase(Locale.US)?.takeIf { it.isNotEmpty() }
+        val codec = codecs?.trim()?.takeIf { it.isNotEmpty() }
+        val label = when (normalizedMime) {
+            "audio/mpeg-l1" -> "MPEG Layer I"
+            "audio/mpeg-l2" -> "MPEG Layer II"
+            "audio/mpeg" -> "MPEG audio"
+            "audio/mp4a-latm", "audio/aac" -> "AAC"
+            "audio/ac3" -> "AC-3"
+            "audio/eac3", "audio/eac3-joc" -> "E-AC-3"
+            "audio/ac4" -> "AC-4"
+            "audio/vnd.dts", "audio/vnd.dts.hd" -> "DTS"
+            "audio/true-hd" -> "TrueHD"
+            "audio/opus" -> "Opus"
+            "audio/vorbis" -> "Vorbis"
+            "audio/flac" -> "FLAC"
+            "audio/alac" -> "ALAC"
+            "audio/g711-alaw" -> "PCM A-law"
+            "audio/g711-mlaw" -> "PCM μ-law"
+            else -> null
+        }
+        return when {
+            label != null && codec != null -> "$label ($codec)"
+            label != null -> label
+            normalizedMime != null && codec != null -> "$normalizedMime ($codec)"
+            normalizedMime != null -> normalizedMime
+            codec != null -> codec
+            else -> "unknown format"
+        }
+    }
+}
+''')
+
+audio_policy_test = Path("app/src/test/java/app/ownplay/mobile/playback/domain/AudioFormatLabelPolicyTest.kt")
+audio_policy_test.write_text('''package app.ownplay.mobile.playback.domain
+
+import org.junit.Assert.assertEquals
+import org.junit.Test
+
+class AudioFormatLabelPolicyTest {
+    @Test
+    fun `describes common IPTV audio formats without provider data`() {
+        assertEquals("MPEG Layer II", AudioFormatLabelPolicy.describe("audio/mpeg-L2", null))
+        assertEquals("AC-3 (ac-3)", AudioFormatLabelPolicy.describe("audio/ac3", "ac-3"))
+        assertEquals("E-AC-3", AudioFormatLabelPolicy.describe("audio/eac3", null))
+        assertEquals("audio/example", AudioFormatLabelPolicy.describe("audio/example", null))
+        assertEquals("unknown format", AudioFormatLabelPolicy.describe(null, null))
+    }
+}
+''')
+
+controller = Path("app/src/main/java/app/ownplay/mobile/playback/Media3PlaybackController.kt")
+text = controller.read_text()
+text = replace_once(
+    text,
+    "import androidx.media3.common.C\n",
+    "import androidx.media3.common.C\nimport androidx.media3.common.Format\n",
+    "Media3 Format import",
+)
+text = replace_once(
+    text,
+    """            audioTrackPresent = audio.present,
+            audioTrackSupported = audio.supported,
+            audioTrackSelected = audio.selected,
+            errorCode = errorCode,
+""",
+    """            audioTrackPresent = audio.present,
+            audioTrackSupported = audio.supported,
+            audioTrackSelected = audio.selected,
+            audioMimeType = audio.mimeType,
+            audioCodecs = audio.codecs,
+            audioChannelCount = audio.channelCount,
+            audioSampleRate = audio.sampleRate,
+            errorCode = errorCode,
+""",
+    "Media3 snapshot audio",
+)
+start = text.index("    private data class AudioTrackStatus(")
+end = text.index("\n    private fun Int.toPlaybackPhase()", start)
+replacement_block = '''    private data class AudioTrackStatus(
+        val present: Boolean?,
+        val supported: Boolean?,
+        val selected: Boolean?,
+        val mimeType: String? = null,
+        val codecs: String? = null,
+        val channelCount: Int? = null,
+        val sampleRate: Int? = null,
+    )
+
+    private fun currentAudioTrackStatus(): AudioTrackStatus {
+        val groups = player.currentTracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }
+        if (groups.isEmpty()) return AudioTrackStatus(null, null, null)
+
+        var firstFormat: Format? = null
+        var selectedFormat: Format? = null
+        var supported = false
+        var selected = false
+        groups.forEach { group ->
+            for (trackIndex in 0 until group.length) {
+                val format = group.getTrackFormat(trackIndex)
+                if (firstFormat == null) firstFormat = format
+                if (group.isTrackSupported(trackIndex)) supported = true
+                if (group.isTrackSelected(trackIndex)) {
+                    selected = true
+                    if (selectedFormat == null) selectedFormat = format
+                }
+            }
+        }
+        val format = selectedFormat ?: firstFormat
+        return AudioTrackStatus(
+            present = true,
+            supported = supported,
+            selected = selected,
+            mimeType = format?.sampleMimeType,
+            codecs = format?.codecs,
+            channelCount = format?.channelCount?.takeIf { it > 0 },
+            sampleRate = format?.sampleRate?.takeIf { it > 0 },
+        )
+    }
+'''
+controller.write_text(text[:start] + replacement_block + text[end:])
+
+live = Path("app/src/main/java/app/ownplay/mobile/feature/live/ui/LiveShell.kt")
+text = live.read_text()
+text = replace_once(
+    text,
+    "import app.ownplay.mobile.playback.domain.PlaybackKind\n",
+    "import app.ownplay.mobile.playback.domain.AudioFormatLabelPolicy\nimport app.ownplay.mobile.playback.domain.PlaybackKind\n",
+    "LiveShell audio policy import",
+)
+text = replace_once(
+    text,
+    """        playback.phase == PlaybackPhase.READY &&
+            playback.audioTrackPresent == true &&
+            playback.audioTrackSupported == false -> "Audio format is not supported by this device."
+        playback.phase == PlaybackPhase.READY &&
+            playback.audioTrackPresent == true &&
+            playback.audioTrackSelected == false -> "The channel audio track could not be selected."
+""",
+    """        playback.phase == PlaybackPhase.READY &&
+            playback.audioTrackPresent == true &&
+            playback.audioTrackSupported == false ->
+            "Unsupported audio: ${AudioFormatLabelPolicy.describe(playback.audioMimeType, playback.audioCodecs)}."
+        playback.phase == PlaybackPhase.READY &&
+            playback.audioTrackPresent == true &&
+            playback.audioTrackSelected == false ->
+            "Audio track could not be selected: ${AudioFormatLabelPolicy.describe(playback.audioMimeType, playback.audioCodecs)}."
+""",
+    "LiveShell audio message",
+)
+live.write_text(text)
+
+audit = Path("docs/audit/STAGE_12_STABILIZATION.txt")
+audit.write_text(audit.read_text() + '''
+
+ROUND 4 PHYSICAL-QA FOLLOW-UP
+- Physical QA on v5 still exposed a provider utility category labelled Account Information.
+- Utility-label normalization is now Unicode compatibility-aware (NFKC/NFKD), strips combining/format characters, folds common small-cap Latin forms, and checks compact account-information tokens.
+- Xtream and M3U category ingestion now excludes labels classified as provider utility categories; UI filtering remains in place for already-cached catalogs.
+- Unsupported Live audio now records and displays safe sample MIME/codec diagnostics (plus channel/sample-rate in state) without provider locators or credentials.
+- No third-party FFmpeg binary or GPL decoder dependency is added in this source round. Software decoding remains a separate, evidence-led integration after physical QA reports the exact unsupported sample format.
+- No database schema, credential storage, package ID, signing identity, or auth architecture changes.
+''')
