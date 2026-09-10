@@ -52,7 +52,10 @@ printf 'sdk.dir=%s\n' "$ANDROID_HOME" > "$MEDIA_DIR/local.properties"
 cd "$MEDIA_DIR"
 ./gradlew --no-daemon :lib-decoder-ffmpeg:assembleRelease
 
-mapfile -t AARS < <(find "$MEDIA_DIR/libraries/decoder_ffmpeg/build/outputs/aar" -maxdepth 1 -type f -name '*release.aar' -print)
+# Media3 redirects project build directories under root buildout/.
+AAR_DIR="$MEDIA_DIR/buildout/lib-decoder-ffmpeg/outputs/aar"
+test -d "$AAR_DIR"
+mapfile -t AARS < <(find "$AAR_DIR" -maxdepth 1 -type f -name '*release.aar' -print)
 test "${#AARS[@]}" -eq 1
 AAR="${AARS[0]}"
 
