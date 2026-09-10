@@ -1,0 +1,58 @@
+name: Stage 12 Round 4 exact-head validation
+
+on:
+  push:
+    branches:
+      - stage12-round4-final-validation
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    env:
+      SOURCE_SHA: f7968700cc1688aa3c4d4e807580e670dc020d4c
+    steps:
+      - name: Checkout exact final source HEAD
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Verify exact clean source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          test -z "$(git status --porcelain)"
+          echo "Validated exact final source checkout: $SOURCE_SHA"
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK 36
+        shell: bash
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Set up Gradle 9.6.0
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 9.6.0
+          cache-read-only: true
+
+      - name: Validate exact final source without APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash tools/validate-source-no-apk.sh
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          test -z "$(git status --porcelain)"
+          echo "Exact final HEAD validation PASS: $SOURCE_SHA"
