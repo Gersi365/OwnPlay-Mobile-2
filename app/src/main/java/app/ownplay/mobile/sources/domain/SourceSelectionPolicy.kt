@@ -5,12 +5,12 @@ object SourceSelectionPolicy {
         persistedSourceId: String?,
         sources: List<Source>,
     ): Source? {
-        val enabled = sources.filter(Source::enabled)
-        if (enabled.isEmpty()) return null
+        val selectable = sources.filter { source -> source.enabled && !source.requiresCredentials }
+        if (selectable.isEmpty()) return null
 
-        enabled.firstOrNull { it.sourceId == persistedSourceId }?.let { return it }
+        selectable.firstOrNull { it.sourceId == persistedSourceId }?.let { return it }
 
-        return enabled.sortedWith(
+        return selectable.sortedWith(
             compareByDescending<Source> { it.updatedAt }
                 .thenBy { it.createdAt }
                 .thenBy { it.sourceId },
