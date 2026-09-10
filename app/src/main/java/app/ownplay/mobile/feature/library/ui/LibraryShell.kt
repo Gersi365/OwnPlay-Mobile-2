@@ -79,6 +79,7 @@ import app.ownplay.mobile.playback.domain.PlaybackMedia
 import app.ownplay.mobile.playback.domain.PlaybackPhase
 import app.ownplay.mobile.playback.domain.PlaybackSnapshot
 import app.ownplay.mobile.playback.domain.VideoTarget
+import app.ownplay.mobile.playback.ui.PlayerLocalControlHudOverlay
 import app.ownplay.mobile.playback.ui.playerLocalVerticalControls
 import kotlin.math.roundToLong
 import kotlinx.coroutines.CoroutineScope
@@ -1035,6 +1036,10 @@ private fun LibraryFullscreenPlayer(
                 .clickable(interactionSource = interactionSource, indication = null) {
                     overlayVisible = !overlayVisible
                 },
+        )
+
+        PlayerLocalControlHudOverlay(
+            modifier = Modifier.align(Alignment.Center),
         )
 
         if (overlayVisible) {

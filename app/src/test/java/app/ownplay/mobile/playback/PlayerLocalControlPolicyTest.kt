@@ -18,6 +18,13 @@ class PlayerLocalControlPolicyTest {
     }
 
     @Test
+    fun `hud percentages clamp and round deterministically`() {
+        assertEquals(0, PlayerLocalControlPolicy.levelPercent(-0.5f))
+        assertEquals(65, PlayerLocalControlPolicy.levelPercent(0.646f))
+        assertEquals(100, PlayerLocalControlPolicy.levelPercent(1.5f))
+    }
+
+    @Test
     fun `volume hardware steps clamp to player range`() {
         assertEquals(1f, PlayerLocalControlPolicy.volumeAfterStep(0.99f, 1), 0.0001f)
         assertEquals(0f, PlayerLocalControlPolicy.volumeAfterStep(0.01f, -1), 0.0001f)

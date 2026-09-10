@@ -1,5 +1,7 @@
 package app.ownplay.mobile.playback.domain
 
+import kotlin.math.roundToInt
+
 object PlayerLocalControlPolicy {
     const val VOLUME_STEP: Float = 0.05f
     const val MIN_BRIGHTNESS: Float = 0.05f
@@ -16,6 +18,9 @@ object PlayerLocalControlPolicy {
     fun clampVolume(value: Float): Float = value.coerceIn(0f, MAX_LEVEL)
 
     fun clampBrightness(value: Float): Float = value.coerceIn(MIN_BRIGHTNESS, MAX_LEVEL)
+
+    fun levelPercent(value: Float): Int =
+        (value.coerceIn(0f, MAX_LEVEL) * 100f).roundToInt()
 
     fun volumeAfterStep(current: Float, direction: Int): Float {
         val signedStep = when {

@@ -22,6 +22,7 @@ import app.ownplay.mobile.playback.domain.PictureInPicturePolicy
 import app.ownplay.mobile.playback.domain.PlaybackSnapshot
 import app.ownplay.mobile.playback.domain.PlayerLocalControlPolicy
 import app.ownplay.mobile.playback.domain.VideoTarget
+import app.ownplay.mobile.playback.ui.PlayerLocalControlHud
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 
@@ -161,6 +162,7 @@ class MainActivity : ComponentActivity() {
         }
         val direction = if (keyCode == KeyEvent.KEYCODE_VOLUME_UP) 1 else -1
         appPlaybackVolume = PlayerLocalControlPolicy.volumeAfterStep(appPlaybackVolume, direction)
+        PlayerLocalControlHud.showVolume(appPlaybackVolume)
         lifecycleScope.launch {
             services.playbackController.setVolume(appPlaybackVolume)
         }

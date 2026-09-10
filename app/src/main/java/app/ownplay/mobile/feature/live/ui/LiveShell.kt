@@ -71,6 +71,7 @@ import app.ownplay.mobile.playback.domain.PlaybackLoadRequest
 import app.ownplay.mobile.playback.domain.PlaybackMedia
 import app.ownplay.mobile.playback.domain.PlaybackPhase
 import app.ownplay.mobile.playback.domain.VideoTarget
+import app.ownplay.mobile.playback.ui.PlayerLocalControlHudOverlay
 import app.ownplay.mobile.playback.ui.playerLocalVerticalControls
 import java.time.Instant
 import java.time.ZoneId
@@ -480,6 +481,10 @@ private fun PreviewSurface(
                 modifier = Modifier.fillMaxSize(),
             )
 
+            PlayerLocalControlHudOverlay(
+                modifier = Modifier.align(Alignment.Center),
+            )
+
             LiveBadge(
                 modifier = Modifier
                     .align(Alignment.TopStart)
@@ -680,6 +685,10 @@ private fun FullscreenLive(
                 ) {
                     overlayVisible = !overlayVisible
                 },
+        )
+
+        PlayerLocalControlHudOverlay(
+            modifier = Modifier.align(Alignment.Center),
         )
 
         if (overlayVisible) {

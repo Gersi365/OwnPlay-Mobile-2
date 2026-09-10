@@ -113,3 +113,11 @@ Physical QA round 3 findings and corrections
 - No Room schema change or migration is required: stable channel identity and provider stream ids already support EPG association at runtime.
 - No provider URL, username, password, token, stream URL, signing password, private key, or other secret is recorded here.
 - Exact final source validation and physical-device verification remain required. This source correction does not authorize or produce a new QA APK.
+
+Player-local HUD refinement
+- The user explicitly requested visible feedback while changing OwnPlay-local volume and brightness in Preview/fullscreen.
+- A compact transient HUD now displays VOLUME or BRIGHTNESS plus the current percentage for approximately 1.2 seconds after the latest adjustment. Continuous gestures refresh the timeout rather than stacking overlays.
+- The HUD is non-interactive and does not add Play/Pause, seek, fullscreen, close, generic Media3 controls, or persistent chrome to Live Preview.
+- Touch brightness continues to use only the activity Window brightness override; touch and physical +/- volume continue to use only ExoPlayer gain. No system volume or system brightness value is modified.
+- The same HUD is rendered in Live Preview, Live fullscreen, and unified Movie/Series/Offline fullscreen playback. PiP remains outside this control surface.
+- This is source-only evidence. Exact-head source validation is required, and physical-device behavior remains unverified until a later explicitly authorized QA APK is tested.

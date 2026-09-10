@@ -45,10 +45,15 @@ fun Modifier.playerLocalVerticalControls(
                 )
                 when (mode) {
                     PlayerGestureMode.BRIGHTNESS -> activity?.let { host ->
-                        host.setOwnPlayBrightness(host.currentOwnPlayBrightness() + delta)
+                        val brightness = PlayerLocalControlPolicy.clampBrightness(
+                            host.currentOwnPlayBrightness() + delta,
+                        )
+                        host.setOwnPlayBrightness(brightness)
+                        PlayerLocalControlHud.showBrightness(brightness)
                     }
                     PlayerGestureMode.VOLUME -> {
                         localVolume = PlayerLocalControlPolicy.clampVolume(localVolume + delta)
+                        PlayerLocalControlHud.showVolume(localVolume)
                         controllerScope.launch {
                             playbackController.setVolume(localVolume)
                         }
