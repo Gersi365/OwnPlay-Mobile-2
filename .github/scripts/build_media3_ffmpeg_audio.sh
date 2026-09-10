@@ -52,12 +52,23 @@ printf 'sdk.dir=%s\n' "$ANDROID_HOME" > "$MEDIA_DIR/local.properties"
 cd "$MEDIA_DIR"
 ./gradlew --no-daemon :lib-decoder-ffmpeg:assembleRelease
 
-# Media3 redirects project build directories under root buildout/.
-AAR_DIR="$MEDIA_DIR/buildout/lib-decoder-ffmpeg/outputs/aar"
-test -d "$AAR_DIR"
-mapfile -t AARS < <(find "$AAR_DIR" -maxdepth 1 -type f -name '*release.aar' -print)
-test "${#AARS[@]}" -eq 1
-AAR="${AARS[0]}"
+# Media3 redirects subproject build directories beneath root buildout/. Do not
+# depend on its artifact filename: identify the unique AAR by its renderer class.
+mapfile -t AAR_CANDIDATES < <(find "$MEDIA_DIR/buildout" -type f -path '*/outputs/aar/*.aar' -print | sort)
+printf 'AAR candidate: %s\n' "${AAR_CANDIDATES[@]}"
+test "${#AAR_CANDIDATES[@]}" -ge 1
+MATCHES=()
+for candidate in "${AAR_CANDIDATES[@]}"; do
+  classes="$WORK_DIR/classes-candidate.jar"
+  rm -f "$classes"
+  if unzip -p "$candidate" classes.jar > "$classes" 2>/dev/null \
+      && jar tf "$classes" | grep -q '^androidx/media3/decoder/ffmpeg/FfmpegAudioRenderer.class$'; then
+    MATCHES+=("$candidate")
+  fi
+done
+test "${#MATCHES[@]}" -eq 1
+AAR="${MATCHES[0]}"
+echo "Selected Media3 FFmpeg AAR: $AAR"
 
 unzip -l "$AAR" > "$WORK_DIR/aar-contents.txt"
 for abi in armeabi-v7a arm64-v8a x86 x86_64; do
