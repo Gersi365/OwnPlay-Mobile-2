@@ -1,0 +1,169 @@
+name: Stage 12 Live UI correction apply
+
+on:
+  push:
+    branches:
+      - stage12-live-ui-apply-helper
+    paths:
+      - .github/workflows/stage12-live-ui-apply.yml
+
+permissions:
+  contents: write
+
+env:
+  BASE_SHA: a62767867ed2c8dbf9453bbb663f3adf6d6f35a8
+  TARGET_BRANCH: stage-12-stabilization
+
+jobs:
+  validate-and-commit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout target branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TARGET_BRANCH }}
+          fetch-depth: 2
+
+      - name: Guard exact target base
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$BASE_SHA"
+          test -z "$(git status --porcelain)"
+          echo "Validated target base: $BASE_SHA"
+
+      - name: Apply validated Live UI correction
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          live = Path("app/src/main/java/app/ownplay/mobile/feature/live/ui/LiveShell.kt")
+          text = live.read_text()
+
+          def replace_once(old: str, new: str, label: str) -> None:
+              global text
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{label}: expected 1 match, found {count}")
+              text = text.replace(old, new, 1)
+
+          replace_once(
+              '''    fun dispatch(intent: LiveIntent) {\n        val transition = LivePresentationReducer.reduce(presentationState, intent)\n        presentationState = transition.state\n        transition.effects.forEach(::applyEffect)\n    }''',
+              '''    fun dispatch(intent: LiveIntent) {\n        val transition = LivePresentationReducer.reduce(presentationState, intent)\n        val wasFullscreen = presentationState.presentation == LivePresentation.FULLSCREEN\n        val isFullscreen = transition.state.presentation == LivePresentation.FULLSCREEN\n        if (wasFullscreen != isFullscreen) {\n            onFullscreenChanged(isFullscreen)\n        }\n        presentationState = transition.state\n        transition.effects.forEach(::applyEffect)\n    }''',
+              "dispatch fullscreen synchronization",
+          )
+
+          replace_once(
+              '''    val channels = catalog?.channels.orEmpty()\n    val categories = catalog?.categories.orEmpty()\n    var selectedCategoryKey by remember(catalog?.activeSourceId) { mutableStateOf<String?>(null) }\n    val visibleChannels = selectedCategoryKey?.let { key ->\n        channels.filter { channel -> channel.categoryKey == key }\n    } ?: channels\n    val selectedChannel = channels.firstOrNull { it.channelId == presentationState.selectedChannelId }''',
+              '''    val channels = catalog?.channels.orEmpty()\n    val categories = LiveBrowsePolicy.visibleCategories(catalog?.categories.orEmpty())\n    var selectedCategoryKey by remember(catalog?.activeSourceId) { mutableStateOf<String?>(null) }\n    val activeCategoryKey = LiveBrowsePolicy.activeCategoryKey(categories, selectedCategoryKey)\n    val visibleChannels = activeCategoryKey?.let { key ->\n        channels.filter { channel -> channel.categoryKey == key }\n    } ?: channels\n    val selectedChannel = channels.firstOrNull { it.channelId == presentationState.selectedChannelId }''',
+              "category visibility",
+          )
+
+          replace_once(
+              '''    LaunchedEffect(categories, selectedCategoryKey) {\n        if (selectedCategoryKey != null && categories.none { it.categoryKey == selectedCategoryKey }) {\n            selectedCategoryKey = null\n        }\n    }''',
+              '''    LaunchedEffect(categories, selectedCategoryKey) {\n        val resolvedCategoryKey = LiveBrowsePolicy.activeCategoryKey(categories, selectedCategoryKey)\n        if (selectedCategoryKey != resolvedCategoryKey) {\n            selectedCategoryKey = resolvedCategoryKey\n        }\n    }''',
+              "default category selection",
+          )
+
+          replace_once(
+              '''    LaunchedEffect(presentationState.presentation) {\n        onFullscreenChanged(presentationState.presentation == LivePresentation.FULLSCREEN)\n    }\n\n''',
+              '',
+              "remove delayed fullscreen callback",
+          )
+
+          replace_once(
+              '''            selectedCategoryKey = selectedCategoryKey,\n            onCategorySelected = { selectedCategoryKey = it },''',
+              '''            selectedCategoryKey = activeCategoryKey,\n            onCategorySelected = { categoryKey ->\n                selectedCategoryKey = categoryKey\n                if (\n                    presentationState.presentation == LivePresentation.PREVIEW &&\n                    selectedChannel?.categoryKey != categoryKey\n                ) {\n                    dispatch(LiveIntent.BackPressed)\n                }\n            },''',
+              "category change stops hidden preview",
+          )
+
+          replace_once(
+              '''        item {\n            Column(\n                modifier = Modifier.padding(horizontal = OwnPlaySpacing.Lg),\n                verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Lg),\n            ) {\n                PreviewSurface(\n                    selectedChannel = selectedChannel,\n                    playbackController = playbackController,\n                    controllerScope = controllerScope,\n                    playbackPhase = playbackPhase,\n                    resolutionError = resolutionError,\n                )\n\n                NowPlayingPanel(selectedChannel = selectedChannel)\n\n                OwnPlaySectionHeader(\n                    title = "All Channels",\n                    actionLabel = if (selectedChannel == null) {\n                        "Tap a channel to preview"\n                    } else {\n                        "Tap the selected channel for fullscreen"\n                    },\n                )\n            }\n        }''',
+              '''        item {\n            Box(modifier = Modifier.padding(horizontal = OwnPlaySpacing.Lg)) {\n                OwnPlaySectionHeader(\n                    title = "Channels",\n                    actionLabel = if (selectedChannel == null) {\n                        "Tap a channel to preview"\n                    } else {\n                        "Tap the selected channel again for fullscreen"\n                    },\n                )\n            }\n        }''',
+              "remove fixed top preview",
+          )
+
+          replace_once(
+              '''            else -> itemsIndexed(\n                items = channels,\n                key = { _, channel -> channel.channelId },\n            ) { index, channel ->\n                Box(\n                    modifier = Modifier\n                        .fillMaxWidth()\n                        .padding(horizontal = OwnPlaySpacing.Lg, vertical = OwnPlaySpacing.Xs),\n                ) {\n                    ChannelRow(\n                        number = (index + 1).toString().padStart(3, '0'),\n                        channel = channel,\n                        selected = channel.channelId == selectedChannel?.channelId,\n                        onClick = { onChannelTapped(channel) },\n                    )\n                }\n            }''',
+              '''            else -> itemsIndexed(\n                items = channels,\n                key = { _, channel -> channel.channelId },\n            ) { index, channel ->\n                val selected = channel.channelId == selectedChannel?.channelId\n                Column(\n                    modifier = Modifier\n                        .fillMaxWidth()\n                        .padding(horizontal = OwnPlaySpacing.Lg, vertical = OwnPlaySpacing.Xs),\n                    verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Xs),\n                ) {\n                    if (selected) {\n                        PreviewSurface(\n                            selectedChannel = channel,\n                            playbackController = playbackController,\n                            controllerScope = controllerScope,\n                            playbackPhase = playbackPhase,\n                            resolutionError = resolutionError,\n                        )\n                    }\n\n                    ChannelRow(\n                        number = (index + 1).toString().padStart(3, '0'),\n                        channel = channel,\n                        selected = selected,\n                        onClick = { onChannelTapped(channel) },\n                    )\n\n                    if (selected) {\n                        NowPlayingPanel(selectedChannel = channel)\n                    }\n                }\n            }''',
+              "inline preview above selected channel",
+          )
+
+          replace_once(
+              '''    ) {\n        item(key = "all") {\n            ProviderCategoryChip("All", selectedCategoryKey == null) { onSelected(null) }\n        }\n        items(categories, key = { it.categoryKey }) { category ->''',
+              '''    ) {\n        items(categories, key = { it.categoryKey }) { category ->''',
+              "remove All category chip",
+          )
+          live.write_text(text)
+
+          main = Path("app/src/main/java/app/ownplay/mobile/MainActivity.kt")
+          main_text = main.read_text()
+          old_import = '''import androidx.activity.enableEdgeToEdge\nimport androidx.lifecycle.lifecycleScope'''
+          new_import = '''import androidx.activity.enableEdgeToEdge\nimport androidx.core.view.WindowCompat\nimport androidx.core.view.WindowInsetsCompat\nimport androidx.core.view.WindowInsetsControllerCompat\nimport androidx.lifecycle.lifecycleScope'''
+          if main_text.count(old_import) != 1:
+              raise SystemExit("MainActivity imports: expected one match")
+          main_text = main_text.replace(old_import, new_import, 1)
+          old_callback = '''                onFullscreenChanged = { fullscreen ->\n                    contentFullscreen = fullscreen\n                    updatePictureInPictureParams()\n                },'''
+          new_callback = '''                onFullscreenChanged = { fullscreen ->\n                    contentFullscreen = fullscreen\n                    setImmersiveFullscreen(fullscreen)\n                    updatePictureInPictureParams()\n                },'''
+          if main_text.count(old_callback) != 1:
+              raise SystemExit("MainActivity fullscreen callback: expected one match")
+          main_text = main_text.replace(old_callback, new_callback, 1)
+          marker = '''    private fun canEnterPictureInPicture(): Boolean = PictureInPicturePolicy.canEnter('''
+          method = '''    private fun setImmersiveFullscreen(fullscreen: Boolean) {\n        val controller = WindowCompat.getInsetsController(window, window.decorView)\n        if (fullscreen) {\n            controller.systemBarsBehavior =\n                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE\n            controller.hide(WindowInsetsCompat.Type.systemBars())\n        } else {\n            controller.show(WindowInsetsCompat.Type.systemBars())\n        }\n    }\n\n'''
+          if main_text.count(marker) != 1:
+              raise SystemExit("MainActivity immersive marker: expected one match")
+          main_text = main_text.replace(marker, method + marker, 1)
+          main.write_text(main_text)
+
+          policy = Path("app/src/main/java/app/ownplay/mobile/feature/live/ui/LiveBrowsePolicy.kt")
+          policy.write_text('''package app.ownplay.mobile.feature.live.ui\n\nimport app.ownplay.mobile.feature.live.domain.LiveCategory\n\ninternal object LiveBrowsePolicy {\n    private val hiddenCategoryLabels = setOf(\n        "all",\n        "account information",\n        "account info",\n    )\n\n    fun visibleCategories(categories: List<LiveCategory>): List<LiveCategory> =\n        categories.filterNot { category ->\n            category.name.trim().lowercase() in hiddenCategoryLabels\n        }\n\n    fun activeCategoryKey(\n        categories: List<LiveCategory>,\n        requestedCategoryKey: String?,\n    ): String? = requestedCategoryKey\n        ?.takeIf { key -> categories.any { category -> category.categoryKey == key } }\n        ?: categories.firstOrNull()?.categoryKey\n}\n''')
+
+          test = Path("app/src/test/java/app/ownplay/mobile/feature/live/ui/LiveBrowsePolicyTest.kt")
+          test.parent.mkdir(parents=True, exist_ok=True)
+          test.write_text('''package app.ownplay.mobile.feature.live.ui\n\nimport app.ownplay.mobile.feature.live.domain.LiveCategory\nimport org.junit.Assert.assertEquals\nimport org.junit.Test\n\nclass LiveBrowsePolicyTest {\n    @Test\n    fun `provider utility categories are hidden and first real category becomes active`() {\n        val categories = listOf(\n            LiveCategory("all", "All", 0),\n            LiveCategory("account", "Account Information", 1),\n            LiveCategory("news", "News", 2),\n            LiveCategory("sports", "Sports", 3),\n        )\n        val visible = LiveBrowsePolicy.visibleCategories(categories)\n        assertEquals(listOf("news", "sports"), visible.map { it.categoryKey })\n        assertEquals("news", LiveBrowsePolicy.activeCategoryKey(visible, null))\n        assertEquals("sports", LiveBrowsePolicy.activeCategoryKey(visible, "sports"))\n        assertEquals("news", LiveBrowsePolicy.activeCategoryKey(visible, "missing"))\n    }\n}\n''')
+          PY
+          git diff --check
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK 36
+        shell: bash
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Set up Gradle 9.6.0
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.6.0'
+          cache-read-only: true
+
+      - name: Validate source without APK
+        shell: bash
+        run: bash tools/validate-source-no-apk.sh
+
+      - name: Commit and fast-forward target branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_BRANCH"
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$BASE_SHA"
+          git config user.name "Gersi365"
+          git config user.email "Gersi365@outlook.com"
+          git add \
+            app/src/main/java/app/ownplay/mobile/MainActivity.kt \
+            app/src/main/java/app/ownplay/mobile/feature/live/ui/LiveShell.kt \
+            app/src/main/java/app/ownplay/mobile/feature/live/ui/LiveBrowsePolicy.kt \
+            app/src/test/java/app/ownplay/mobile/feature/live/ui/LiveBrowsePolicyTest.kt
+          git commit -m "Fix Live preview and immersive fullscreen"
+          new_sha="$(git rev-parse HEAD)"
+          git push origin "HEAD:$TARGET_BRANCH"
+          echo "Committed validated source HEAD: $new_sha"
