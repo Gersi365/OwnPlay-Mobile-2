@@ -20,14 +20,15 @@ jobs:
       - name: Checkout helper branch
         uses: actions/checkout@v4
         with:
-          fetch-depth: 5
+          fetch-depth: 1
 
       - name: Pin exact source base and preserve helper
         shell: bash
         run: |
           set -euo pipefail
           cp tools/stage12_round4_critical_patch.py /tmp/stage12_round4_critical_patch.py
-          git checkout --detach "$SOURCE_SHA"
+          git fetch --no-tags --depth=1 origin "$SOURCE_SHA"
+          git checkout --detach FETCH_HEAD
           test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
           test -z "$(git status --porcelain)"
 
