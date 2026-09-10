@@ -18,6 +18,24 @@ if [[ -n "$existing_artifacts" ]]; then
   exit 2
 fi
 
+# Require the baseline in HEAD, then reject staged, unstaged, untracked, and
+# ignored schema changes both before and after Room generation.
+schema_file="app/schemas/app.ownplay.mobile.data.db.OwnPlayDatabase/1.json"
+verify_room_schema_tree() {
+  if [[ ! -f "$schema_file" ]] || ! git cat-file -e "HEAD:$schema_file"; then
+    echo "ERROR: Room schema v1 must exist and be committed in HEAD." >&2
+    exit 5
+  fi
+  local schema_status
+  schema_status="$(git status --porcelain=v1 --untracked-files=all --ignored -- app/schemas)"
+  if [[ -n "$schema_status" ]]; then
+    echo "ERROR: Room schema tree differs from committed HEAD:" >&2
+    printf '%s\n' "$schema_status" >&2
+    exit 5
+  fi
+}
+verify_room_schema_tree
+
 if [[ -x "./gradlew" ]]; then
   GRADLE_CMD=("./gradlew")
 elif command -v gradle >/dev/null 2>&1; then
@@ -31,18 +49,13 @@ fi
   :app:compileDebugKotlin \
   :app:testDebugUnitTest \
   :app:lintDebug \
+  --rerun-tasks \
+  --no-build-cache \
   --stacktrace
 
-# Stage 3 bootstrap evidence only: emit the generated Room schema as one
-# compressed/encoded log record, then replace this with a committed-schema check.
-schema_file="app/schemas/app.ownplay.mobile.data.db.OwnPlayDatabase/1.json"
-if [[ ! -f "$schema_file" ]]; then
-  echo "ERROR: Room schema v1 was not generated at $schema_file" >&2
-  exit 5
-fi
-printf 'ROOM_SCHEMA_GZIP_BASE64='
-gzip -c "$schema_file" | base64 -w0
-printf '\n'
+verify_room_schema_tree
+
+echo "PASS: generated Room schemas match committed HEAD; schema tree is clean."
 
 created_artifacts="$(find_packaged_artifacts)"
 if [[ -n "$created_artifacts" ]]; then

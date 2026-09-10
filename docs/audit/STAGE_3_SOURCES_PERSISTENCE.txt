@@ -101,3 +101,42 @@ Required evidence:
 Physical/integration QA boundary
 --------------------------------
 Real provider behavior, secure-store behavior on physical Android hardware, network edge cases, and visual/source-management interaction acceptance are not claimed by source CI.
+
+Generated-schema bootstrap closure
+----------------------------------
+Continuation pre-mutation audit (2026-09-10):
+- authoritative repository: Gersi365/OwnPlay-Mobile-2 (id 1363013518)
+- existing branch: stage-3-sources-persistence
+- audited HEAD: 1692205dcc88cbec481c90626293710680912d8f
+- PR #4: open, draft, unmerged; base stage-2-design-system-shell at
+  d2730789811d71122c30fb0571f4c4ced8c3877f
+- active path: android-validation-no-apk.yml -> tools/validate-source-no-apk.sh
+- bootstrap workflow still had contents: write, schema dump, and schema commit step
+
+Bootstrap provenance:
+- run 34408631313 / job 102657556036 completed successfully on source
+  33fda7982e30557c920aca0ed1d62f9c60ddaa4f
+- logs verified exact source checkout, BUILD SUCCESSFUL, and zero APK/AAB
+- the successful bootstrap step created 1692205dcc88cbec481c90626293710680912d8f
+  with only app/schemas/app.ownplay.mobile.data.db.OwnPlayDatabase/1.json
+- decoded schema from that CI log matched the committed file byte-for-byte
+- schema version: 1; entities: 13
+- Room identity hash: ffe45d65c6c41732b9dfa8e2255ba486
+- schema SHA-256: 71acb8e5c2ad6a40b3d6f41ab7840a0804eaed50dd70d2be443f50f2c0122597
+- run 34408932234 for the bot schema commit ended action_required with no jobs;
+  it is not a validation PASS for that HEAD
+
+Permanent validation:
+- restore workflow permissions to contents: read
+- disable checkout credential persistence
+- remove automatic schema commit/push and compressed schema log dump
+- require schema v1 to exist in both the working tree and committed HEAD
+- reject staged, unstaged, untracked, or ignored schema-tree changes before/after build
+- rerun validation tasks without build-cache reuse so Room generation executes
+- retain Kotlin compilation, unit tests, lint, and no-APK/AAB checks
+- final exact-HEAD CI outcome must be read live and reported after this commit;
+  this audit does not predeclare that future run successful
+
+Scope remains source-only on the existing Stage 3 branch. No application/database
+model changes, merge, ready-for-review, APK/AAB generation, signing, release,
+deployment, legacy-repository access, or physical-device QA occurred in closure.
