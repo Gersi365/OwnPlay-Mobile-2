@@ -37,6 +37,25 @@ Security boundary
 - ResolvedLibraryPlayback.toString() redacts the URI.
 - Completed-download display does not expose localReference or integrityMetadata values to the UI.
 
+Verified correction history
+- Initial Stage 6 implementation commit: 00279b7de9394516c49460678321f5dc201c9f86 (Add Library and media details).
+- A forward-only correction commit 1a489f9f5cc6862febdf165e2e77004461ee1e12 fixed the Library resume policy constructor usage discovered during validation.
+- Exact-head GitHub Actions run 34445671218 on 1a489f9f5cc6862febdf165e2e77004461ee1e12 then failed at :app:compileDebugKotlin because LibraryShell.kt attempted to call the suspend currentSnapshot() function from a default parameter value. This was a verified source defect, not an environment failure.
+- Forward-only correction commit 972b3bcdc829039d5643a9682fc0bcd66cae74f0 (Fix Library fullscreen playback state) removed the unsupported suspend default-parameter call and kept the fullscreen Play/Pause presentation synchronized with playWhenReady.
+- No reset, rebase, force-push, or history rewrite was used for these corrections.
+
+Validated implementation evidence
+- Exact validated implementation HEAD: 972b3bcdc829039d5643a9682fc0bcd66cae74f0.
+- GitHub Actions workflow run: 34446193100, job 102771394799.
+- Checkout and exact-source verification both passed for 972b3bcdc829039d5643a9682fc0bcd66cae74f0.
+- :app:compileDebugKotlin passed.
+- :app:testDebugUnitTest passed.
+- :app:lintDebug passed.
+- Generated Room schemas matched committed HEAD and app/schemas remained clean.
+- Source-only validation explicitly reported that no APK/AAB was produced.
+- The compiler emitted four non-blocking warnings for unnecessary non-null assertions in LibraryShell.kt; lint and the overall validation run remained successful. These warnings do not alter the validated behavior or acceptance boundary.
+- This audit evidence update changes documentation only. The branch HEAD after this evidence commit must also pass the same exact-head source-only workflow before Phase 6 is reported complete.
+
 Validation contract
 - Exact-head GitHub Actions source validation must pass :app:compileDebugKotlin, :app:testDebugUnitTest, and :app:lintDebug.
 - Generated Room schemas must match committed HEAD with a clean app/schemas tree.
