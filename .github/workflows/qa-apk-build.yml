@@ -1,0 +1,99 @@
+name: QA APK build
+
+on:
+  push:
+    branches:
+      - qa-apk-build-9477477
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CANDIDATE_SHA: 94774775c9cd1760d3a227f3eba3210f268eb5df
+      EXPECTED_SIGNER_SHA256: f88558b74db2d58b5a320f0aff7a952ec2ac02ca67c312163d4af0c3c67b4c9b
+
+    steps:
+      - name: Checkout exact QA candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
+          persist-credentials: false
+
+      - name: Verify exact QA candidate
+        shell: bash
+        run: |
+          actual_sha="$(git rev-parse HEAD)"
+          test "$actual_sha" = "$CANDIDATE_SHA"
+          echo "QA candidate HEAD: $actual_sha"
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK 36
+        shell: bash
+        run: |
+          sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Preserve QA signing identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          DEBUG_KEYSTORE="$HOME/.android/debug.keystore"
+          if [[ ! -f "$DEBUG_KEYSTORE" ]]; then
+            echo "::error::Previous QA debug signing key is not present on this hosted runner. Refusing to create a replacement APK with a different signer."
+            exit 1
+          fi
+          actual_signer="$(keytool -list -v -keystore "$DEBUG_KEYSTORE" -storepass android -alias androiddebugkey 2>/dev/null | awk -F': ' '/SHA256:/{print $2; exit}' | tr -d ':' | tr '[:upper:]' '[:lower:]')"
+          if [[ "$actual_signer" != "$EXPECTED_SIGNER_SHA256" ]]; then
+            echo "::error::Hosted runner debug signer does not match the Stage 11 QA APK signer. Refusing signing-identity change."
+            exit 1
+          fi
+          echo "QA debug signer continuity verified: $actual_signer"
+
+      - name: Set up Gradle 9.6.0
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.6.0'
+
+      - name: Build QA debug APK
+        shell: bash
+        run: gradle --no-daemon :app:assembleDebug
+
+      - name: Collect QA metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="app/build/outputs/apk/debug/app-debug.apk"
+          test -f "$APK"
+          mkdir -p qa-artifact
+          cp "$APK" qa-artifact/OwnPlay-QA-9477477.apk
+          sha256sum qa-artifact/OwnPlay-QA-9477477.apk | tee qa-artifact/APK_SHA256.txt
+          APKSIGNER="${ANDROID_SDK_ROOT}/build-tools/36.0.0/apksigner"
+          AAPT="${ANDROID_SDK_ROOT}/build-tools/36.0.0/aapt"
+          "$APKSIGNER" verify --print-certs qa-artifact/OwnPlay-QA-9477477.apk | tee qa-artifact/APKSIGNER_CERTS.txt
+          "$AAPT" dump badging qa-artifact/OwnPlay-QA-9477477.apk | head -n 5 | tee qa-artifact/PACKAGE_BADGING.txt
+          {
+            echo "candidate_sha=$CANDIDATE_SHA"
+            echo "source_branch=stage-12-stabilization"
+            echo "artifact=OwnPlay-QA-9477477.apk"
+            echo "build_task=:app:assembleDebug"
+            echo "expected_signer_sha256=$EXPECTED_SIGNER_SHA256"
+          } > qa-artifact/QA_BUILD_METADATA.txt
+
+      - name: Upload QA APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ownplay-qa-apk-9477477
+          path: qa-artifact/
+          if-no-files-found: error
+          retention-days: 14
