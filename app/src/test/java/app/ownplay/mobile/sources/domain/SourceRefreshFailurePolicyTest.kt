@@ -29,6 +29,13 @@ class SourceRefreshFailurePolicyTest {
     }
 
     @Test
+    fun `provider server errors are grouped safely`() {
+        val error = SourceRefreshFailurePolicy.present("HTTP_503")
+
+        assertEquals("REFRESH_PROVIDER_HTTP", error.code)
+    }
+
+    @Test
     fun `incompatible provider payload gives Xtream-specific guidance`() {
         val error = SourceRefreshFailurePolicy.present("XTREAM_ARRAY_FORMAT")
 
