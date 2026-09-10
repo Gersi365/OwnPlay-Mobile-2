@@ -11,8 +11,10 @@ object SourceRefreshFailurePolicy {
         fun has(code: String): Boolean = codes.any { it.equals(code, ignoreCase = true) }
         fun hasPrefix(prefix: String): Boolean = codes.any { it.startsWith(prefix, ignoreCase = true) }
         fun hasHttpStatus(range: IntRange): Boolean = codes.any { code ->
-            code.removePrefix("HTTP_").takeIf { code.startsWith("HTTP_", ignoreCase = true) }
-                ?.toIntOrNull() in range
+            code.takeIf { it.startsWith("HTTP_", ignoreCase = true) }
+                ?.substringAfter('_')
+                ?.toIntOrNull()
+                ?.let(range::contains) == true
         }
 
         return when {
