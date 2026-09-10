@@ -26,4 +26,10 @@ class OwnPlayApplication : Application() {
                 .collect(services.providerRefreshScheduler::syncIntervalHours)
         }
     }
+
+    fun stopPlaybackForActivityFinish() {
+        applicationScope.launch {
+            services.playbackController.stop(clearMedia = true)
+        }
+    }
 }

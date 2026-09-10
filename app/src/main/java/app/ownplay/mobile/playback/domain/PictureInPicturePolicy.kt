@@ -6,7 +6,7 @@ object PictureInPicturePolicy {
         contentFullscreen: Boolean,
         playback: PlaybackSnapshot,
     ): Boolean {
-        if (!enabled || !contentFullscreen || playback.mediaId == null) {
+        if (!enabled || !contentFullscreen || playback.mediaId == null || !playback.playWhenReady) {
             return false
         }
         if (playback.activeTarget != VideoTarget.FULLSCREEN && playback.activeTarget != VideoTarget.PIP) {

@@ -45,6 +45,17 @@ class PictureInPicturePolicyTest {
     }
 
     @Test
+    fun pausedPlaybackCannotAutoEnterPictureInPicture() {
+        assertFalse(
+            PictureInPicturePolicy.canEnter(
+                enabled = true,
+                contentFullscreen = true,
+                playback = playback().copy(playWhenReady = false),
+            ),
+        )
+    }
+
+    @Test
     fun previewTargetCannotEnterPictureInPicture() {
         assertFalse(
             PictureInPicturePolicy.canEnter(

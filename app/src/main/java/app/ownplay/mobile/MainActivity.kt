@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
+    private lateinit var ownPlayApplication: OwnPlayApplication
     private lateinit var services: OwnPlayServices
     private var contentFullscreen = false
     private var pictureInPictureEnabled = true
@@ -28,7 +29,8 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        services = (application as OwnPlayApplication).services
+        ownPlayApplication = application as OwnPlayApplication
+        services = ownPlayApplication.services
 
         lifecycleScope.launch {
             combine(
@@ -107,9 +109,9 @@ class MainActivity : ComponentActivity() {
     override fun onStop() {
         if (!isChangingConfigurations) {
             when {
-                isFinishing -> lifecycleScope.launch {
+                isFinishing -> {
                     resumePlaybackAfterBackground = false
-                    services.playbackController.stop(clearMedia = true)
+                    ownPlayApplication.stopPlaybackForActivityFinish()
                 }
 
                 !isInPictureInPictureMode -> {
