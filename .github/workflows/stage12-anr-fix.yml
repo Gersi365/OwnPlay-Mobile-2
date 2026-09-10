@@ -1,0 +1,155 @@
+name: Stage 12 ANR stabilization patch
+
+on:
+  push:
+    branches:
+      - tooling-stage12-anr-fix
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      EXPECTED_BASE_SHA: 94774775c9cd1760d3a227f3eba3210f268eb5df
+      TARGET_BRANCH: stage-12-stabilization
+
+    steps:
+      - name: Checkout exact Stage 12 branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TARGET_BRANCH }}
+          fetch-depth: 1
+
+      - name: Verify exact stabilization base
+        shell: bash
+        run: |
+          actual_sha="$(git rev-parse HEAD)"
+          test "$actual_sha" = "$EXPECTED_BASE_SHA"
+          echo "Stage 12 stabilization base: $actual_sha"
+
+      - name: Apply physical-QA ANR fixes
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              p = Path(path)
+              text = p.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{path}: expected one match, found {count}")
+              p.write_text(text.replace(old, new, 1))
+
+          loader = "app/src/main/java/app/ownplay/mobile/sources/data/SourceCatalogLoader.kt"
+          replace_once(
+              loader,
+              "import java.util.Locale\n",
+              "import java.util.Locale\nimport kotlinx.coroutines.Dispatchers\nimport kotlinx.coroutines.withContext\n",
+          )
+          replace_once(
+              loader,
+              '''    suspend fun load(\n        source: Source,\n        credential: SourceCredential,\n    ): ProviderRefreshPayload = when (source.type) {\n        SourceType.XTREAM -> loadXtream(source, credential)\n        SourceType.M3U -> loadM3u(source, credential)\n    }\n''',
+              '''    suspend fun load(\n        source: Source,\n        credential: SourceCredential,\n    ): ProviderRefreshPayload = withContext(Dispatchers.Default) {\n        when (source.type) {\n            SourceType.XTREAM -> loadXtream(source, credential)\n            SourceType.M3U -> loadM3u(source, credential)\n        }\n    }\n''',
+          )
+
+          security = "app/src/main/java/app/ownplay/mobile/sources/domain/SourceConnectionSecurityPolicy.kt"
+          replace_once(
+              security,
+              '''    const val CLEAR_TEXT_WARNING =\n        "This source uses HTTP. Provider credentials and traffic are not protected by TLS. Use HTTPS when the provider supports it."\n''',
+              '''    const val CLEAR_TEXT_WARNING =\n        "HTTP is supported for providers that do not offer HTTPS. Credentials and traffic are not protected by TLS, so use this connection only with a provider and network you trust."\n''',
+          )
+
+          source_ui = "app/src/main/java/app/ownplay/mobile/feature/settings/ui/SourceManagementScreen.kt"
+          replace_once(source_ui, 'title = "HTTP connection",', 'title = "HTTP provider",')
+
+          live = "app/src/main/java/app/ownplay/mobile/feature/live/ui/LiveShell.kt"
+          replace_once(
+              live,
+              '''import androidx.compose.foundation.layout.width\nimport androidx.compose.foundation.rememberScrollState\nimport androidx.compose.foundation.shape.RoundedCornerShape\nimport androidx.compose.foundation.verticalScroll\n''',
+              '''import androidx.compose.foundation.layout.width\nimport androidx.compose.foundation.lazy.LazyColumn\nimport androidx.compose.foundation.lazy.itemsIndexed\nimport androidx.compose.foundation.shape.RoundedCornerShape\n''',
+          )
+          replace_once(
+              live,
+              '''@Composable\nprivate fun LiveBrowseAndPreview(\n    catalog: LiveCatalog?,\n    channels: List<LiveChannel>,\n    selectedChannel: LiveChannel?,\n    playbackController: PlaybackController,\n    controllerScope: CoroutineScope,\n    playbackPhase: PlaybackPhase,\n    resolutionError: String?,\n    onChannelTapped: (LiveChannel) -> Unit,\n    modifier: Modifier = Modifier,\n) {\n    Column(\n        modifier = modifier\n            .fillMaxSize()\n            .verticalScroll(rememberScrollState()),\n    ) {\n        OwnPlayTopBar(showTagline = false)\n\n        Column(\n            modifier = Modifier.padding(horizontal = OwnPlaySpacing.Lg),\n            verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Lg),\n        ) {\n            PreviewSurface(\n                selectedChannel = selectedChannel,\n                playbackController = playbackController,\n                controllerScope = controllerScope,\n                playbackPhase = playbackPhase,\n                resolutionError = resolutionError,\n            )\n\n            NowPlayingPanel(selectedChannel = selectedChannel)\n\n            OwnPlaySectionHeader(\n                title = "All Channels",\n                actionLabel = if (selectedChannel == null) {\n                    "Tap a channel to preview"\n                } else {\n                    "Tap the selected channel for fullscreen"\n                },\n            )\n\n            when {\n                catalog == null -> OwnPlayStatePanel(\n                    title = "Loading Live",\n                    message = "Reading the active source and cached channels.",\n                )\n\n                catalog.activeSourceId == null -> OwnPlayStatePanel(\n                    title = "No active source",\n                    message = "Add or select a source in Settings to populate Live channels.",\n                )\n\n                channels.isEmpty() -> OwnPlayStatePanel(\n                    title = "No channels available",\n                    message = "Refresh ${catalog.activeSourceName ?: "the active source"} to load Live channels.",\n                )\n\n                else -> Column(verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm)) {\n                    channels.forEachIndexed { index, channel ->\n                        ChannelRow(\n                            number = (index + 1).toString().padStart(3, '0'),\n                            channel = channel,\n                            selected = channel.channelId == selectedChannel?.channelId,\n                            onClick = { onChannelTapped(channel) },\n                        )\n                    }\n                }\n            }\n\n            Spacer(modifier = Modifier.height(OwnPlaySpacing.Xl))\n        }\n    }\n}\n''',
+              '''@Composable\nprivate fun LiveBrowseAndPreview(\n    catalog: LiveCatalog?,\n    channels: List<LiveChannel>,\n    selectedChannel: LiveChannel?,\n    playbackController: PlaybackController,\n    controllerScope: CoroutineScope,\n    playbackPhase: PlaybackPhase,\n    resolutionError: String?,\n    onChannelTapped: (LiveChannel) -> Unit,\n    modifier: Modifier = Modifier,\n) {\n    LazyColumn(\n        modifier = modifier.fillMaxSize(),\n    ) {\n        item {\n            OwnPlayTopBar(showTagline = false)\n        }\n\n        item {\n            Column(\n                modifier = Modifier.padding(horizontal = OwnPlaySpacing.Lg),\n                verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Lg),\n            ) {\n                PreviewSurface(\n                    selectedChannel = selectedChannel,\n                    playbackController = playbackController,\n                    controllerScope = controllerScope,\n                    playbackPhase = playbackPhase,\n                    resolutionError = resolutionError,\n                )\n\n                NowPlayingPanel(selectedChannel = selectedChannel)\n\n                OwnPlaySectionHeader(\n                    title = "All Channels",\n                    actionLabel = if (selectedChannel == null) {\n                        "Tap a channel to preview"\n                    } else {\n                        "Tap the selected channel for fullscreen"\n                    },\n                )\n            }\n        }\n\n        when {\n            catalog == null -> item {\n                Box(modifier = Modifier.padding(horizontal = OwnPlaySpacing.Lg, vertical = OwnPlaySpacing.Sm)) {\n                    OwnPlayStatePanel(\n                        title = "Loading Live",\n                        message = "Reading the active source and cached channels.",\n                    )\n                }\n            }\n\n            catalog.activeSourceId == null -> item {\n                Box(modifier = Modifier.padding(horizontal = OwnPlaySpacing.Lg, vertical = OwnPlaySpacing.Sm)) {\n                    OwnPlayStatePanel(\n                        title = "No active source",\n                        message = "Add or select a source in Settings to populate Live channels.",\n                    )\n                }\n            }\n\n            channels.isEmpty() -> item {\n                Box(modifier = Modifier.padding(horizontal = OwnPlaySpacing.Lg, vertical = OwnPlaySpacing.Sm)) {\n                    OwnPlayStatePanel(\n                        title = "No channels available",\n                        message = "Refresh ${catalog.activeSourceName ?: "the active source"} to load Live channels.",\n                    )\n                }\n            }\n\n            else -> itemsIndexed(\n                items = channels,\n                key = { _, channel -> channel.channelId },\n            ) { index, channel ->\n                Box(\n                    modifier = Modifier\n                        .fillMaxWidth()\n                        .padding(horizontal = OwnPlaySpacing.Lg, vertical = OwnPlaySpacing.Xs),\n                ) {\n                    ChannelRow(\n                        number = (index + 1).toString().padStart(3, '0'),\n                        channel = channel,\n                        selected = channel.channelId == selectedChannel?.channelId,\n                        onClick = { onChannelTapped(channel) },\n                    )\n                }\n            }\n        }\n\n        item {\n            Spacer(modifier = Modifier.height(OwnPlaySpacing.Xl))\n        }\n    }\n}\n''',
+          )
+
+          library = "app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryShell.kt"
+          replace_once(library, "import androidx.compose.foundation.horizontalScroll\n", "")
+          replace_once(
+              library,
+              "import androidx.compose.foundation.layout.width\n",
+              "import androidx.compose.foundation.layout.width\nimport androidx.compose.foundation.lazy.LazyRow\nimport androidx.compose.foundation.lazy.items\n",
+          )
+          replace_once(library, "MovieRow(\n                    items = catalog?.movies.orEmpty(),", "MovieRow(\n                    movies = catalog?.movies.orEmpty(),")
+          replace_once(library, "SeriesRow(\n                    items = catalog?.series.orEmpty(),", "SeriesRow(\n                    seriesItems = catalog?.series.orEmpty(),")
+          replace_once(library, "DownloadedRow(\n                    items = catalog?.downloadedMedia.orEmpty(),", "DownloadedRow(\n                    mediaItems = catalog?.downloadedMedia.orEmpty(),")
+          replace_once(
+              library,
+              '''@Composable\nprivate fun MovieRow(items: List<LibraryMovie>, onMovieSelected: (LibraryMovie) -> Unit) {\n    Row(\n        modifier = Modifier\n            .fillMaxWidth()\n            .horizontalScroll(rememberScrollState()),\n        horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),\n    ) {\n        items.forEach { movie ->\n            PosterCard(\n                title = movie.name,\n                eyebrow = movie.rating?.let { "★ $it" } ?: "MOVIE",\n                onClick = { onMovieSelected(movie) },\n            )\n        }\n    }\n}\n''',
+              '''@Composable\nprivate fun MovieRow(movies: List<LibraryMovie>, onMovieSelected: (LibraryMovie) -> Unit) {\n    LazyRow(\n        modifier = Modifier.fillMaxWidth(),\n        horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),\n    ) {\n        items(\n            items = movies,\n            key = { movie -> movie.movieId },\n        ) { movie ->\n            PosterCard(\n                title = movie.name,\n                eyebrow = movie.rating?.let { "★ $it" } ?: "MOVIE",\n                onClick = { onMovieSelected(movie) },\n            )\n        }\n    }\n}\n''',
+          )
+          replace_once(
+              library,
+              '''@Composable\nprivate fun SeriesRow(items: List<LibrarySeries>, onSeriesSelected: (LibrarySeries) -> Unit) {\n    Row(\n        modifier = Modifier\n            .fillMaxWidth()\n            .horizontalScroll(rememberScrollState()),\n        horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),\n    ) {\n        items.forEach { series ->\n            PosterCard(\n                title = series.name,\n                eyebrow = series.rating?.let { "★ $it" } ?: "SERIES",\n                onClick = { onSeriesSelected(series) },\n            )\n        }\n    }\n}\n''',
+              '''@Composable\nprivate fun SeriesRow(seriesItems: List<LibrarySeries>, onSeriesSelected: (LibrarySeries) -> Unit) {\n    LazyRow(\n        modifier = Modifier.fillMaxWidth(),\n        horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),\n    ) {\n        items(\n            items = seriesItems,\n            key = { series -> series.seriesId },\n        ) { series ->\n            PosterCard(\n                title = series.name,\n                eyebrow = series.rating?.let { "★ $it" } ?: "SERIES",\n                onClick = { onSeriesSelected(series) },\n            )\n        }\n    }\n}\n''',
+          )
+          replace_once(
+              library,
+              '''private fun DownloadedRow(\n    items: List<LibraryDownloadedMedia>,\n    downloads: List<DownloadItem>,\n    onAction: (LibraryDownloadedMedia, DownloadItem, DownloadAction) -> Unit,\n) {\n    val byId = remember(downloads) { downloads.associateBy { it.downloadId } }\n    Row(\n        modifier = Modifier\n            .fillMaxWidth()\n            .horizontalScroll(rememberScrollState()),\n        horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),\n    ) {\n        items.forEach { media ->\n            OwnPlayPanel(modifier = Modifier.width(250.dp)) {\n''',
+              '''private fun DownloadedRow(\n    mediaItems: List<LibraryDownloadedMedia>,\n    downloads: List<DownloadItem>,\n    onAction: (LibraryDownloadedMedia, DownloadItem, DownloadAction) -> Unit,\n) {\n    val byId = remember(downloads) { downloads.associateBy { it.downloadId } }\n    LazyRow(\n        modifier = Modifier.fillMaxWidth(),\n        horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),\n    ) {\n        items(\n            items = mediaItems,\n            key = { media -> media.downloadId },\n        ) { media ->\n            OwnPlayPanel(modifier = Modifier.width(250.dp)) {\n''',
+          )
+
+          test = "app/src/test/java/app/ownplay/mobile/sources/domain/SourceConnectionSecurityPolicyTest.kt"
+          replace_once(
+              test,
+              '''        assertTrue(SourceConnectionSecurityPolicy.isCleartext("http://provider.test:8080"))\n        assertNotNull(SourceConnectionSecurityPolicy.warning("http://provider.test:8080"))\n''',
+              '''        assertTrue(SourceConnectionSecurityPolicy.isCleartext("http://provider.test:8080"))\n        val warning = SourceConnectionSecurityPolicy.warning("http://provider.test:8080")\n        assertNotNull(warning)\n        assertTrue(requireNotNull(warning).contains("supported", ignoreCase = true))\n''',
+          )
+          PY
+
+          git diff --check
+          echo "Changed files:"
+          git diff --name-only
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK 36
+        shell: bash
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Set up Gradle 9.6.0
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.6.0'
+
+      - name: Validate source without APK generation
+        shell: bash
+        run: bash tools/validate-source-no-apk.sh
+
+      - name: Commit validated stabilization fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            app/src/main/java/app/ownplay/mobile/sources/data/SourceCatalogLoader.kt \
+            app/src/main/java/app/ownplay/mobile/sources/domain/SourceConnectionSecurityPolicy.kt \
+            app/src/main/java/app/ownplay/mobile/feature/settings/ui/SourceManagementScreen.kt \
+            app/src/main/java/app/ownplay/mobile/feature/live/ui/LiveShell.kt \
+            app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryShell.kt \
+            app/src/test/java/app/ownplay/mobile/sources/domain/SourceConnectionSecurityPolicyTest.kt
+          git commit -m "Prevent large provider catalogs from blocking UI"
+          git push origin HEAD:${TARGET_BRANCH}
