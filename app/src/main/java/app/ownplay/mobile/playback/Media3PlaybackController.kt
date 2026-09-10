@@ -8,6 +8,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import app.ownplay.mobile.playback.domain.PlaybackLoadRequest
 import app.ownplay.mobile.playback.domain.PlaybackMedia
@@ -35,6 +36,7 @@ class Media3PlaybackController(
         val surfaceView: SurfaceView,
     )
 
+    @OptIn(UnstableApi::class)
     private val player = ExoPlayer.Builder(context.applicationContext)
         .setLooper(Looper.getMainLooper())
         .build()

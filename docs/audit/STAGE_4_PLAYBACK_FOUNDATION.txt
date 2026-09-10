@@ -54,6 +54,12 @@ verified from current official Android Developers documentation during this
 stage. Generic Media3 UI controls are deliberately not added because OwnPlay
 requires custom transient presentation controls.
 
+The controller explicitly pins ExoPlayer's application looper to Android's main
+looper so all player calls and listener callbacks share the same application
+thread. Media3 currently marks Builder.setLooper as UnstableApi; the opt-in is
+scoped to the player construction property instead of enabling project-wide
+unstable API access.
+
 Focused source tests
 --------------------
 PlaybackStartPolicyTest verifies Default, Resume, negative-position clamping,
@@ -61,6 +67,20 @@ and Play-from-Beginning preservation semantics.
 
 VideoTargetOwnershipReducerTest verifies Preview/fullscreen ownership transfer,
 stale release safety, active release to NONE, and idempotent reacquisition.
+
+Validation correction
+---------------------
+Initial Stage 4 validation:
+- source HEAD: 821d5f93761472ab067b32094e5b9879514c014f
+- workflow run: 34440485827 / job 102754310929
+- Kotlin compile: passed
+- unit tests: passed
+- failure: lint UnsafeOptInUsageError on ExoPlayer.Builder.setLooper
+
+The failure was classified as a source lint defect, not a runtime or environment
+failure. The correction is intentionally narrow: retain deterministic main-looper
+ownership and add a property-scoped @OptIn(UnstableApi::class). No lint baseline,
+suppression, version rollback, or architecture change was introduced.
 
 Explicit exclusions
 -------------------
