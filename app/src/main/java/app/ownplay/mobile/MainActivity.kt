@@ -10,8 +10,9 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        val services = (application as OwnPlayApplication).services
         setContent {
-            OwnPlayApp()
+            OwnPlayApp(services = services)
         }
     }
 }
