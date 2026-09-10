@@ -1,0 +1,146 @@
+name: Stage 12 FFmpeg audio fallback integration
+
+on:
+  push:
+    branches:
+      - stage12-audio-ffmpeg-helper
+
+permissions:
+  contents: write
+
+jobs:
+  build-validate-apply:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      SOURCE_SHA: f7968700cc1688aa3c4d4e807580e670dc020d4c
+      TARGET_BRANCH: stage-12-stabilization
+      NDK_VERSION: 26.1.10909125
+      CMAKE_VERSION: 3.22.1
+
+    steps:
+      - name: Checkout helper tooling
+        uses: actions/checkout@v4
+        with:
+          ref: stage12-audio-ffmpeg-helper
+          path: tooling
+          persist-credentials: false
+
+      - name: Checkout exact source base
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Guard exact source and target base
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          test -z "$(git status --porcelain)"
+          remote="$(git ls-remote origin "refs/heads/$TARGET_BRANCH" | cut -f1)"
+          test "$remote" = "$SOURCE_SHA"
+          grep -q 'media3 = "1.11.0"' gradle/libs.versions.toml
+          grep -q 'minSdk = 26' app/build.gradle.kts
+          echo "Exact source/target base verified: $SOURCE_SHA"
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install SDK, NDK and CMake
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdkmanager \
+            "platforms;android-36" \
+            "build-tools;36.0.0" \
+            "ndk;$NDK_VERSION" \
+            "cmake;$CMAKE_VERSION"
+
+      - name: Set up Gradle 9.6.0 for OwnPlay validation
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "9.6.0"
+          cache-read-only: true
+
+      - name: Build pinned Media3 FFmpeg audio AAR
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p source/app/libs
+          bash tooling/.github/scripts/build_media3_ffmpeg_audio.sh \
+            "$GITHUB_WORKSPACE/source/app/libs/media3-decoder-ffmpeg-1.11.0-ffmpeg6.0.aar" \
+            "$RUNNER_TEMP/ownplay-media3-ffmpeg"
+
+      - name: Apply decoder integration and licensing provenance
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          FFMPEG_SOURCE="$RUNNER_TEMP/ownplay-media3-ffmpeg/media3/libraries/decoder_ffmpeg/src/main/jni/ffmpeg"
+          test -f "$FFMPEG_SOURCE/LICENSE.md"
+          test -f "$FFMPEG_SOURCE/COPYING.LGPLv2.1"
+          test -f "$FFMPEG_SOURCE/COPYING.LGPLv3"
+
+          mkdir -p app/src/main/assets/licenses/ffmpeg
+          cp "$FFMPEG_SOURCE/LICENSE.md" app/src/main/assets/licenses/ffmpeg/LICENSE.md
+          cp "$FFMPEG_SOURCE/COPYING.LGPLv2.1" app/src/main/assets/licenses/ffmpeg/COPYING.LGPLv2.1
+          cp "$FFMPEG_SOURCE/COPYING.LGPLv3" app/src/main/assets/licenses/ffmpeg/COPYING.LGPLv3
+
+          cp ../tooling/.github/scripts/build_media3_ffmpeg_audio.sh tools/build-media3-ffmpeg-audio.sh
+          chmod +x tools/build-media3-ffmpeg-audio.sh
+          python3 ../tooling/.github/scripts/apply_ffmpeg_audio_integration.py "$PWD"
+
+          git diff --check
+          git status --short
+          test -n "$(git status --porcelain)"
+          test -f app/libs/media3-decoder-ffmpeg-1.11.0-ffmpeg6.0.aar
+          test -f docs/third_party/FFMPEG_AUDIO_DECODER.md
+
+      - name: Commit exact source candidate
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/build.gradle.kts app/libs app/src/main app/src/main/assets docs tools/build-media3-ffmpeg-audio.sh
+          git commit -m "Add Media3 FFmpeg audio decoder fallback"
+          echo "Candidate HEAD: $(git rev-parse HEAD)"
+          test -z "$(git status --porcelain)"
+
+      - name: Validate exact candidate source without APK
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          candidate="$(git rev-parse HEAD)"
+          test -z "$(git status --porcelain)"
+          bash tools/validate-source-no-apk.sh
+          gradle --no-daemon :app:compileReleaseKotlin --rerun-tasks --no-build-cache
+          test "$(git rev-parse HEAD)" = "$candidate"
+          test -z "$(git status --porcelain)"
+          test -z "$(find . -type f \( -name '*.apk' -o -name '*.aab' \) -not -path './.git/*' -print -quit)"
+          echo "Validated exact FFmpeg-audio candidate HEAD: $candidate"
+
+      - name: Fast-forward target only after PASS
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          candidate="$(git rev-parse HEAD)"
+          remote="$(git ls-remote origin "refs/heads/$TARGET_BRANCH" | cut -f1)"
+          test "$remote" = "$SOURCE_SHA"
+          git push origin "$candidate:refs/heads/$TARGET_BRANCH"
+          final="$(git ls-remote origin "refs/heads/$TARGET_BRANCH" | cut -f1)"
+          test "$final" = "$candidate"
+          echo "Fast-forwarded $TARGET_BRANCH to $final"
