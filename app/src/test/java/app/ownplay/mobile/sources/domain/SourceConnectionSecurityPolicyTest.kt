@@ -10,7 +10,9 @@ class SourceConnectionSecurityPolicyTest {
     @Test
     fun `http provider is identified as cleartext`() {
         assertTrue(SourceConnectionSecurityPolicy.isCleartext("http://provider.test:8080"))
-        assertNotNull(SourceConnectionSecurityPolicy.warning("http://provider.test:8080"))
+        val warning = SourceConnectionSecurityPolicy.warning("http://provider.test:8080")
+        assertNotNull(warning)
+        assertTrue(requireNotNull(warning).contains("supported", ignoreCase = true))
     }
 
     @Test

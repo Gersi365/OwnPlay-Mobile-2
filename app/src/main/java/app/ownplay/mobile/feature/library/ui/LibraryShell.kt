@@ -5,7 +5,6 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -18,6 +17,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
@@ -398,7 +399,7 @@ private fun LibraryHome(
                 )
 
                 !catalog?.movies.isNullOrEmpty() -> MovieRow(
-                    items = catalog?.movies.orEmpty(),
+                    movies = catalog?.movies.orEmpty(),
                     onMovieSelected = onMovieSelected,
                 )
             }
@@ -414,7 +415,7 @@ private fun LibraryHome(
                 )
 
                 !catalog?.series.isNullOrEmpty() -> SeriesRow(
-                    items = catalog?.series.orEmpty(),
+                    seriesItems = catalog?.series.orEmpty(),
                     onSeriesSelected = onSeriesSelected,
                 )
             }
@@ -427,7 +428,7 @@ private fun LibraryHome(
                 )
             } else if (!catalog?.downloadedMedia.isNullOrEmpty()) {
                 DownloadedRow(
-                    items = catalog?.downloadedMedia.orEmpty(),
+                    mediaItems = catalog?.downloadedMedia.orEmpty(),
                     downloads = downloads,
                     onAction = onDownloadedAction,
                 )
@@ -526,14 +527,15 @@ private fun ContinueWatchingCard(
 }
 
 @Composable
-private fun MovieRow(items: List<LibraryMovie>, onMovieSelected: (LibraryMovie) -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState()),
+private fun MovieRow(movies: List<LibraryMovie>, onMovieSelected: (LibraryMovie) -> Unit) {
+    LazyRow(
+        modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),
     ) {
-        items.forEach { movie ->
+        items(
+            items = movies,
+            key = { movie -> movie.movieId },
+        ) { movie ->
             PosterCard(
                 title = movie.name,
                 eyebrow = movie.rating?.let { "★ $it" } ?: "MOVIE",
@@ -544,14 +546,15 @@ private fun MovieRow(items: List<LibraryMovie>, onMovieSelected: (LibraryMovie) 
 }
 
 @Composable
-private fun SeriesRow(items: List<LibrarySeries>, onSeriesSelected: (LibrarySeries) -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState()),
+private fun SeriesRow(seriesItems: List<LibrarySeries>, onSeriesSelected: (LibrarySeries) -> Unit) {
+    LazyRow(
+        modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),
     ) {
-        items.forEach { series ->
+        items(
+            items = seriesItems,
+            key = { series -> series.seriesId },
+        ) { series ->
             PosterCard(
                 title = series.name,
                 eyebrow = series.rating?.let { "★ $it" } ?: "SERIES",
@@ -600,18 +603,19 @@ private fun PosterCard(title: String, eyebrow: String, onClick: () -> Unit) {
 
 @Composable
 private fun DownloadedRow(
-    items: List<LibraryDownloadedMedia>,
+    mediaItems: List<LibraryDownloadedMedia>,
     downloads: List<DownloadItem>,
     onAction: (LibraryDownloadedMedia, DownloadItem, DownloadAction) -> Unit,
 ) {
     val byId = remember(downloads) { downloads.associateBy { it.downloadId } }
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState()),
+    LazyRow(
+        modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),
     ) {
-        items.forEach { media ->
+        items(
+            items = mediaItems,
+            key = { media -> media.downloadId },
+        ) { media ->
             OwnPlayPanel(modifier = Modifier.width(250.dp)) {
                 Column(
                     modifier = Modifier.padding(OwnPlaySpacing.Md),

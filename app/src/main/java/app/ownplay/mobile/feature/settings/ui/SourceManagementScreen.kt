@@ -688,7 +688,7 @@ private fun SourceEditor(
         }
         SourceConnectionSecurityPolicy.warning(securityLocator)?.let { warning ->
             OwnPlayStatePanel(
-                title = "HTTP connection",
+                title = "HTTP provider",
                 message = warning,
             )
         }

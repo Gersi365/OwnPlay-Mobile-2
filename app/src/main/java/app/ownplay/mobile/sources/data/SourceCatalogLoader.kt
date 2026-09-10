@@ -10,6 +10,8 @@ import app.ownplay.mobile.sources.domain.SourceCredential
 import app.ownplay.mobile.sources.domain.SourceType
 import java.net.URI
 import java.util.Locale
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 class SourceCatalogLoader(
     private val xtreamClient: XtreamClient,
@@ -19,9 +21,11 @@ class SourceCatalogLoader(
     suspend fun load(
         source: Source,
         credential: SourceCredential,
-    ): ProviderRefreshPayload = when (source.type) {
-        SourceType.XTREAM -> loadXtream(source, credential)
-        SourceType.M3U -> loadM3u(source, credential)
+    ): ProviderRefreshPayload = withContext(Dispatchers.Default) {
+        when (source.type) {
+            SourceType.XTREAM -> loadXtream(source, credential)
+            SourceType.M3U -> loadM3u(source, credential)
+        }
     }
 
     private suspend fun loadXtream(

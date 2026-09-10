@@ -4,7 +4,7 @@ import java.net.URI
 
 object SourceConnectionSecurityPolicy {
     const val CLEAR_TEXT_WARNING =
-        "This source uses HTTP. Provider credentials and traffic are not protected by TLS. Use HTTPS when the provider supports it."
+        "HTTP is supported for providers that do not offer HTTPS. Credentials and traffic are not protected by TLS, so use this connection only with a provider and network you trust."
 
     fun isCleartext(locator: String): Boolean = runCatching {
         URI(locator.trim()).scheme.equals("http", ignoreCase = true)

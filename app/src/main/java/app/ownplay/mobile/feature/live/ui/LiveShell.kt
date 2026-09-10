@@ -18,9 +18,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -184,64 +184,87 @@ private fun LiveBrowseAndPreview(
     onChannelTapped: (LiveChannel) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState()),
+    LazyColumn(
+        modifier = modifier.fillMaxSize(),
     ) {
-        OwnPlayTopBar(showTagline = false)
+        item {
+            OwnPlayTopBar(showTagline = false)
+        }
 
-        Column(
-            modifier = Modifier.padding(horizontal = OwnPlaySpacing.Lg),
-            verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Lg),
-        ) {
-            PreviewSurface(
-                selectedChannel = selectedChannel,
-                playbackController = playbackController,
-                controllerScope = controllerScope,
-                playbackPhase = playbackPhase,
-                resolutionError = resolutionError,
-            )
-
-            NowPlayingPanel(selectedChannel = selectedChannel)
-
-            OwnPlaySectionHeader(
-                title = "All Channels",
-                actionLabel = if (selectedChannel == null) {
-                    "Tap a channel to preview"
-                } else {
-                    "Tap the selected channel for fullscreen"
-                },
-            )
-
-            when {
-                catalog == null -> OwnPlayStatePanel(
-                    title = "Loading Live",
-                    message = "Reading the active source and cached channels.",
+        item {
+            Column(
+                modifier = Modifier.padding(horizontal = OwnPlaySpacing.Lg),
+                verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Lg),
+            ) {
+                PreviewSurface(
+                    selectedChannel = selectedChannel,
+                    playbackController = playbackController,
+                    controllerScope = controllerScope,
+                    playbackPhase = playbackPhase,
+                    resolutionError = resolutionError,
                 )
 
-                catalog.activeSourceId == null -> OwnPlayStatePanel(
-                    title = "No active source",
-                    message = "Add or select a source in Settings to populate Live channels.",
-                )
+                NowPlayingPanel(selectedChannel = selectedChannel)
 
-                channels.isEmpty() -> OwnPlayStatePanel(
-                    title = "No channels available",
-                    message = "Refresh ${catalog.activeSourceName ?: "the active source"} to load Live channels.",
+                OwnPlaySectionHeader(
+                    title = "All Channels",
+                    actionLabel = if (selectedChannel == null) {
+                        "Tap a channel to preview"
+                    } else {
+                        "Tap the selected channel for fullscreen"
+                    },
                 )
+            }
+        }
 
-                else -> Column(verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm)) {
-                    channels.forEachIndexed { index, channel ->
-                        ChannelRow(
-                            number = (index + 1).toString().padStart(3, '0'),
-                            channel = channel,
-                            selected = channel.channelId == selectedChannel?.channelId,
-                            onClick = { onChannelTapped(channel) },
-                        )
-                    }
+        when {
+            catalog == null -> item {
+                Box(modifier = Modifier.padding(horizontal = OwnPlaySpacing.Lg, vertical = OwnPlaySpacing.Sm)) {
+                    OwnPlayStatePanel(
+                        title = "Loading Live",
+                        message = "Reading the active source and cached channels.",
+                    )
                 }
             }
 
+            catalog.activeSourceId == null -> item {
+                Box(modifier = Modifier.padding(horizontal = OwnPlaySpacing.Lg, vertical = OwnPlaySpacing.Sm)) {
+                    OwnPlayStatePanel(
+                        title = "No active source",
+                        message = "Add or select a source in Settings to populate Live channels.",
+                    )
+                }
+            }
+
+            channels.isEmpty() -> item {
+                Box(modifier = Modifier.padding(horizontal = OwnPlaySpacing.Lg, vertical = OwnPlaySpacing.Sm)) {
+                    OwnPlayStatePanel(
+                        title = "No channels available",
+                        message = "Refresh ${catalog.activeSourceName ?: "the active source"} to load Live channels.",
+                    )
+                }
+            }
+
+            else -> itemsIndexed(
+                items = channels,
+                key = { _, channel -> channel.channelId },
+            ) { index, channel ->
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = OwnPlaySpacing.Lg, vertical = OwnPlaySpacing.Xs),
+                ) {
+                    ChannelRow(
+                        number = (index + 1).toString().padStart(3, '0'),
+                        channel = channel,
+                        selected = channel.channelId == selectedChannel?.channelId,
+                        onClick = { onChannelTapped(channel) },
+                    )
+                }
+            }
+        }
+
+        item {
             Spacer(modifier = Modifier.height(OwnPlaySpacing.Xl))
         }
     }
