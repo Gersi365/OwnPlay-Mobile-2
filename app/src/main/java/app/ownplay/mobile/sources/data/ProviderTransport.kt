@@ -1,6 +1,11 @@
 package app.ownplay.mobile.sources.data
 
 import java.io.IOException
+import java.net.ConnectException
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
+import java.net.UnknownServiceException
+import javax.net.ssl.SSLException
 import kotlinx.coroutines.suspendCancellableCoroutine
 import okhttp3.Call
 import okhttp3.Callback
@@ -12,6 +17,19 @@ import kotlin.coroutines.resume
 sealed interface TransportResult {
     data class Success(val body: String) : TransportResult
     data class Failure(val code: String) : TransportResult
+}
+
+internal object ProviderTransportFailurePolicy {
+    fun codeFor(exception: IOException): String = when {
+        exception is UnknownServiceException &&
+            exception.message.orEmpty().contains("cleartext", ignoreCase = true) -> "CLEARTEXT_BLOCKED"
+
+        exception is UnknownHostException -> "NETWORK_DNS"
+        exception is SocketTimeoutException -> "NETWORK_TIMEOUT"
+        exception is SSLException -> "TLS"
+        exception is ConnectException -> "NETWORK_CONNECT"
+        else -> "NETWORK"
+    }
 }
 
 class ProviderHttpTransport(
@@ -30,7 +48,7 @@ class ProviderHttpTransport(
             call.enqueue(object : Callback {
                 override fun onFailure(call: Call, e: IOException) {
                     if (continuation.isActive) {
-                        continuation.resume(TransportResult.Failure("NETWORK"))
+                        continuation.resume(TransportResult.Failure(ProviderTransportFailurePolicy.codeFor(e)))
                     }
                 }
 
