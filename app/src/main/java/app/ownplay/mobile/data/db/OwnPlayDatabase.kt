@@ -30,6 +30,7 @@ abstract class OwnPlayDatabase : RoomDatabase() {
     abstract fun libraryDao(): LibraryDao
     abstract fun downloadDao(): DownloadDao
     abstract fun refreshStateDao(): RefreshStateDao
+    abstract fun backupDao(): BackupDao
 
     companion object {
         fun create(context: Context): OwnPlayDatabase = Room.databaseBuilder(

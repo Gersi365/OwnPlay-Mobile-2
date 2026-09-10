@@ -13,6 +13,7 @@ data class Source(
     val enabled: Boolean,
     val createdAt: Long,
     val updatedAt: Long,
+    val requiresCredentials: Boolean = false,
 )
 
 sealed interface SourceCredential {

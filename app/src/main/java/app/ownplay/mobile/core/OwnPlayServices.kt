@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.work.WorkManager
 import app.ownplay.mobile.data.db.OwnPlayDatabase
 import app.ownplay.mobile.data.prefs.ActiveSourcePreferences
+import app.ownplay.mobile.data.prefs.SettingsPreferences
 import app.ownplay.mobile.data.security.CredentialStore
 import app.ownplay.mobile.data.security.KeystoreCredentialStore
 import app.ownplay.mobile.downloads.data.DownloadRepositoryImpl
@@ -13,6 +14,9 @@ import app.ownplay.mobile.feature.library.data.LibraryRepositoryImpl
 import app.ownplay.mobile.feature.library.domain.LibraryRepository
 import app.ownplay.mobile.feature.live.data.LiveRepositoryImpl
 import app.ownplay.mobile.feature.live.domain.LiveRepository
+import app.ownplay.mobile.feature.settings.data.BackupRepositoryImpl
+import app.ownplay.mobile.feature.settings.data.ProviderRefreshScheduler
+import app.ownplay.mobile.feature.settings.domain.BackupRepository
 import app.ownplay.mobile.playback.Media3PlaybackController
 import app.ownplay.mobile.playback.PlaybackController
 import app.ownplay.mobile.sources.data.ProviderHttpTransport
@@ -41,6 +45,29 @@ class OwnPlayServices private constructor(
 
     val playbackController: PlaybackController by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         Media3PlaybackController(applicationContext)
+    }
+
+    private val activeSourcePreferences: ActiveSourcePreferences by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        ActiveSourcePreferences(applicationContext)
+    }
+
+    val settingsPreferences: SettingsPreferences by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        SettingsPreferences(applicationContext)
+    }
+
+    val backupRepository: BackupRepository by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        BackupRepositoryImpl(
+            context = applicationContext,
+            database = database,
+            sourceDao = database.sourceDao(),
+            backupDao = database.backupDao(),
+            activeSourcePreferences = activeSourcePreferences,
+            settingsPreferences = settingsPreferences,
+        )
+    }
+
+    val providerRefreshScheduler: ProviderRefreshScheduler by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        ProviderRefreshScheduler(applicationContext)
     }
 
     private val httpClient: OkHttpClient by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
@@ -77,7 +104,7 @@ class OwnPlayServices private constructor(
             database = database,
             sourceDao = database.sourceDao(),
             catalogDao = database.catalogDao(),
-            activeSourcePreferences = ActiveSourcePreferences(applicationContext),
+            activeSourcePreferences = activeSourcePreferences,
             credentialStore = credentialStore,
             catalogLoader = catalogLoader,
         )
