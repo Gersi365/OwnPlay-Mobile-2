@@ -66,6 +66,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 ../tooling/.github/scripts/stage12_round4_patch.py
+          python3 ../tooling/.github/scripts/stage12_round4_visibility_escape_fix.py
           git diff --check
           git status --short
           test -n "$(git status --porcelain)"
