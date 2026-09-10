@@ -25,6 +25,8 @@ interface PlaybackController {
 
     suspend fun seekTo(positionMs: Long)
 
+    suspend fun currentSnapshot(): PlaybackSnapshot
+
     suspend fun retry()
 
     suspend fun stop(clearMedia: Boolean = true)

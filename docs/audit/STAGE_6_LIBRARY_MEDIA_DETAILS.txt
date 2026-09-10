@@ -1,0 +1,74 @@
+STAGE 6 — LIBRARY & MEDIA DETAILS
+
+Authority and baseline
+- User-approved phase: Phase 6 — Library & Media Details.
+- Exact base branch: stage-5-live-experience.
+- Exact base HEAD: 9c20b5b2690ee373a0f152681e846eafe41e21bc.
+- Stage 5 Draft PR #6 was re-inspected before source mutation and was open, draft, unmerged, and mergeable at the audited head.
+- Active Android build and validation path was re-inspected from the exact base commit.
+- Project Instructions, Product & Source Authority, Visual Reference Contract, Engineering Workflow, Build Blueprint, and QA Acceptance Contract were reviewed for this phase.
+- No historical OwnPlay repository, source file, schema, migration, player implementation, resource, or build script was opened or used.
+- Restricted actions remain excluded: no merge, ready-for-review transition, APK/AAB generation, signing change, release, deployment, reset, rebase, force-push, or history rewrite.
+
+Scope implemented
+- Replace the static Library shell data with an active-source Room-backed Library catalog.
+- Preserve the approved hierarchy: Continue Watching, Movies, Series, Downloaded Media.
+- Derive Continue Watching from stable playback_progress records joined to currently available movie/episode metadata.
+- Keep Movie and Series ordering deterministic using provider order with stable name/id fallbacks.
+- Keep Downloaded Media read-only in this phase and surface only COMPLETED rows that carry both a local reference and integrity metadata.
+- Load Xtream series episode metadata on series detail open, cache episodes in the existing Room v1 episode table, and preserve cached episodes if refresh is unavailable.
+- Generate episode stable IDs from source ID + Xtream episode provider ID and persist only an opaque xtream:// series identity, never the credential-bearing playback URL.
+- Resolve movie and episode playback URLs only at playback time using the secure CredentialStore and XtreamUrlBuilder.
+- Reuse the one process-wide PlaybackController and one FULLSCREEN VideoTarget for movie/episode playback; no second player is introduced.
+- Add transient custom fullscreen controls for play/pause, seek, duration, retry, and return to Library without generic Media3 UI or technical/provider chrome.
+- Persist playback progress during fullscreen playback and on exit. Play from Beginning does not erase the previous resume point before successful playback; the position-zero persistence transition occurs only after the shared player reports READY.
+- Declare a tested completion rule: player ENDED or position at/above 95 percent of known duration marks the item completed.
+- Add focused JVM tests for resume/beginning policy, completion threshold, deterministic Library ordering, runtime Xtream movie/episode locator construction, HLS detection, and URI redaction.
+
+Persistence boundary
+- Room database version remains 1.
+- The existing 13 entities are unchanged.
+- Phase 6 adds DAO/query surface only; no migration and no destructive fallback is introduced.
+- The committed Room v1 schema must remain byte-for-byte clean after exact-head generation; source validation fails if app/schemas changes.
+
+Security boundary
+- Xtream credentials continue to come only from CredentialStore.
+- Movie and episode credential-bearing URLs are runtime values and are not persisted in Room, playback snapshots, audit evidence, or UI chrome.
+- ResolvedLibraryPlayback.toString() redacts the URI.
+- Completed-download display does not expose localReference or integrityMetadata values to the UI.
+
+Verified correction history
+- Initial Stage 6 implementation commit: 00279b7de9394516c49460678321f5dc201c9f86 (Add Library and media details).
+- A forward-only correction commit 1a489f9f5cc6862febdf165e2e77004461ee1e12 fixed the Library resume policy constructor usage discovered during validation.
+- Exact-head GitHub Actions run 34445671218 on 1a489f9f5cc6862febdf165e2e77004461ee1e12 then failed at :app:compileDebugKotlin because LibraryShell.kt attempted to call the suspend currentSnapshot() function from a default parameter value. This was a verified source defect, not an environment failure.
+- Forward-only correction commit 972b3bcdc829039d5643a9682fc0bcd66cae74f0 (Fix Library fullscreen playback state) removed the unsupported suspend default-parameter call and kept the fullscreen Play/Pause presentation synchronized with playWhenReady.
+- No reset, rebase, force-push, or history rewrite was used for these corrections.
+
+Validated implementation evidence
+- Exact validated implementation HEAD: 972b3bcdc829039d5643a9682fc0bcd66cae74f0.
+- GitHub Actions workflow run: 34446193100, job 102771394799.
+- Checkout and exact-source verification both passed for 972b3bcdc829039d5643a9682fc0bcd66cae74f0.
+- :app:compileDebugKotlin passed.
+- :app:testDebugUnitTest passed.
+- :app:lintDebug passed.
+- Generated Room schemas matched committed HEAD and app/schemas remained clean.
+- Source-only validation explicitly reported that no APK/AAB was produced.
+- The compiler emitted four non-blocking warnings for unnecessary non-null assertions in LibraryShell.kt; lint and the overall validation run remained successful. These warnings do not alter the validated behavior or acceptance boundary.
+- This audit evidence update changes documentation only. The branch HEAD after this evidence commit must also pass the same exact-head source-only workflow before Phase 6 is reported complete.
+
+Validation contract
+- Exact-head GitHub Actions source validation must pass :app:compileDebugKotlin, :app:testDebugUnitTest, and :app:lintDebug.
+- Generated Room schemas must match committed HEAD with a clean app/schemas tree.
+- Validation must confirm no APK or AAB exists before or after source checks.
+- Any correction discovered by CI must be committed forward-only.
+
+Explicit exclusions
+- No download queue/worker/state-transition implementation and no offline playback execution; those remain Phase 7 work.
+- No Activity-level Picture-in-Picture entry/exit wiring.
+- No physical-device playback, rotation, background/foreground, surface, performance, or visual acceptance claim.
+- No provider marketplace, bundled media, DRM circumvention, old-app migration, signing, release, or deployment work.
+- No APK/AAB generation is authorized.
+
+Physical-QA boundary
+- Source and JVM validation cannot prove real decoder output, black-video absence, surface continuity, duplicate-audio absence, seek behavior on real streams, provider/network behavior, poster rendering, touch ergonomics, rotation, or screenshot fidelity to the approved references.
+- Those items require a later explicitly authorized physical QA candidate and device evidence under the QA Acceptance Contract.

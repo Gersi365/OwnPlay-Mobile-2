@@ -27,6 +27,7 @@ import androidx.room.RoomDatabase
 abstract class OwnPlayDatabase : RoomDatabase() {
     abstract fun sourceDao(): SourceDao
     abstract fun catalogDao(): CatalogDao
+    abstract fun libraryDao(): LibraryDao
     abstract fun refreshStateDao(): RefreshStateDao
 
     companion object {
