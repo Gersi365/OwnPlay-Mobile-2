@@ -31,6 +31,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import app.ownplay.mobile.design.OwnPlayColors
 import app.ownplay.mobile.design.OwnPlayPanel
@@ -87,6 +88,11 @@ internal fun SourceManagementScreen(
         statusMessage = message
     }
 
+    fun clearStatus() {
+        statusTitle = null
+        statusMessage = null
+    }
+
     fun openEditor(source: Source) {
         editor = SourceEditorState(
             sourceId = source.sourceId,
@@ -95,13 +101,37 @@ internal fun SourceManagementScreen(
             baseUrl = if (source.type == SourceType.XTREAM) source.baseLocator else "",
             requiresCredentials = source.requiresCredentials,
         )
-        statusTitle = null
-        statusMessage = null
+        clearStatus()
+    }
+
+    fun launchSave(
+        state: SourceEditorState,
+        operation: suspend () -> SourceResult<*>,
+    ) {
+        saving = true
+        scope.launch {
+            when (val result = operation()) {
+                is SourceResult.Success -> {
+                    editor = null
+                    showStatus(
+                        if (state.requiresCredentials) "Source reconnected" else "Source saved",
+                        if (state.requiresCredentials) {
+                            "Secure connection details were stored locally. Refresh the source to restore matching personalization."
+                        } else {
+                            "Source changes were saved."
+                        },
+                    )
+                }
+
+                is SourceResult.Failure -> showStatus("Source not saved", result.error.safeMessage)
+            }
+            saving = false
+        }
     }
 
     if (editor != null) {
         SourceEditor(
-            state = editor!!,
+            state = requireNotNull(editor),
             saving = saving,
             onStateChange = { editor = it },
             onCancel = { if (!saving) editor = null },
@@ -114,7 +144,7 @@ internal fun SourceManagementScreen(
                     return@SourceEditor
                 }
 
-                val operation: suspend () -> SourceResult<*> = when {
+                when {
                     state.sourceId == null && state.type == SourceType.XTREAM -> {
                         val baseUrl = state.baseUrl.trim()
                         val username = state.username.trim()
@@ -123,7 +153,7 @@ internal fun SourceManagementScreen(
                             showStatus("Check source", "Base URL, username, and password are required for Xtream.")
                             return@SourceEditor
                         }
-                        {
+                        launchSave(state) {
                             sourceRepository.addSource(
                                 NewSource.Xtream(
                                     displayName = name,
@@ -140,7 +170,7 @@ internal fun SourceManagementScreen(
                             showStatus("Check source", "A remote M3U or M3U8 URL is required.")
                             return@SourceEditor
                         }
-                        {
+                        launchSave(state) {
                             sourceRepository.addSource(
                                 NewSource.M3u(
                                     displayName = name,
@@ -158,29 +188,35 @@ internal fun SourceManagementScreen(
                             showStatus("Check source", "Base URL is required for Xtream.")
                             return@SourceEditor
                         }
-                        val hasAnyCredentialInput = username.isNotBlank() || password.isNotBlank()
-                        if (hasAnyCredentialInput && (username.isBlank() || password.isBlank())) {
-                            showStatus("Check source", "Enter both username and password, or leave both blank to keep the existing secure credentials.")
+                        val hasCredentialInput = username.isNotBlank() || password.isNotBlank()
+                        if (hasCredentialInput && (username.isBlank() || password.isBlank())) {
+                            showStatus(
+                                "Check source",
+                                "Enter both username and password, or leave both blank to keep the existing secure credentials.",
+                            )
                             return@SourceEditor
                         }
-                        if (state.requiresCredentials && !hasAnyCredentialInput) {
-                            showStatus("Reconnect source", "This restored source needs a username and password before it can be enabled.")
+                        if (state.requiresCredentials && !hasCredentialInput) {
+                            showStatus(
+                                "Reconnect source",
+                                "This restored source needs a username and password before it can be enabled.",
+                            )
                             return@SourceEditor
                         }
-                        val replacement = if (hasAnyCredentialInput) {
+                        val replacementCredential = if (hasCredentialInput) {
                             SourceCredential.Xtream(username, password)
                         } else {
                             null
                         }
-                        {
+                        launchSave(state) {
                             sourceRepository.updateSource(
                                 SourceUpdate(
                                     sourceId = requireNotNull(state.sourceId),
                                     displayName = name,
-                                    enabled = if (state.requiresCredentials && replacement != null) true else null,
+                                    enabled = if (state.requiresCredentials && replacementCredential != null) true else null,
                                     connection = SourceConnectionUpdate.Xtream(
                                         baseUrl = baseUrl,
-                                        credential = replacement,
+                                        credential = replacementCredential,
                                     ),
                                 ),
                             )
@@ -190,13 +226,16 @@ internal fun SourceManagementScreen(
                     state.sourceId != null && state.type == SourceType.M3U -> {
                         val playlistUrl = state.playlistUrl.trim()
                         if (state.requiresCredentials && playlistUrl.isBlank()) {
-                            showStatus("Reconnect source", "This restored source needs its remote M3U or M3U8 URL before it can be enabled.")
+                            showStatus(
+                                "Reconnect source",
+                                "This restored source needs its remote M3U or M3U8 URL before it can be enabled.",
+                            )
                             return@SourceEditor
                         }
                         val connection = playlistUrl.takeIf(String::isNotBlank)?.let { url ->
                             SourceConnectionUpdate.M3u(SourceCredential.M3uRemoteLocator(url))
                         }
-                        {
+                        launchSave(state) {
                             sourceRepository.updateSource(
                                 SourceUpdate(
                                     sourceId = requireNotNull(state.sourceId),
@@ -207,35 +246,11 @@ internal fun SourceManagementScreen(
                             )
                         }
                     }
-
-                    else -> error("Unsupported source editor state")
-                }
-
-                saving = true
-                scope.launch {
-                    when (val result = operation()) {
-                        is SourceResult.Success -> {
-                            editor = null
-                            showStatus(
-                                if (state.requiresCredentials) "Source reconnected" else "Source saved",
-                                if (state.requiresCredentials) {
-                                    "Secure connection details were stored locally. Refresh the source to restore matching personalization."
-                                } else {
-                                    "Source changes were saved."
-                                },
-                            )
-                        }
-                        is SourceResult.Failure -> showStatus("Source not saved", result.error.safeMessage)
-                    }
-                    saving = false
                 }
             },
             statusTitle = statusTitle,
             statusMessage = statusMessage,
-            onClearStatus = {
-                statusTitle = null
-                statusMessage = null
-            },
+            onClearStatus = ::clearStatus,
             modifier = modifier,
         )
         return
@@ -308,8 +323,15 @@ internal fun SourceManagementScreen(
                                 busySourceId = source.sourceId
                                 scope.launch {
                                     when (val result = sourceRepository.selectSource(source.sourceId)) {
-                                        is SourceResult.Success -> showStatus("Active source changed", "${source.displayName} is now the active source.")
-                                        is SourceResult.Failure -> showStatus("Source not selected", result.error.safeMessage)
+                                        is SourceResult.Success -> showStatus(
+                                            "Active source changed",
+                                            "${source.displayName} is now the active source.",
+                                        )
+
+                                        is SourceResult.Failure -> showStatus(
+                                            "Source not selected",
+                                            result.error.safeMessage,
+                                        )
                                     }
                                     busySourceId = null
                                 }
@@ -321,7 +343,9 @@ internal fun SourceManagementScreen(
                                 scope.launch {
                                     when (val result = sourceRepository.refresh(source.sourceId)) {
                                         is SourceResult.Success -> {
-                                            val deferred = when (val pending = backupRepository.applyPendingForSource(source.sourceId)) {
+                                            val restored = when (
+                                                val pending = backupRepository.applyPendingForSource(source.sourceId)
+                                            ) {
                                                 is BackupResult.Success -> pending.value
                                                 is BackupResult.Failure -> 0
                                             }
@@ -329,13 +353,24 @@ internal fun SourceManagementScreen(
                                             showStatus(
                                                 "Source refreshed",
                                                 buildString {
-                                                    append("Updated ${summary.liveChannels} live channels, ${summary.movies} movies, and ${summary.series} series.")
-                                                    if (deferred > 0) append(" Restored $deferred matching personalization items.")
-                                                    if (summary.warnings.isNotEmpty()) append(" Some provider sections kept their last known data.")
+                                                    append(
+                                                        "Updated ${summary.liveChannels} live channels, " +
+                                                            "${summary.movies} movies, and ${summary.series} series.",
+                                                    )
+                                                    if (restored > 0) {
+                                                        append(" Restored $restored matching personalization items.")
+                                                    }
+                                                    if (summary.warnings.isNotEmpty()) {
+                                                        append(" Some provider sections kept their last known data.")
+                                                    }
                                                 },
                                             )
                                         }
-                                        is SourceResult.Failure -> showStatus("Refresh failed", result.error.safeMessage)
+
+                                        is SourceResult.Failure -> showStatus(
+                                            "Refresh failed",
+                                            result.error.safeMessage,
+                                        )
                                     }
                                     busySourceId = null
                                 }
@@ -348,52 +383,32 @@ internal fun SourceManagementScreen(
             }
         }
 
-        if (pendingRemoval != null) {
-            val source = pendingRemoval!!
-            OwnPlayPanel(modifier = Modifier.fillMaxWidth()) {
-                Column(
-                    modifier = Modifier.padding(OwnPlaySpacing.Lg),
-                    verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),
-                ) {
-                    Text(
-                        text = "Remove ${source.displayName}?",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = OwnPlayColors.TextPrimary,
-                    )
-                    Text(
-                        text = "This removes the source and its provider catalog from this device. Secure credentials for this source are also removed.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = OwnPlayColors.TextSecondary,
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm),
-                    ) {
-                        OwnPlaySecondaryButton(
-                            text = "Cancel",
-                            onClick = { pendingRemoval = null },
-                            modifier = Modifier.weight(1f),
-                        )
-                        OwnPlayPrimaryButton(
-                            text = "Remove",
-                            onClick = {
-                                if (busySourceId == null) {
-                                    pendingRemoval = null
-                                    busySourceId = source.sourceId
-                                    scope.launch {
-                                        when (val result = sourceRepository.removeSource(source.sourceId)) {
-                                            is SourceResult.Success -> showStatus("Source removed", "${source.displayName} was removed from this device.")
-                                            is SourceResult.Failure -> showStatus("Source not removed", result.error.safeMessage)
-                                        }
-                                        busySourceId = null
-                                    }
-                                }
-                            },
-                            modifier = Modifier.weight(1f),
-                        )
+        pendingRemoval?.let { source ->
+            RemoveSourcePanel(
+                source = source,
+                busy = busySourceId != null,
+                onCancel = { pendingRemoval = null },
+                onConfirm = {
+                    if (busySourceId == null) {
+                        pendingRemoval = null
+                        busySourceId = source.sourceId
+                        scope.launch {
+                            when (val result = sourceRepository.removeSource(source.sourceId)) {
+                                is SourceResult.Success -> showStatus(
+                                    "Source removed",
+                                    "${source.displayName} was removed from this device.",
+                                )
+
+                                is SourceResult.Failure -> showStatus(
+                                    "Source not removed",
+                                    result.error.safeMessage,
+                                )
+                            }
+                            busySourceId = null
+                        }
                     }
-                }
-            }
+                },
+            )
         }
 
         if (statusTitle != null && statusMessage != null) {
@@ -404,6 +419,47 @@ internal fun SourceManagementScreen(
         }
 
         Spacer(modifier = Modifier.height(OwnPlaySpacing.Xl))
+    }
+}
+
+@Composable
+private fun RemoveSourcePanel(
+    source: Source,
+    busy: Boolean,
+    onCancel: () -> Unit,
+    onConfirm: () -> Unit,
+) {
+    OwnPlayPanel(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(OwnPlaySpacing.Lg),
+            verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),
+        ) {
+            Text(
+                text = "Remove ${source.displayName}?",
+                style = MaterialTheme.typography.titleMedium,
+                color = OwnPlayColors.TextPrimary,
+            )
+            Text(
+                text = "This removes the source and its provider catalog from this device. Secure credentials for this source are also removed.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = OwnPlayColors.TextSecondary,
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm),
+            ) {
+                OwnPlaySecondaryButton(
+                    text = "Cancel",
+                    onClick = onCancel,
+                    modifier = Modifier.weight(1f),
+                )
+                OwnPlayPrimaryButton(
+                    text = if (busy) "Working…" else "Remove",
+                    onClick = onConfirm,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
     }
 }
 
@@ -439,7 +495,11 @@ private fun SourceCard(
                             else -> "READY"
                         },
                         style = MaterialTheme.typography.labelMedium,
-                        color = if (active || source.requiresCredentials) OwnPlayColors.Accent else OwnPlayColors.TextSecondary,
+                        color = if (active || source.requiresCredentials) {
+                            OwnPlayColors.Accent
+                        } else {
+                            OwnPlayColors.TextSecondary
+                        },
                     )
                 }
                 Spacer(modifier = Modifier.width(OwnPlaySpacing.Md))
@@ -651,7 +711,7 @@ private fun SourceTextField(
         label = { Text(label) },
         singleLine = true,
         keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
-        visualTransformation = if (password) PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
+        visualTransformation = if (password) PasswordVisualTransformation() else VisualTransformation.None,
         colors = OutlinedTextFieldDefaults.colors(
             focusedTextColor = OwnPlayColors.TextPrimary,
             unfocusedTextColor = OwnPlayColors.TextPrimary,
