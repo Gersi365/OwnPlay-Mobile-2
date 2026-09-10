@@ -309,6 +309,146 @@ interface LibraryDao {
 }
 
 @Dao
+interface DownloadDao {
+    @Query(
+        """
+        SELECT * FROM downloads
+        WHERE sourceId = :sourceId
+        ORDER BY createdAt DESC, downloadId ASC
+        """,
+    )
+    fun observeForSource(sourceId: String): Flow<List<DownloadEntity>>
+
+    @Query("SELECT * FROM downloads WHERE downloadId = :downloadId LIMIT 1")
+    suspend fun get(downloadId: String): DownloadEntity?
+
+    @Query(
+        """
+        SELECT * FROM downloads
+        WHERE sourceId = :sourceId
+          AND mediaKind = :mediaKind
+          AND contentId = :contentId
+        LIMIT 1
+        """,
+    )
+    suspend fun getForContent(
+        sourceId: String,
+        mediaKind: String,
+        contentId: String,
+    ): DownloadEntity?
+
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    suspend fun insert(entity: DownloadEntity)
+
+    @Query(
+        """
+        UPDATE downloads
+        SET state = 'DOWNLOADING', failureReason = NULL, updatedAt = :updatedAt
+        WHERE downloadId = :downloadId
+          AND state IN ('QUEUED', 'DOWNLOADING')
+        """,
+    )
+    suspend fun markDownloadingIfRunnable(downloadId: String, updatedAt: Long): Int
+
+    @Query(
+        """
+        UPDATE downloads
+        SET state = 'PAUSED', updatedAt = :updatedAt
+        WHERE downloadId = :downloadId
+          AND state IN ('QUEUED', 'DOWNLOADING')
+        """,
+    )
+    suspend fun pauseIfActive(downloadId: String, updatedAt: Long): Int
+
+    @Query(
+        """
+        UPDATE downloads
+        SET state = 'QUEUED', failureReason = NULL, updatedAt = :updatedAt
+        WHERE downloadId = :downloadId
+          AND state = 'PAUSED'
+        """,
+    )
+    suspend fun queueIfPaused(downloadId: String, updatedAt: Long): Int
+
+    @Query(
+        """
+        UPDATE downloads
+        SET state = 'QUEUED', failureReason = NULL, updatedAt = :updatedAt
+        WHERE downloadId = :downloadId
+          AND state = 'FAILED'
+        """,
+    )
+    suspend fun queueIfFailed(downloadId: String, updatedAt: Long): Int
+
+    @Query(
+        """
+        UPDATE downloads
+        SET bytesDownloaded = :bytesDownloaded,
+            totalBytes = :totalBytes,
+            updatedAt = :updatedAt
+        WHERE downloadId = :downloadId
+          AND state = 'DOWNLOADING'
+        """,
+    )
+    suspend fun updateProgressIfDownloading(
+        downloadId: String,
+        bytesDownloaded: Long,
+        totalBytes: Long?,
+        updatedAt: Long,
+    ): Int
+
+    @Query(
+        """
+        UPDATE downloads
+        SET state = 'COMPLETED',
+            bytesDownloaded = :bytesDownloaded,
+            totalBytes = :totalBytes,
+            localReference = :localReference,
+            integrityMetadata = :integrityMetadata,
+            failureReason = NULL,
+            updatedAt = :updatedAt
+        WHERE downloadId = :downloadId
+          AND state = 'DOWNLOADING'
+        """,
+    )
+    suspend fun completeIfDownloading(
+        downloadId: String,
+        bytesDownloaded: Long,
+        totalBytes: Long,
+        localReference: String,
+        integrityMetadata: String,
+        updatedAt: Long,
+    ): Int
+
+    @Query(
+        """
+        UPDATE downloads
+        SET state = 'FAILED', failureReason = :failureCode, updatedAt = :updatedAt
+        WHERE downloadId = :downloadId
+          AND state IN ('QUEUED', 'DOWNLOADING')
+        """,
+    )
+    suspend fun failIfRunnable(downloadId: String, failureCode: String, updatedAt: Long): Int
+
+    @Query(
+        """
+        UPDATE downloads
+        SET state = 'FAILED',
+            localReference = NULL,
+            integrityMetadata = NULL,
+            failureReason = 'INTEGRITY',
+            updatedAt = :updatedAt
+        WHERE downloadId = :downloadId
+          AND state = 'COMPLETED'
+        """,
+    )
+    suspend fun markCompletedIntegrityFailure(downloadId: String, updatedAt: Long): Int
+
+    @Query("DELETE FROM downloads WHERE downloadId = :downloadId")
+    suspend fun delete(downloadId: String): Int
+}
+
+@Dao
 interface RefreshStateDao {
     @Query("SELECT * FROM refresh_state WHERE sourceId = :sourceId LIMIT 1")
     suspend fun get(sourceId: String): RefreshStateEntity?
