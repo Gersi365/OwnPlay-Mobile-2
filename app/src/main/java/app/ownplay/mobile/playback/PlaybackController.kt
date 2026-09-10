@@ -25,6 +25,8 @@ interface PlaybackController {
 
     suspend fun setPlayWhenReady(shouldPlay: Boolean)
 
+    suspend fun setVolume(volume: Float)
+
     suspend fun seekTo(positionMs: Long)
 
     suspend fun currentSnapshot(): PlaybackSnapshot

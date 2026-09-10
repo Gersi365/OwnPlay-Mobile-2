@@ -20,6 +20,7 @@ import app.ownplay.mobile.playback.domain.PlaybackPhase
 import app.ownplay.mobile.playback.domain.PlaybackSnapshot
 import app.ownplay.mobile.playback.domain.PlaybackStartPolicy
 import app.ownplay.mobile.playback.domain.PlaybackStreamFormat
+import app.ownplay.mobile.playback.domain.PlayerLocalControlPolicy
 import app.ownplay.mobile.playback.domain.VideoTarget
 import app.ownplay.mobile.playback.domain.VideoTargetEvent
 import app.ownplay.mobile.playback.domain.VideoTargetOwnership
@@ -182,6 +183,13 @@ class Media3PlaybackController(
         }
     }
 
+    override suspend fun setVolume(volume: Float) {
+        mutateOnPlayerThread {
+            player.volume = PlayerLocalControlPolicy.clampVolume(volume)
+            refreshSnapshot()
+        }
+    }
+
     override suspend fun seekTo(positionMs: Long) {
         mutateOnPlayerThread {
             player.seekTo(positionMs.coerceAtLeast(0L))
@@ -306,6 +314,7 @@ class Media3PlaybackController(
             phase = if (errorCode != null) PlaybackPhase.ERROR else player.playbackState.toPlaybackPhase(),
             playWhenReady = player.playWhenReady,
             isPlaying = player.isPlaying,
+            volume = player.volume,
             positionMs = player.currentPosition.coerceAtLeast(0L),
             durationMs = player.duration.takeUnless { it == C.TIME_UNSET || it < 0L },
             activeTarget = ownership.activeTarget,

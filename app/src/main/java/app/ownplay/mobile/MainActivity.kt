@@ -7,6 +7,8 @@ import android.content.res.Configuration
 import android.os.Build
 import android.os.Bundle
 import android.util.Rational
+import android.view.KeyEvent
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -18,6 +20,7 @@ import app.ownplay.mobile.app.OwnPlayApp
 import app.ownplay.mobile.core.OwnPlayServices
 import app.ownplay.mobile.playback.domain.PictureInPicturePolicy
 import app.ownplay.mobile.playback.domain.PlaybackSnapshot
+import app.ownplay.mobile.playback.domain.PlayerLocalControlPolicy
 import app.ownplay.mobile.playback.domain.VideoTarget
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
@@ -29,6 +32,7 @@ class MainActivity : ComponentActivity() {
     private var pictureInPictureEnabled = true
     private var playbackSnapshot = PlaybackSnapshot()
     private var resumePlaybackAfterBackground = false
+    private var appPlaybackVolume = 1f
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -45,6 +49,10 @@ class MainActivity : ComponentActivity() {
             }.collect { (enabled, playback) ->
                 pictureInPictureEnabled = enabled
                 playbackSnapshot = playback
+                appPlaybackVolume = playback.volume
+                if (playback.mediaId == null) {
+                    resetOwnPlayBrightness()
+                }
                 updatePictureInPictureParams()
             }
         }
@@ -60,6 +68,20 @@ class MainActivity : ComponentActivity() {
                 },
             )
         }
+    }
+
+    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+        if (handlePlayerVolumeKey(keyCode)) {
+            return true
+        }
+        return super.onKeyDown(keyCode, event)
+    }
+
+    override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
+        if (isPlayerVolumeKey(keyCode) && isPlayerLocalControlActive()) {
+            return true
+        }
+        return super.onKeyUp(keyCode, event)
     }
 
     override fun onStart() {
@@ -131,6 +153,36 @@ class MainActivity : ComponentActivity() {
             }
         }
         super.onStop()
+    }
+
+    private fun handlePlayerVolumeKey(keyCode: Int): Boolean {
+        if (!isPlayerVolumeKey(keyCode) || !isPlayerLocalControlActive()) {
+            return false
+        }
+        val direction = if (keyCode == KeyEvent.KEYCODE_VOLUME_UP) 1 else -1
+        appPlaybackVolume = PlayerLocalControlPolicy.volumeAfterStep(appPlaybackVolume, direction)
+        lifecycleScope.launch {
+            services.playbackController.setVolume(appPlaybackVolume)
+        }
+        return true
+    }
+
+    private fun isPlayerVolumeKey(keyCode: Int): Boolean =
+        keyCode == KeyEvent.KEYCODE_VOLUME_UP || keyCode == KeyEvent.KEYCODE_VOLUME_DOWN
+
+    private fun isPlayerLocalControlActive(): Boolean =
+        PlayerLocalControlPolicy.canHandlePlayerControls(
+            target = playbackSnapshot.activeTarget,
+            mediaId = playbackSnapshot.mediaId,
+        )
+
+    private fun resetOwnPlayBrightness() {
+        if (window.attributes.screenBrightness == WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE) {
+            return
+        }
+        val attributes = window.attributes
+        attributes.screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+        window.attributes = attributes
     }
 
     private fun setContentOrientation(fullscreen: Boolean) {

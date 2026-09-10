@@ -79,6 +79,7 @@ import app.ownplay.mobile.playback.domain.PlaybackMedia
 import app.ownplay.mobile.playback.domain.PlaybackPhase
 import app.ownplay.mobile.playback.domain.PlaybackSnapshot
 import app.ownplay.mobile.playback.domain.VideoTarget
+import app.ownplay.mobile.playback.ui.playerLocalVerticalControls
 import kotlin.math.roundToLong
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
@@ -1030,6 +1031,7 @@ private fun LibraryFullscreenPlayer(
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                .playerLocalVerticalControls(playbackController, scope)
                 .clickable(interactionSource = interactionSource, indication = null) {
                     overlayVisible = !overlayVisible
                 },

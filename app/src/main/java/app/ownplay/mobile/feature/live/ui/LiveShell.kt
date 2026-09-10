@@ -71,6 +71,7 @@ import app.ownplay.mobile.playback.domain.PlaybackLoadRequest
 import app.ownplay.mobile.playback.domain.PlaybackMedia
 import app.ownplay.mobile.playback.domain.PlaybackPhase
 import app.ownplay.mobile.playback.domain.VideoTarget
+import app.ownplay.mobile.playback.ui.playerLocalVerticalControls
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -452,6 +453,7 @@ private fun PreviewSurface(
         modifier = Modifier
             .fillMaxWidth()
             .aspectRatio(16f / 9f)
+            .playerLocalVerticalControls(playbackController, controllerScope)
             .clip(OwnPlayShapeTokens.Medium)
             .background(Color.Black),
         contentAlignment = Alignment.Center,
@@ -671,6 +673,7 @@ private fun FullscreenLive(
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                .playerLocalVerticalControls(playbackController, controllerScope)
                 .clickable(
                     interactionSource = interactionSource,
                     indication = null,

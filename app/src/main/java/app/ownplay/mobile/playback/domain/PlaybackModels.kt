@@ -82,6 +82,7 @@ data class PlaybackSnapshot(
     val phase: PlaybackPhase = PlaybackPhase.IDLE,
     val playWhenReady: Boolean = false,
     val isPlaying: Boolean = false,
+    val volume: Float = 1f,
     val positionMs: Long = 0L,
     val durationMs: Long? = null,
     val activeTarget: VideoTarget = VideoTarget.NONE,
