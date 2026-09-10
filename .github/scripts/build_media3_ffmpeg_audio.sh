@@ -52,9 +52,9 @@ printf 'sdk.dir=%s\n' "$ANDROID_HOME" > "$MEDIA_DIR/local.properties"
 cd "$MEDIA_DIR"
 ./gradlew --no-daemon :lib-decoder-ffmpeg:assembleRelease
 
-# Media3 redirects subproject build directories beneath root buildout/. Do not
-# depend on its artifact filename: identify the unique AAR by its renderer class.
-mapfile -t AAR_CANDIDATES < <(find "$MEDIA_DIR/buildout" -type f -path '*/outputs/aar/*.aar' -print | sort)
+# Gradle's buildDir=buildout is project-relative. Search all module buildout
+# AAR outputs and select only the artifact that contains the FFmpeg renderer.
+mapfile -t AAR_CANDIDATES < <(find "$MEDIA_DIR" -type f -path '*/buildout/outputs/aar/*.aar' -print | sort)
 printf 'AAR candidate: %s\n' "${AAR_CANDIDATES[@]}"
 test "${#AAR_CANDIDATES[@]}" -ge 1
 MATCHES=()
