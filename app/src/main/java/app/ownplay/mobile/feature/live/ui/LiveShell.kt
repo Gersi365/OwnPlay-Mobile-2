@@ -8,6 +8,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -19,6 +20,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
@@ -50,6 +53,7 @@ import app.ownplay.mobile.design.OwnPlayStatePanel
 import app.ownplay.mobile.design.OwnPlayTopBar
 import app.ownplay.mobile.design.OwnPlayWordmark
 import app.ownplay.mobile.feature.live.domain.LiveCatalog
+import app.ownplay.mobile.feature.live.domain.LiveCategory
 import app.ownplay.mobile.feature.live.domain.LiveChannel
 import app.ownplay.mobile.feature.live.domain.LiveEffect
 import app.ownplay.mobile.feature.live.domain.LiveIntent
@@ -82,6 +86,7 @@ fun LiveShell(
 
     var presentationState by remember { mutableStateOf(LivePresentationState()) }
     var resolutionError by remember { mutableStateOf<String?>(null) }
+    var fallbackLoadRequest by remember { mutableStateOf<PlaybackLoadRequest?>(null) }
 
     fun applyEffect(effect: LiveEffect) {
         when (effect) {
@@ -89,6 +94,17 @@ fun LiveShell(
                 resolutionError = null
                 when (val resolved = liveRepository.resolvePlayback(effect.channelId)) {
                     is LivePlaybackResolution.Success -> {
+                        fallbackLoadRequest = resolved.value.fallbackUri?.let { fallbackUri ->
+                            PlaybackLoadRequest(
+                                media = PlaybackMedia(
+                                    id = resolved.value.channel.channelId,
+                                    uri = fallbackUri,
+                                    title = resolved.value.channel.name,
+                                    kind = PlaybackKind.LIVE,
+                                    streamFormat = resolved.value.fallbackStreamFormat ?: resolved.value.streamFormat,
+                                ),
+                            )
+                        }
                         playbackController.load(
                             PlaybackLoadRequest(
                                 media = PlaybackMedia(
@@ -103,6 +119,7 @@ fun LiveShell(
                     }
 
                     is LivePlaybackResolution.Failure -> {
+                        fallbackLoadRequest = null
                         playbackController.stop(clearMedia = true)
                         resolutionError = resolved.safeMessage
                     }
@@ -111,6 +128,7 @@ fun LiveShell(
 
             LiveEffect.StopPlayback -> scope.launch {
                 resolutionError = null
+                fallbackLoadRequest = null
                 playbackController.stop(clearMedia = true)
             }
         }
@@ -123,7 +141,26 @@ fun LiveShell(
     }
 
     val channels = catalog?.channels.orEmpty()
+    val categories = catalog?.categories.orEmpty()
+    var selectedCategoryKey by remember(catalog?.activeSourceId) { mutableStateOf<String?>(null) }
+    val visibleChannels = selectedCategoryKey?.let { key ->
+        channels.filter { channel -> channel.categoryKey == key }
+    } ?: channels
     val selectedChannel = channels.firstOrNull { it.channelId == presentationState.selectedChannelId }
+
+    LaunchedEffect(categories, selectedCategoryKey) {
+        if (selectedCategoryKey != null && categories.none { it.categoryKey == selectedCategoryKey }) {
+            selectedCategoryKey = null
+        }
+    }
+
+    LaunchedEffect(playback.phase, fallbackLoadRequest) {
+        if (playback.phase == PlaybackPhase.ERROR) {
+            val fallback = fallbackLoadRequest ?: return@LaunchedEffect
+            fallbackLoadRequest = null
+            playbackController.load(fallback)
+        }
+    }
 
     LaunchedEffect(presentationState.presentation) {
         onFullscreenChanged(presentationState.presentation == LivePresentation.FULLSCREEN)
@@ -158,7 +195,10 @@ fun LiveShell(
     } else {
         LiveBrowseAndPreview(
             catalog = catalog,
-            channels = channels,
+            channels = visibleChannels,
+            categories = categories,
+            selectedCategoryKey = selectedCategoryKey,
+            onCategorySelected = { selectedCategoryKey = it },
             selectedChannel = selectedChannel,
             playbackController = playbackController,
             controllerScope = scope,
@@ -176,6 +216,9 @@ fun LiveShell(
 private fun LiveBrowseAndPreview(
     catalog: LiveCatalog?,
     channels: List<LiveChannel>,
+    categories: List<LiveCategory>,
+    selectedCategoryKey: String?,
+    onCategorySelected: (String?) -> Unit,
     selectedChannel: LiveChannel?,
     playbackController: PlaybackController,
     controllerScope: CoroutineScope,
@@ -213,6 +256,16 @@ private fun LiveBrowseAndPreview(
                     } else {
                         "Tap the selected channel for fullscreen"
                     },
+                )
+            }
+        }
+
+        if (categories.isNotEmpty()) {
+            item {
+                LiveCategoryStrip(
+                    categories = categories,
+                    selectedCategoryKey = selectedCategoryKey,
+                    onSelected = onCategorySelected,
                 )
             }
         }
@@ -267,6 +320,48 @@ private fun LiveBrowseAndPreview(
         item {
             Spacer(modifier = Modifier.height(OwnPlaySpacing.Xl))
         }
+    }
+}
+
+@Composable
+private fun LiveCategoryStrip(
+    categories: List<LiveCategory>,
+    selectedCategoryKey: String?,
+    onSelected: (String?) -> Unit,
+) {
+    LazyRow(
+        contentPadding = PaddingValues(horizontal = OwnPlaySpacing.Lg),
+        horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm),
+    ) {
+        item(key = "all") {
+            ProviderCategoryChip("All", selectedCategoryKey == null) { onSelected(null) }
+        }
+        items(categories, key = { it.categoryKey }) { category ->
+            ProviderCategoryChip(category.name, selectedCategoryKey == category.categoryKey) {
+                onSelected(category.categoryKey)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProviderCategoryChip(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier.clickable(onClick = onClick),
+        shape = OwnPlayShapeTokens.Small,
+        color = if (selected) OwnPlayColors.AccentSoft else OwnPlayColors.SurfaceElevated,
+        border = BorderStroke(1.dp, if (selected) OwnPlayColors.Accent else Color.Transparent),
+    ) {
+        Text(
+            text = label,
+            modifier = Modifier.padding(horizontal = OwnPlaySpacing.Md, vertical = OwnPlaySpacing.Sm),
+            style = MaterialTheme.typography.labelLarge,
+            color = if (selected) OwnPlayColors.TextPrimary else OwnPlayColors.TextSecondary,
+        )
     }
 }
 

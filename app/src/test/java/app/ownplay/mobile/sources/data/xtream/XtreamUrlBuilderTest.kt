@@ -24,6 +24,16 @@ class XtreamUrlBuilderTest {
     }
 
     @Test
+    fun buildsExtensionSpecificLiveCandidates() {
+        val credential = SourceCredential.Xtream("user", "pass")
+        val ts = XtreamUrlBuilder.streamUrl("http://provider.test:8080", credential, "live", "42", "ts")
+        val hls = XtreamUrlBuilder.streamUrl("http://provider.test:8080", credential, "live", "42", "m3u8")
+
+        assertTrue(ts.endsWith("/42.ts"))
+        assertTrue(hls.endsWith("/42.m3u8"))
+    }
+
+    @Test
     fun redactionRemovesCredentialsFromStreamPath() {
         val credential = SourceCredential.Xtream("user", "pass")
         val url = XtreamUrlBuilder.streamUrl("https://provider.test", credential, "live", "42", "ts")

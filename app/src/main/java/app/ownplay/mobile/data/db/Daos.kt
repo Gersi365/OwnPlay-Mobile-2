@@ -12,6 +12,7 @@ data class LiveChannelView(
     val channelId: String,
     val sourceId: String,
     val providerStreamId: String?,
+    val categoryKey: String?,
     val name: String,
     val logoUrl: String?,
     val streamLocator: String,
@@ -76,10 +77,22 @@ interface CatalogDao {
 
     @Query(
         """
+        SELECT * FROM provider_categories
+        WHERE sourceId = :sourceId
+          AND kind = :kind
+          AND available = 1
+        ORDER BY providerOrder ASC, name COLLATE NOCASE ASC, categoryKey ASC
+        """,
+    )
+    fun observeAvailableCategories(sourceId: String, kind: String): Flow<List<ProviderCategoryEntity>>
+
+    @Query(
+        """
         SELECT
             c.channelId AS channelId,
             c.sourceId AS sourceId,
             c.providerStreamId AS providerStreamId,
+            c.categoryKey AS categoryKey,
             COALESCE(p.localName, c.name) AS name,
             COALESCE(p.localLogo, c.logoUrl) AS logoUrl,
             c.streamLocator AS streamLocator,

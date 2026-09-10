@@ -59,6 +59,7 @@ import app.ownplay.mobile.downloads.domain.DownloadRepository
 import app.ownplay.mobile.downloads.ui.DownloadControls
 import app.ownplay.mobile.feature.library.domain.ContinueWatchingItem
 import app.ownplay.mobile.feature.library.domain.LibraryCatalog
+import app.ownplay.mobile.feature.library.domain.LibraryCategory
 import app.ownplay.mobile.feature.library.domain.LibraryDownloadedMedia
 import app.ownplay.mobile.feature.library.domain.LibraryEpisode
 import app.ownplay.mobile.feature.library.domain.LibraryMediaKind
@@ -346,6 +347,28 @@ private fun LibraryHome(
     onDownloadedAction: (LibraryDownloadedMedia, DownloadItem, DownloadAction) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    var selectedMovieCategoryKey by remember(catalog?.activeSourceId) { mutableStateOf<String?>(null) }
+    var selectedSeriesCategoryKey by remember(catalog?.activeSourceId) { mutableStateOf<String?>(null) }
+    val movieCategories = catalog?.movieCategories.orEmpty()
+    val seriesCategories = catalog?.seriesCategories.orEmpty()
+    val visibleMovies = catalog?.movies.orEmpty().let { movies ->
+        selectedMovieCategoryKey?.let { key -> movies.filter { it.categoryKey == key } } ?: movies
+    }
+    val visibleSeries = catalog?.series.orEmpty().let { series ->
+        selectedSeriesCategoryKey?.let { key -> series.filter { it.categoryKey == key } } ?: series
+    }
+
+    LaunchedEffect(movieCategories, selectedMovieCategoryKey) {
+        if (selectedMovieCategoryKey != null && movieCategories.none { it.categoryKey == selectedMovieCategoryKey }) {
+            selectedMovieCategoryKey = null
+        }
+    }
+    LaunchedEffect(seriesCategories, selectedSeriesCategoryKey) {
+        if (selectedSeriesCategoryKey != null && seriesCategories.none { it.categoryKey == selectedSeriesCategoryKey }) {
+            selectedSeriesCategoryKey = null
+        }
+    }
+
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -392,15 +415,27 @@ private fun LibraryHome(
                 title = "Movies",
                 actionLabel = catalog?.movies?.size?.takeIf { it > 0 }?.let { "$it titles" },
             )
+            if (movieCategories.isNotEmpty()) {
+                LibraryCategoryStrip(
+                    categories = movieCategories,
+                    selectedCategoryKey = selectedMovieCategoryKey,
+                    onSelected = { selectedMovieCategoryKey = it },
+                )
+            }
             when {
                 catalog != null && catalog.activeSourceId != null && catalog.movies.isEmpty() -> OwnPlayStatePanel(
                     title = "No movies available",
                     message = "Refresh ${catalog.activeSourceName ?: "the active source"} to load movie metadata.",
                 )
 
-                !catalog?.movies.isNullOrEmpty() -> MovieRow(
-                    movies = catalog?.movies.orEmpty(),
+                visibleMovies.isNotEmpty() -> MovieRow(
+                    movies = visibleMovies,
                     onMovieSelected = onMovieSelected,
+                )
+
+                catalog != null && catalog.movies.isNotEmpty() -> OwnPlayStatePanel(
+                    title = "No movies in this category",
+                    message = "Choose another provider category or All.",
                 )
             }
 
@@ -408,15 +443,27 @@ private fun LibraryHome(
                 title = "Series",
                 actionLabel = catalog?.series?.size?.takeIf { it > 0 }?.let { "$it titles" },
             )
+            if (seriesCategories.isNotEmpty()) {
+                LibraryCategoryStrip(
+                    categories = seriesCategories,
+                    selectedCategoryKey = selectedSeriesCategoryKey,
+                    onSelected = { selectedSeriesCategoryKey = it },
+                )
+            }
             when {
                 catalog != null && catalog.activeSourceId != null && catalog.series.isEmpty() -> OwnPlayStatePanel(
                     title = "No series available",
                     message = "Refresh ${catalog.activeSourceName ?: "the active source"} to load series metadata.",
                 )
 
-                !catalog?.series.isNullOrEmpty() -> SeriesRow(
-                    seriesItems = catalog?.series.orEmpty(),
+                visibleSeries.isNotEmpty() -> SeriesRow(
+                    seriesItems = visibleSeries,
                     onSeriesSelected = onSeriesSelected,
+                )
+
+                catalog != null && catalog.series.isNotEmpty() -> OwnPlayStatePanel(
+                    title = "No series in this category",
+                    message = "Choose another provider category or All.",
                 )
             }
 
@@ -436,6 +483,45 @@ private fun LibraryHome(
 
             Spacer(modifier = Modifier.height(OwnPlaySpacing.Xl))
         }
+    }
+}
+
+@Composable
+private fun LibraryCategoryStrip(
+    categories: List<LibraryCategory>,
+    selectedCategoryKey: String?,
+    onSelected: (String?) -> Unit,
+) {
+    LazyRow(horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm)) {
+        item(key = "all") {
+            LibraryCategoryChip("All", selectedCategoryKey == null) { onSelected(null) }
+        }
+        items(categories, key = { it.categoryKey }) { category ->
+            LibraryCategoryChip(category.name, selectedCategoryKey == category.categoryKey) {
+                onSelected(category.categoryKey)
+            }
+        }
+    }
+}
+
+@Composable
+private fun LibraryCategoryChip(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier.clickable(onClick = onClick),
+        shape = OwnPlayShapeTokens.Small,
+        color = if (selected) OwnPlayColors.AccentSoft else OwnPlayColors.SurfaceElevated,
+        border = BorderStroke(1.dp, if (selected) OwnPlayColors.Accent else Color.Transparent),
+    ) {
+        Text(
+            text = label,
+            modifier = Modifier.padding(horizontal = OwnPlaySpacing.Md, vertical = OwnPlaySpacing.Sm),
+            style = MaterialTheme.typography.labelLarge,
+            color = if (selected) OwnPlayColors.TextPrimary else OwnPlayColors.TextSecondary,
+        )
     }
 }
 

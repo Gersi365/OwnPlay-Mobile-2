@@ -104,6 +104,7 @@ class LibraryPoliciesTest {
     private fun movie(id: String, name: String, order: Int) = LibraryMovie(
         movieId = id,
         sourceId = "source",
+        categoryKey = null,
         name = name,
         posterUrl = null,
         backdropUrl = null,

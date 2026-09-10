@@ -9,12 +9,14 @@ import app.ownplay.mobile.data.db.LibraryDao
 import app.ownplay.mobile.data.db.MovieEntity
 import app.ownplay.mobile.data.db.OwnPlayDatabase
 import app.ownplay.mobile.data.db.PlaybackProgressEntity
+import app.ownplay.mobile.data.db.ProviderCategoryEntity
 import app.ownplay.mobile.data.db.SeriesEntity
 import app.ownplay.mobile.data.db.SourceDao
 import app.ownplay.mobile.data.db.SourceEntity
 import app.ownplay.mobile.data.security.CredentialStore
 import app.ownplay.mobile.feature.library.domain.ContinueWatchingItem
 import app.ownplay.mobile.feature.library.domain.LibraryCatalog
+import app.ownplay.mobile.feature.library.domain.LibraryCategory
 import app.ownplay.mobile.feature.library.domain.LibraryCompletionPolicy
 import app.ownplay.mobile.feature.library.domain.LibraryDownloadedMedia
 import app.ownplay.mobile.feature.library.domain.LibraryEpisode
@@ -285,15 +287,24 @@ class LibraryRepositoryImpl(
         ) { movies, series, episodes ->
             CoreRows(movies = movies, series = series, episodes = episodes)
         }
+        val categoryRows = combine(
+            catalogDao.observeAvailableCategories(sourceId, "MOVIE"),
+            catalogDao.observeAvailableCategories(sourceId, "SERIES"),
+        ) { movieCategories, seriesCategories ->
+            CategoryRows(movieCategories = movieCategories, seriesCategories = seriesCategories)
+        }
         return combine(
             coreRows,
+            categoryRows,
             libraryDao.observeIncompleteProgress(sourceId),
             libraryDao.observeCompletedDownloads(sourceId),
-        ) { core, progress, downloads ->
+        ) { core, categories, progress, downloads ->
             LibraryRows(
                 movies = core.movies,
                 series = core.series,
                 episodes = core.episodes,
+                movieCategories = categories.movieCategories,
+                seriesCategories = categories.seriesCategories,
                 progress = progress,
                 downloads = downloads,
             )
@@ -355,7 +366,9 @@ class LibraryRepositoryImpl(
             activeSourceId = source.sourceId,
             activeSourceName = source.displayName,
             continueWatching = LibraryOrderingPolicy.continueWatching(continueItems),
+            movieCategories = movieCategories.map { LibraryCategory(it.categoryKey, it.name, it.providerOrder) },
             movies = LibraryOrderingPolicy.movies(movieModels),
+            seriesCategories = seriesCategories.map { LibraryCategory(it.categoryKey, it.name, it.providerOrder) },
             series = LibraryOrderingPolicy.series(series.map { it.toDomain() }),
             downloadedMedia = LibraryOrderingPolicy.downloadedMedia(downloadModels),
         )
@@ -390,6 +403,7 @@ class LibraryRepositoryImpl(
         return LibraryMovie(
             movieId = movieId,
             sourceId = sourceId,
+            categoryKey = categoryKey,
             name = name,
             posterUrl = posterUrl,
             backdropUrl = backdropUrl,
@@ -403,6 +417,7 @@ class LibraryRepositoryImpl(
     private fun SeriesEntity.toDomain(): LibrarySeries = LibrarySeries(
         seriesId = seriesId,
         sourceId = sourceId,
+        categoryKey = categoryKey,
         name = name,
         posterUrl = posterUrl,
         backdropUrl = backdropUrl,
@@ -459,10 +474,17 @@ class LibraryRepositoryImpl(
         val episodes: List<EpisodeLibraryView>,
     )
 
+    private data class CategoryRows(
+        val movieCategories: List<ProviderCategoryEntity>,
+        val seriesCategories: List<ProviderCategoryEntity>,
+    )
+
     private data class LibraryRows(
         val movies: List<MovieEntity>,
         val series: List<SeriesEntity>,
         val episodes: List<EpisodeLibraryView>,
+        val movieCategories: List<ProviderCategoryEntity>,
+        val seriesCategories: List<ProviderCategoryEntity>,
         val progress: List<PlaybackProgressEntity>,
         val downloads: List<DownloadEntity>,
     )

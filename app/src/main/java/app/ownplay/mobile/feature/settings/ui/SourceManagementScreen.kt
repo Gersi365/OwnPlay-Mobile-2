@@ -105,6 +105,51 @@ internal fun SourceManagementScreen(
         clearStatus()
     }
 
+    fun launchAddAndRefresh(
+        state: SourceEditorState,
+        operation: suspend () -> SourceResult<Source>,
+    ) {
+        saving = true
+        scope.launch {
+            when (val added = operation()) {
+                is SourceResult.Success -> {
+                    val source = added.value
+                    when (val selected = sourceRepository.selectSource(source.sourceId)) {
+                        is SourceResult.Failure -> {
+                            editor = null
+                            showStatus(
+                                "Source saved",
+                                "The source was saved but could not be selected automatically. ${selected.error.safeMessage}",
+                            )
+                        }
+
+                        is SourceResult.Success -> when (val refreshed = sourceRepository.refresh(source.sourceId)) {
+                            is SourceResult.Success -> {
+                                editor = null
+                                val summary = refreshed.value
+                                showStatus(
+                                    "Source ready",
+                                    "Loaded ${summary.liveChannels} live channels, ${summary.movies} movies, and ${summary.series} series.",
+                                )
+                            }
+
+                            is SourceResult.Failure -> {
+                                editor = null
+                                showStatus(
+                                    "Source saved",
+                                    "The source is active, but automatic loading failed. ${refreshed.error.safeMessage}",
+                                )
+                            }
+                        }
+                    }
+                }
+
+                is SourceResult.Failure -> showStatus("Source not saved", added.error.safeMessage)
+            }
+            saving = false
+        }
+    }
+
     fun launchSave(
         state: SourceEditorState,
         operation: suspend () -> SourceResult<*>,
@@ -154,7 +199,7 @@ internal fun SourceManagementScreen(
                             showStatus("Check source", "Base URL, username, and password are required for Xtream.")
                             return@SourceEditor
                         }
-                        launchSave(state) {
+                        launchAddAndRefresh(state) {
                             sourceRepository.addSource(
                                 NewSource.Xtream(
                                     displayName = name,
@@ -171,7 +216,7 @@ internal fun SourceManagementScreen(
                             showStatus("Check source", "A remote M3U or M3U8 URL is required.")
                             return@SourceEditor
                         }
-                        launchSave(state) {
+                        launchAddAndRefresh(state) {
                             sourceRepository.addSource(
                                 NewSource.M3u(
                                     displayName = name,

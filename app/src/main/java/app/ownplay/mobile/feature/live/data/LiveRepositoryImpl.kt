@@ -4,6 +4,7 @@ import app.ownplay.mobile.data.db.CatalogDao
 import app.ownplay.mobile.data.db.SourceDao
 import app.ownplay.mobile.data.security.CredentialStore
 import app.ownplay.mobile.feature.live.domain.LiveCatalog
+import app.ownplay.mobile.feature.live.domain.LiveCategory
 import app.ownplay.mobile.feature.live.domain.LiveChannel
 import app.ownplay.mobile.feature.live.domain.LivePlaybackResolution
 import app.ownplay.mobile.feature.live.domain.LiveRepository
@@ -18,9 +19,9 @@ import java.util.Locale
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.flow.map
 
 class LiveRepositoryImpl(
     private val sourceRepository: SourceRepository,
@@ -34,14 +35,25 @@ class LiveRepositoryImpl(
             if (source == null) {
                 flowOf(LiveCatalog())
             } else {
-                catalogDao.observeAvailableLiveChannels(source.sourceId).map { rows ->
+                combine(
+                    catalogDao.observeAvailableCategories(source.sourceId, "LIVE"),
+                    catalogDao.observeAvailableLiveChannels(source.sourceId),
+                ) { categoryRows, channelRows ->
                     LiveCatalog(
                         activeSourceId = source.sourceId,
                         activeSourceName = source.displayName,
-                        channels = rows.map { row ->
+                        categories = categoryRows.map { row ->
+                            LiveCategory(
+                                categoryKey = row.categoryKey,
+                                name = row.name,
+                                providerOrder = row.providerOrder,
+                            )
+                        },
+                        channels = channelRows.map { row ->
                             LiveChannel(
                                 channelId = row.channelId,
                                 sourceId = row.sourceId,
+                                categoryKey = row.categoryKey,
                                 name = row.name,
                                 logoUrl = row.logoUrl,
                                 sortOrder = row.sortOrder,
@@ -53,34 +65,39 @@ class LiveRepositoryImpl(
         }
 
     override suspend fun resolvePlayback(channelId: String): LivePlaybackResolution {
-        if (channelId.isBlank()) {
-            return failure("INVALID_CHANNEL", "This channel cannot be opened.")
-        }
+        if (channelId.isBlank()) return failure("INVALID_CHANNEL", "This channel cannot be opened.")
 
         return try {
             val channel = catalogDao.getLiveChannel(channelId)
                 ?: return failure("CHANNEL_NOT_FOUND", "This channel is no longer available.")
-            if (!channel.available) {
-                return failure("CHANNEL_UNAVAILABLE", "This channel is currently unavailable.")
-            }
+            if (!channel.available) return failure("CHANNEL_UNAVAILABLE", "This channel is currently unavailable.")
 
             val source = sourceDao.get(channel.sourceId)
                 ?: return failure("SOURCE_NOT_FOUND", "The channel source is no longer available.")
-            if (!source.enabled) {
-                return failure("SOURCE_DISABLED", "The channel source is disabled.")
-            }
+            if (!source.enabled) return failure("SOURCE_DISABLED", "The channel source is disabled.")
 
+            var fallbackUri: String? = null
+            var fallbackFormat: PlaybackStreamFormat? = null
             val uri = when (source.type) {
                 SourceType.XTREAM.name -> {
                     val providerId = channel.providerStreamId
                         ?: return failure("STREAM_ID_MISSING", "This channel has no playable stream id.")
                     val credential = credentialStore.get(source.sourceId) as? SourceCredential.Xtream
                         ?: return failure("CREDENTIAL_MISSING", "Source credentials are unavailable.")
+                    fallbackUri = XtreamUrlBuilder.streamUrl(
+                        baseUrl = source.baseLocator,
+                        credential = credential,
+                        kind = "live",
+                        providerId = providerId,
+                        extension = "m3u8",
+                    )
+                    fallbackFormat = PlaybackStreamFormat.HLS
                     XtreamUrlBuilder.streamUrl(
                         baseUrl = source.baseLocator,
                         credential = credential,
                         kind = "live",
                         providerId = providerId,
+                        extension = "ts",
                     )
                 }
 
@@ -93,12 +110,15 @@ class LiveRepositoryImpl(
                     channel = LiveChannel(
                         channelId = channel.channelId,
                         sourceId = channel.sourceId,
+                        categoryKey = channel.categoryKey,
                         name = channel.name,
                         logoUrl = channel.logoUrl,
                         sortOrder = channel.providerOrder,
                     ),
                     uri = uri,
                     streamFormat = streamFormatFor(uri),
+                    fallbackUri = fallbackUri,
+                    fallbackStreamFormat = fallbackFormat,
                 ),
             )
         } catch (cancelled: CancellationException) {
@@ -112,11 +132,7 @@ class LiveRepositoryImpl(
         val normalizedPath = runCatching { URI(uri).path.orEmpty() }
             .getOrDefault(uri.substringBefore('?'))
             .lowercase(Locale.US)
-        return if (normalizedPath.endsWith(".m3u8")) {
-            PlaybackStreamFormat.HLS
-        } else {
-            PlaybackStreamFormat.AUTO
-        }
+        return if (normalizedPath.endsWith(".m3u8")) PlaybackStreamFormat.HLS else PlaybackStreamFormat.AUTO
     }
 
     private fun failure(code: String, message: String): LivePlaybackResolution.Failure =
