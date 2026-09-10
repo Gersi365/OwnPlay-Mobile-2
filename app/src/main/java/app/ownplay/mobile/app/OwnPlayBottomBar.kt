@@ -28,6 +28,9 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import app.ownplay.mobile.design.OwnPlayColors
@@ -70,7 +73,8 @@ fun OwnPlayBottomBar(
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxHeight()
-                            .clickable { onDestinationSelected(destination) }
+                            .semantics { this.selected = selected }
+                            .clickable(role = Role.Tab) { onDestinationSelected(destination) }
                             .padding(top = OwnPlaySpacing.Sm),
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {

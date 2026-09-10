@@ -27,6 +27,7 @@ class KeystoreCredentialStore(
 
     override suspend fun put(sourceId: String, credential: SourceCredential) = withContext(Dispatchers.IO) {
         try {
+            CredentialInputPolicy.requireSupportedSize(credential)
             val cipher = Cipher.getInstance(TRANSFORMATION)
             cipher.init(Cipher.ENCRYPT_MODE, getOrCreateKey())
             cipher.updateAAD(sourceId.toByteArray(Charsets.UTF_8))
