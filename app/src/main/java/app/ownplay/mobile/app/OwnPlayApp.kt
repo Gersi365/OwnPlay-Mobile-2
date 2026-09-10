@@ -22,13 +22,21 @@ import app.ownplay.mobile.feature.settings.ui.SettingsShell
 import kotlinx.coroutines.launch
 
 @Composable
-fun OwnPlayApp(services: OwnPlayServices) {
+fun OwnPlayApp(
+    services: OwnPlayServices,
+    onFullscreenChanged: (Boolean) -> Unit = {},
+) {
     OwnPlayTheme {
         var selectedDestination by rememberSaveable {
             mutableStateOf(AppDestination.Live)
         }
         var contentFullscreen by rememberSaveable { mutableStateOf(false) }
         val scope = rememberCoroutineScope()
+
+        fun setContentFullscreen(fullscreen: Boolean) {
+            contentFullscreen = fullscreen
+            onFullscreenChanged(fullscreen)
+        }
 
         Scaffold(
             containerColor = OwnPlayColors.Background,
@@ -44,7 +52,7 @@ fun OwnPlayApp(services: OwnPlayServices) {
                                 scope.launch {
                                     services.playbackController.stop(clearMedia = true)
                                 }
-                                contentFullscreen = false
+                                setContentFullscreen(false)
                             }
                             selectedDestination = destination
                         },
@@ -61,14 +69,14 @@ fun OwnPlayApp(services: OwnPlayServices) {
                     AppDestination.Live -> LiveShell(
                         liveRepository = services.liveRepository,
                         playbackController = services.playbackController,
-                        onFullscreenChanged = { contentFullscreen = it },
+                        onFullscreenChanged = ::setContentFullscreen,
                     )
 
                     AppDestination.Library -> LibraryShell(
                         libraryRepository = services.libraryRepository,
                         downloadRepository = services.downloadRepository,
                         playbackController = services.playbackController,
-                        onFullscreenChanged = { contentFullscreen = it },
+                        onFullscreenChanged = ::setContentFullscreen,
                     )
 
                     AppDestination.Settings -> SettingsShell(

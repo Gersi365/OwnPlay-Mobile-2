@@ -3,6 +3,7 @@ package app.ownplay.mobile.playback
 import android.content.Context
 import android.os.Looper
 import android.view.SurfaceView
+import android.view.View
 import androidx.annotation.OptIn
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
@@ -46,6 +47,7 @@ class Media3PlaybackController(
 
     private var ownership = VideoTargetOwnership()
     private var boundSurface: BoundSurface? = null
+    private var boundSurfaceDetachListener: View.OnAttachStateChangeListener? = null
     private var currentMedia: PlaybackMedia? = null
     private var released = false
 
@@ -110,10 +112,14 @@ class Media3PlaybackController(
                 return@mutateOnPlayerThread
             }
 
-            existing?.let { player.clearVideoSurfaceView(it.surfaceView) }
+            if (existing != null) {
+                removeDetachListener(existing.surfaceView)
+                player.clearVideoSurfaceView(existing.surfaceView)
+            }
 
             player.setVideoSurfaceView(surfaceView)
             boundSurface = BoundSurface(target = target, surfaceView = surfaceView)
+            installDetachListener(surfaceView)
             ownership = VideoTargetOwnershipReducer.reduce(
                 state = ownership,
                 event = VideoTargetEvent.Acquire(target),
@@ -134,11 +140,30 @@ class Media3PlaybackController(
                 return@mutateOnPlayerThread
             }
 
+            removeDetachListener(surfaceView)
             player.clearVideoSurfaceView(surfaceView)
             boundSurface = null
             ownership = VideoTargetOwnershipReducer.reduce(
                 state = ownership,
                 event = VideoTargetEvent.Release(target),
+            )
+            refreshSnapshot()
+        }
+    }
+
+    override suspend fun transferVideoTarget(target: VideoTarget) {
+        require(target != VideoTarget.NONE) { "NONE cannot own a video surface." }
+
+        mutateOnPlayerThread {
+            val existing = boundSurface ?: return@mutateOnPlayerThread
+            if (existing.target == target) {
+                return@mutateOnPlayerThread
+            }
+
+            boundSurface = existing.copy(target = target)
+            ownership = VideoTargetOwnershipReducer.reduce(
+                state = ownership,
+                event = VideoTargetEvent.Acquire(target),
             )
             refreshSnapshot()
         }
@@ -217,8 +242,38 @@ class Media3PlaybackController(
             .setLooper(Looper.getMainLooper())
             .build()
 
+    private fun installDetachListener(surfaceView: SurfaceView) {
+        val detachListener = object : View.OnAttachStateChangeListener {
+            override fun onViewAttachedToWindow(view: View) = Unit
+
+            override fun onViewDetachedFromWindow(view: View) {
+                val existing = boundSurface ?: return
+                if (existing.surfaceView !== surfaceView || view !== surfaceView) {
+                    return
+                }
+
+                player.clearVideoSurfaceView(surfaceView)
+                removeDetachListener(surfaceView)
+                boundSurface = null
+                ownership = VideoTargetOwnershipReducer.reduce(
+                    state = ownership,
+                    event = VideoTargetEvent.Release(existing.target),
+                )
+                refreshSnapshot()
+            }
+        }
+        surfaceView.addOnAttachStateChangeListener(detachListener)
+        boundSurfaceDetachListener = detachListener
+    }
+
+    private fun removeDetachListener(surfaceView: SurfaceView) {
+        boundSurfaceDetachListener?.let(surfaceView::removeOnAttachStateChangeListener)
+        boundSurfaceDetachListener = null
+    }
+
     private fun clearBoundSurface() {
         val existing = boundSurface ?: return
+        removeDetachListener(existing.surfaceView)
         player.clearVideoSurfaceView(existing.surfaceView)
         boundSurface = null
         ownership = VideoTargetOwnershipReducer.reduce(
