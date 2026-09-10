@@ -21,6 +21,8 @@ interface PlaybackController {
         surfaceView: SurfaceView,
     )
 
+    suspend fun transferVideoTarget(target: VideoTarget)
+
     suspend fun setPlayWhenReady(shouldPlay: Boolean)
 
     suspend fun seekTo(positionMs: Long)
