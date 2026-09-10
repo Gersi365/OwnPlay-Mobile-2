@@ -44,6 +44,7 @@ import app.ownplay.mobile.feature.settings.domain.BackupRepository
 import app.ownplay.mobile.feature.settings.domain.BackupResult
 import app.ownplay.mobile.sources.domain.NewSource
 import app.ownplay.mobile.sources.domain.Source
+import app.ownplay.mobile.sources.domain.SourceConnectionSecurityPolicy
 import app.ownplay.mobile.sources.domain.SourceConnectionUpdate
 import app.ownplay.mobile.sources.domain.SourceCredential
 import app.ownplay.mobile.sources.domain.SourceRepository
@@ -528,6 +529,14 @@ private fun SourceCard(
                 )
             }
 
+            SourceConnectionSecurityPolicy.warning(source.baseLocator)?.let { warning ->
+                Text(
+                    text = warning,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = OwnPlayColors.TextMuted,
+                )
+            }
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),
@@ -671,6 +680,17 @@ private fun SourceEditor(
                     )
                 }
             }
+        }
+
+        val securityLocator = when (state.type) {
+            SourceType.XTREAM -> state.baseUrl
+            SourceType.M3U -> state.playlistUrl
+        }
+        SourceConnectionSecurityPolicy.warning(securityLocator)?.let { warning ->
+            OwnPlayStatePanel(
+                title = "HTTP connection",
+                message = warning,
+            )
         }
 
         if (statusTitle != null && statusMessage != null) {
