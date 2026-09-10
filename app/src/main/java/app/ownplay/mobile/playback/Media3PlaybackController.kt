@@ -2,6 +2,7 @@ package app.ownplay.mobile.playback
 
 import android.content.Context
 import android.os.Looper
+import android.util.Log
 import android.view.SurfaceView
 import android.view.View
 import androidx.annotation.OptIn
@@ -13,6 +14,7 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.decoder.ffmpeg.FfmpegLibrary
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import app.ownplay.mobile.playback.domain.PlaybackLoadRequest
@@ -253,6 +255,9 @@ class Media3PlaybackController(
 
     @OptIn(UnstableApi::class)
     private fun createPlayer(context: Context): ExoPlayer {
+        if (!FfmpegLibrary.isAvailable()) {
+            Log.w("OwnPlayPlayback", "Media3 FFmpeg audio decoder is unavailable; using device decoders only.")
+        }
         val renderersFactory = DefaultRenderersFactory(context)
             .setEnableDecoderFallback(true)
             .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
