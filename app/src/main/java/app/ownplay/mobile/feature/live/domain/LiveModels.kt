@@ -92,4 +92,6 @@ interface LiveRepository {
     suspend fun setChannelHidden(channelId: String, hidden: Boolean)
     suspend fun setCategoryOrder(sourceId: String, orderedCategoryKeys: List<String>)
     suspend fun setChannelOrder(orderedChannelIds: List<String>)
+    suspend fun resetCategoryOrder(sourceId: String, categoryKeys: List<String>)
+    suspend fun resetChannelOrder(channelIds: List<String>)
 }
