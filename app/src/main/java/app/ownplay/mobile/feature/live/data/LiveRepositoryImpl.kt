@@ -180,6 +180,32 @@ class LiveRepositoryImpl(
         }
     }
 
+    override suspend fun resetCategoryOrder(sourceId: String, categoryKeys: List<String>) {
+        if (sourceId.isBlank()) return
+        val keys = categoryKeys.distinct().filter { it.isNotBlank() }
+        database.withTransaction {
+            keys.forEach { categoryKey ->
+                val current = catalogDao.getCategoryPersonalization(sourceId, LIVE_KIND, categoryKey)
+                    ?: return@forEach
+                if (current.manualOrder != null) {
+                    catalogDao.upsertCategoryPersonalization(current.copy(manualOrder = null))
+                }
+            }
+        }
+    }
+
+    override suspend fun resetChannelOrder(channelIds: List<String>) {
+        val ids = channelIds.distinct().filter { it.isNotBlank() }
+        database.withTransaction {
+            ids.forEach { channelId ->
+                val current = catalogDao.getChannelPersonalization(channelId) ?: return@forEach
+                if (current.manualOrder != null) {
+                    catalogDao.upsertChannelPersonalization(current.copy(manualOrder = null))
+                }
+            }
+        }
+    }
+
     override suspend fun loadNowNext(channelId: String): LiveNowNext {
         if (channelId.isBlank()) return LiveNowNext()
         val nowMs = System.currentTimeMillis()
