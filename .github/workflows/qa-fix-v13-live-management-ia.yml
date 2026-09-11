@@ -1,0 +1,86 @@
+name: QA v13 Live management IA source correction
+
+on:
+  push:
+    branches:
+      - qa-fix-v13-live-management-ia-runner
+
+permissions:
+  contents: write
+
+jobs:
+  patch-validate-publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      SOURCE_SHA: fe1e751d191b0edc0278964e8320e1b766f37bb6
+      CANDIDATE_BRANCH: qa-candidate-fe1e751-live-management-ia
+
+    steps:
+      - name: Checkout helper branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Preserve patch script and checkout exact source
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp .github/scripts/apply-live-management-ia-fix.py "$RUNNER_TEMP/apply-fix.py"
+          git checkout --detach "$SOURCE_SHA"
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          test -z "$(git status --porcelain)"
+          echo "Exact source before patch: $(git rev-parse HEAD)"
+
+      - name: Apply guarded Live management IA correction
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 "$RUNNER_TEMP/apply-fix.py"
+          git diff --check
+          test "$(git status --short | sed -E 's/^.. //' | sort)" = "app/src/main/java/app/ownplay/mobile/feature/settings/ui/LiveManagementScreen.kt"
+          git diff --stat
+          grep -q 'text = "Manage categories"' app/src/main/java/app/ownplay/mobile/feature/settings/ui/LiveManagementScreen.kt
+          grep -q 'text = "Manage channels"' app/src/main/java/app/ownplay/mobile/feature/settings/ui/LiveManagementScreen.kt
+          grep -q 'Choose a category to manage its channels.' app/src/main/java/app/ownplay/mobile/feature/settings/ui/LiveManagementScreen.kt
+          ! grep -q 'Tap for channels' app/src/main/java/app/ownplay/mobile/feature/settings/ui/LiveManagementScreen.kt
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK 36
+        shell: bash
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Set up Gradle 9.6.0
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "9.6.0"
+          cache-read-only: true
+
+      - name: Validate source without APK generation
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash tools/validate-source-no-apk.sh
+          test -z "$(find . -type f \( -name '*.apk' -o -name '*.aab' \) -print -quit)"
+          git diff --check
+
+      - name: Commit validated candidate and push without force
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "Gersi365"
+          git config user.email "Gersi365@outlook.com"
+          git add app/src/main/java/app/ownplay/mobile/feature/settings/ui/LiveManagementScreen.kt
+          test -z "$(git status --porcelain | grep -v '^M  \|^A  ' || true)"
+          git commit -m "Separate Live category and channel management"
+          test "$(git rev-parse HEAD^)" = "$SOURCE_SHA"
+          git push origin "HEAD:refs/heads/$CANDIDATE_BRANCH"
+          echo "Validated candidate SHA: $(git rev-parse HEAD)"
