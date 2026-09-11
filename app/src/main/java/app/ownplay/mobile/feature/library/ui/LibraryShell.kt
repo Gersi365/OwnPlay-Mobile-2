@@ -25,6 +25,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -85,6 +86,9 @@ import app.ownplay.mobile.playback.domain.PlaybackPhase
 import app.ownplay.mobile.playback.domain.PlaybackSnapshot
 import app.ownplay.mobile.playback.domain.VideoTarget
 import app.ownplay.mobile.playback.ui.AudioTrackSelectorPanel
+import app.ownplay.mobile.playback.ui.PlayerGlassCircleAction
+import app.ownplay.mobile.playback.ui.PlayerGlassPillAction
+import app.ownplay.mobile.playback.ui.PlayerGlassScrims
 import app.ownplay.mobile.playback.ui.PlayerLocalControlHudOverlay
 import app.ownplay.mobile.playback.ui.playerLocalVerticalControls
 import java.io.ByteArrayOutputStream
@@ -1229,138 +1233,140 @@ private fun LibraryFullscreenPlayer(
         )
 
         if (overlayVisible) {
+            PlayerGlassScrims()
+
             Row(
                 modifier = Modifier
                     .align(Alignment.TopStart)
+                    .fillMaxWidth()
                     .padding(horizontal = OwnPlaySpacing.Lg, vertical = OwnPlaySpacing.Md),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),
             ) {
-                Text(
-                    text = "‹ LIBRARY",
-                    modifier = Modifier
-                        .clickable(onClick = ::closePlayer)
-                        .padding(vertical = OwnPlaySpacing.Xs),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = OwnPlayColors.Accent,
-                    fontWeight = FontWeight.SemiBold,
+                PlayerGlassCircleAction(
+                    label = "‹",
+                    onClick = ::closePlayer,
                 )
-                Text(
-                    text = if (playback.offline) "OFFLINE" else playback.mediaKind.name,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = OwnPlayColors.TextSecondary,
-                )
-            }
-
-            Surface(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .padding(horizontal = OwnPlaySpacing.Lg, vertical = OwnPlaySpacing.Md),
-                color = OwnPlayColors.Surface.copy(alpha = 0.86f),
-                shape = OwnPlayShapeTokens.Small,
-                border = BorderStroke(1.dp, OwnPlayColors.Divider),
-                tonalElevation = 0.dp,
-            ) {
                 Column(
-                    modifier = Modifier.padding(horizontal = OwnPlaySpacing.Md, vertical = OwnPlaySpacing.Sm),
-                    verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Xs),
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
                     Text(
                         text = playback.title,
                         style = MaterialTheme.typography.titleMedium,
-                        color = OwnPlayColors.TextPrimary,
+                        color = Color.White,
                         maxLines = 1,
                     )
-                    playback.subtitle?.let { subtitle ->
-                        Text(
-                            text = subtitle,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = OwnPlayColors.TextSecondary,
-                            maxLines = 1,
-                        )
-                    }
+                    Text(
+                        text = playback.subtitle
+                            ?: if (playback.offline) "Offline" else playback.mediaKind.name.lowercase().replaceFirstChar { it.uppercase() },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.White.copy(alpha = 0.72f),
+                        maxLines = 1,
+                    )
+                }
+            }
 
-                    val duration = playerState.durationMs ?: playback.knownDurationMs
-                    if (duration != null && duration > 0L) {
-                        val sliderPosition = (pendingSeekMs ?: playerState.positionMs).coerceIn(0L, duration)
-                        Slider(
-                            value = sliderPosition.toFloat(),
-                            onValueChange = { value -> pendingSeekMs = value.roundToLong().coerceIn(0L, duration) },
-                            onValueChangeFinished = {
-                                val destination = pendingSeekMs
-                                pendingSeekMs = null
-                                if (destination != null) {
-                                    scope.launch { playbackController.seekTo(destination) }
-                                }
-                            },
-                            valueRange = 0f..duration.toFloat().coerceAtLeast(1f),
-                        )
-                        Row(modifier = Modifier.fillMaxWidth()) {
-                            Text(
-                                formatDuration(sliderPosition),
-                                modifier = Modifier.weight(1f),
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = OwnPlayColors.TextSecondary,
-                            )
-                            Text(formatDuration(duration), style = MaterialTheme.typography.bodyMedium, color = OwnPlayColors.TextSecondary)
+            Row(
+                modifier = Modifier.align(Alignment.Center),
+                horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Lg),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                PlayerGlassCircleAction(
+                    label = "−10",
+                    onClick = {
+                        scope.launch {
+                            playbackController.seekTo((playerState.positionMs - 10_000L).coerceAtLeast(0L))
                         }
-                    } else {
-                        Text(
-                            text = when (playerState.phase) {
-                                PlaybackPhase.BUFFERING -> "Buffering…"
-                                PlaybackPhase.ERROR -> "Playback unavailable"
-                                else -> "Preparing duration…"
-                            },
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = OwnPlayColors.TextSecondary,
-                        )
-                    }
+                    },
+                )
+                PlayerGlassCircleAction(
+                    label = if (playerState.playWhenReady) "Ⅱ" else "▶",
+                    emphasized = true,
+                    onClick = {
+                        scope.launch { playbackController.setPlayWhenReady(!playerState.playWhenReady) }
+                    },
+                )
+                PlayerGlassCircleAction(
+                    label = "+10",
+                    onClick = {
+                        scope.launch {
+                            val upper = playerState.durationMs ?: playback.knownDurationMs ?: Long.MAX_VALUE
+                            playbackController.seekTo((playerState.positionMs + 10_000L).coerceAtMost(upper))
+                        }
+                    },
+                )
+            }
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(
-                            OwnPlaySpacing.Sm,
-                            Alignment.CenterHorizontally,
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .padding(horizontal = OwnPlaySpacing.Xl, vertical = OwnPlaySpacing.Lg),
+                verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Xs),
+            ) {
+                val duration = playerState.durationMs ?: playback.knownDurationMs
+                if (duration != null && duration > 0L) {
+                    val sliderPosition = (pendingSeekMs ?: playerState.positionMs).coerceIn(0L, duration)
+                    Slider(
+                        value = sliderPosition.toFloat(),
+                        onValueChange = { value -> pendingSeekMs = value.roundToLong().coerceIn(0L, duration) },
+                        onValueChangeFinished = {
+                            val destination = pendingSeekMs
+                            pendingSeekMs = null
+                            if (destination != null) {
+                                scope.launch { playbackController.seekTo(destination) }
+                            }
+                        },
+                        valueRange = 0f..duration.toFloat().coerceAtLeast(1f),
+                        colors = SliderDefaults.colors(
+                            thumbColor = OwnPlayColors.Accent,
+                            activeTrackColor = OwnPlayColors.Accent,
+                            inactiveTrackColor = Color.White.copy(alpha = 0.22f),
                         ),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        LibraryPlayerControlButton(
-                            text = "−10s",
-                            onClick = {
-                                scope.launch {
-                                    playbackController.seekTo((playerState.positionMs - 10_000L).coerceAtLeast(0L))
-                                }
-                            },
+                    )
+                    Row(modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            formatDuration(sliderPosition),
+                            modifier = Modifier.weight(1f),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.White.copy(alpha = 0.78f),
                         )
-                        LibraryPlayerControlButton(
-                            text = if (playerState.playWhenReady) "Pause" else "Play",
-                            emphasized = true,
-                            onClick = {
-                                scope.launch { playbackController.setPlayWhenReady(!playerState.playWhenReady) }
-                            },
+                        Text(
+                            formatDuration(duration),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.White.copy(alpha = 0.78f),
                         )
-                        LibraryPlayerControlButton(
-                            text = "+10s",
-                            onClick = {
-                                scope.launch {
-                                    val upper = playerState.durationMs ?: playback.knownDurationMs ?: Long.MAX_VALUE
-                                    playbackController.seekTo((playerState.positionMs + 10_000L).coerceAtMost(upper))
-                                }
-                            },
+                    }
+                } else {
+                    Text(
+                        text = when (playerState.phase) {
+                            PlaybackPhase.BUFFERING -> "Buffering…"
+                            PlaybackPhase.ERROR -> "Playback unavailable"
+                            else -> "Preparing duration…"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.White.copy(alpha = 0.78f),
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm, Alignment.End),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (playerState.phase == PlaybackPhase.ERROR) {
+                        PlayerGlassPillAction(
+                            text = "Retry",
+                            onClick = { scope.launch { playbackController.retry() } },
                         )
-                        if (playerState.phase == PlaybackPhase.ERROR) {
-                            LibraryPlayerControlButton(
-                                text = "Retry",
-                                onClick = { scope.launch { playbackController.retry() } },
-                            )
-                        }
-                        if (playerState.audioTracks.isNotEmpty()) {
-                            LibraryPlayerControlButton(
-                                text = "Audio",
-                                onClick = { audioSelectorVisible = !audioSelectorVisible },
-                            )
-                        }
+                    }
+                    if (playerState.audioTracks.isNotEmpty()) {
+                        PlayerGlassPillAction(
+                            text = "Audio",
+                            emphasized = audioSelectorVisible,
+                            onClick = { audioSelectorVisible = !audioSelectorVisible },
+                        )
                     }
                 }
             }
@@ -1379,32 +1385,6 @@ private fun LibraryFullscreenPlayer(
                 )
             }
         }
-    }
-}
-
-@Composable
-private fun LibraryPlayerControlButton(
-    text: String,
-    emphasized: Boolean = false,
-    onClick: () -> Unit,
-) {
-    Surface(
-        onClick = onClick,
-        shape = OwnPlayShapeTokens.Small,
-        color = if (emphasized) OwnPlayColors.Accent else OwnPlayColors.Background.copy(alpha = 0.72f),
-        border = BorderStroke(
-            width = 1.dp,
-            color = if (emphasized) OwnPlayColors.Accent else OwnPlayColors.Divider,
-        ),
-        tonalElevation = 0.dp,
-    ) {
-        Text(
-            text = text,
-            modifier = Modifier.padding(horizontal = OwnPlaySpacing.Md, vertical = OwnPlaySpacing.Sm),
-            style = MaterialTheme.typography.labelLarge,
-            color = if (emphasized) Color.White else OwnPlayColors.TextPrimary,
-            fontWeight = FontWeight.SemiBold,
-        )
     }
 }
 

@@ -82,6 +82,9 @@ import app.ownplay.mobile.playback.domain.PlaybackPhase
 import app.ownplay.mobile.playback.domain.PlaybackSnapshot
 import app.ownplay.mobile.playback.domain.VideoTarget
 import app.ownplay.mobile.playback.ui.AudioTrackSelectorPanel
+import app.ownplay.mobile.playback.ui.PlayerGlassCircleAction
+import app.ownplay.mobile.playback.ui.PlayerGlassPillAction
+import app.ownplay.mobile.playback.ui.PlayerGlassScrims
 import app.ownplay.mobile.playback.ui.PlayerLocalControlHudOverlay
 import app.ownplay.mobile.playback.ui.playerLocalVerticalControls
 import java.io.ByteArrayOutputStream
@@ -871,82 +874,78 @@ private fun FullscreenLive(
         )
 
         if (overlayVisible) {
+            PlayerGlassScrims()
+
             Row(
                 modifier = Modifier
                     .align(Alignment.TopStart)
-                    .padding(horizontal = OwnPlaySpacing.Xl, vertical = OwnPlaySpacing.Lg),
+                    .fillMaxWidth()
+                    .padding(horizontal = OwnPlaySpacing.Lg, vertical = OwnPlaySpacing.Md),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),
             ) {
-                OwnPlayWordmark(showTagline = false)
+                PlayerGlassCircleAction(
+                    label = "‹",
+                    onClick = onBackToPreview,
+                )
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    Text(
+                        text = channel.name,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = Color.White,
+                        maxLines = 1,
+                    )
+                    Text(
+                        text = "Channel $channelNumber",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.White.copy(alpha = 0.70f),
+                    )
+                }
                 LiveBadge()
             }
 
-            Surface(
+            Row(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
-                    .padding(OwnPlaySpacing.Xl),
-                color = OwnPlayColors.Surface.copy(alpha = 0.94f),
-                shape = OwnPlayShapeTokens.Medium,
-                border = BorderStroke(1.dp, OwnPlayColors.Divider),
-                tonalElevation = 0.dp,
+                    .padding(horizontal = OwnPlaySpacing.Xl, vertical = OwnPlaySpacing.Lg),
+                verticalAlignment = Alignment.Bottom,
+                horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),
             ) {
-                Row(
-                    modifier = Modifier.padding(OwnPlaySpacing.Lg),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Lg),
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(3.dp),
                 ) {
                     Text(
-                        text = channelNumber,
-                        style = MaterialTheme.typography.titleMedium,
-                        color = OwnPlayColors.TextSecondary,
+                        text = when {
+                            resolutionError != null -> resolutionError
+                            playbackSnapshot.phase == PlaybackPhase.ERROR -> "Playback unavailable"
+                            audioCompatibilityMessage != null -> audioCompatibilityMessage
+                            playbackSnapshot.phase == PlaybackPhase.BUFFERING -> "Buffering live stream…"
+                            guide.now != null -> "Now ${programTimeRange(guide.now)} • ${guide.now.title}"
+                            else -> "Live • Guide unavailable"
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color.White,
+                        maxLines = 1,
                     )
-                    Column(modifier = Modifier.weight(1f)) {
+                    guide.next?.let { next ->
                         Text(
-                            text = channel.name,
-                            style = MaterialTheme.typography.titleLarge,
-                            color = OwnPlayColors.TextPrimary,
-                        )
-                        Text(
-                            text = when {
-                                resolutionError != null -> resolutionError
-                                playbackSnapshot.phase == PlaybackPhase.ERROR -> "Playback unavailable"
-                                audioCompatibilityMessage != null -> audioCompatibilityMessage
-                                playbackSnapshot.phase == PlaybackPhase.BUFFERING -> "Buffering live stream…"
-                                guide.now != null -> "Now ${programTimeRange(guide.now)} • ${guide.now.title}"
-                                else -> "Live • Guide unavailable"
-                            },
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = OwnPlayColors.TextSecondary,
+                            text = "Next ${programTimeRange(next)} • ${next.title}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.White.copy(alpha = 0.70f),
                             maxLines = 1,
                         )
-                        guide.next?.let { next ->
-                            Text(
-                                text = "Next ${programTimeRange(next)} • ${next.title}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = OwnPlayColors.TextSecondary,
-                                maxLines = 1,
-                            )
-                        }
                     }
-                    if (audioTracks.isNotEmpty()) {
-                        Text(
-                            text = "AUDIO",
-                            modifier = Modifier
-                                .clickable { audioSelectorVisible = !audioSelectorVisible }
-                                .padding(OwnPlaySpacing.Sm),
-                            style = MaterialTheme.typography.labelLarge,
-                            color = OwnPlayColors.Accent,
-                        )
-                    }
-                    Text(
-                        text = "BACK TO PREVIEW",
-                        modifier = Modifier
-                            .clickable(onClick = onBackToPreview)
-                            .padding(OwnPlaySpacing.Sm),
-                        style = MaterialTheme.typography.labelLarge,
-                        color = OwnPlayColors.Accent,
+                }
+                if (audioTracks.isNotEmpty()) {
+                    PlayerGlassPillAction(
+                        text = "Audio",
+                        emphasized = audioSelectorVisible,
+                        onClick = { audioSelectorVisible = !audioSelectorVisible },
                     )
                 }
             }
