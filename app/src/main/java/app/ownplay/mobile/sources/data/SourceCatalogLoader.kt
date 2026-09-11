@@ -4,6 +4,8 @@ import app.ownplay.mobile.sources.data.m3u.M3uClient
 import app.ownplay.mobile.sources.data.m3u.M3uParser
 import app.ownplay.mobile.sources.data.m3u.M3uResult
 import app.ownplay.mobile.sources.data.xtream.XtreamClient
+import app.ownplay.mobile.sources.data.xtream.XtreamLiveCategoryAttribution
+import app.ownplay.mobile.sources.data.xtream.XtreamLiveStream
 import app.ownplay.mobile.sources.data.xtream.XtreamResult
 import app.ownplay.mobile.sources.domain.Source
 import app.ownplay.mobile.sources.domain.SourceCredential
@@ -12,6 +14,11 @@ import app.ownplay.mobile.sources.domain.SourceType
 import java.net.URI
 import java.util.Locale
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 
 class SourceCatalogLoader(
@@ -37,12 +44,18 @@ class SourceCatalogLoader(
             ?: return failedPayload("CREDENTIAL_TYPE")
 
         val liveCategoriesResult = xtreamClient.liveCategories(source.baseLocator, xtreamCredential)
-        val liveStreamsResult = xtreamClient.liveStreams(source.baseLocator, xtreamCredential)
+        val globalLiveStreamsResult = xtreamClient.liveStreams(source.baseLocator, xtreamCredential)
         val vodCategoriesResult = xtreamClient.vodCategories(source.baseLocator, xtreamCredential)
         val vodStreamsResult = xtreamClient.vodStreams(source.baseLocator, xtreamCredential)
         val seriesCategoriesResult = xtreamClient.seriesCategories(source.baseLocator, xtreamCredential)
         val seriesResult = xtreamClient.series(source.baseLocator, xtreamCredential)
 
+        val liveStreamsResult = recoverLiveCategoryAttribution(
+            source = source,
+            credential = xtreamCredential,
+            categoriesResult = liveCategoriesResult,
+            streamsResult = globalLiveStreamsResult,
+        )
         val liveCategoryMap = categoryIdMap(source.sourceId, "LIVE", liveCategoriesResult)
         val vodCategoryMap = categoryIdMap(source.sourceId, "MOVIE", vodCategoriesResult)
         val seriesCategoryMap = categoryIdMap(source.sourceId, "SERIES", seriesCategoriesResult)
@@ -55,7 +68,9 @@ class SourceCatalogLoader(
                         channelId = StableIdentity.xtreamContentId(source.sourceId, "live", stream.streamId),
                         providerKey = stream.streamId,
                         providerStreamId = stream.streamId,
-                        categoryKey = stream.categoryId?.let(liveCategoryMap::get),
+                        categoryKey = XtreamLiveCategoryAttribution
+                            .normalizeProviderCategoryId(stream.categoryId)
+                            ?.let(liveCategoryMap::get),
                         name = stream.name,
                         tvgId = stream.epgChannelId,
                         tvgName = stream.name,
@@ -71,7 +86,9 @@ class SourceCatalogLoader(
                     ProviderMovieRecord(
                         movieId = StableIdentity.xtreamContentId(source.sourceId, "movie", movie.streamId),
                         providerStreamId = movie.streamId,
-                        categoryKey = movie.categoryId?.let(vodCategoryMap::get),
+                        categoryKey = XtreamLiveCategoryAttribution
+                            .normalizeProviderCategoryId(movie.categoryId)
+                            ?.let(vodCategoryMap::get),
                         name = movie.name,
                         posterUrl = movie.posterUrl,
                         backdropUrl = null,
@@ -87,7 +104,9 @@ class SourceCatalogLoader(
                     ProviderSeriesRecord(
                         seriesId = StableIdentity.xtreamContentId(source.sourceId, "series", item.seriesId),
                         providerSeriesId = item.seriesId,
-                        categoryKey = item.categoryId?.let(seriesCategoryMap::get),
+                        categoryKey = XtreamLiveCategoryAttribution
+                            .normalizeProviderCategoryId(item.categoryId)
+                            ?.let(seriesCategoryMap::get),
                         name = item.name,
                         posterUrl = item.posterUrl,
                         backdropUrl = item.backdropUrl,
@@ -170,6 +189,93 @@ class SourceCatalogLoader(
         }
     }
 
+    private suspend fun recoverLiveCategoryAttribution(
+        source: Source,
+        credential: SourceCredential.Xtream,
+        categoriesResult: XtreamResult<List<app.ownplay.mobile.sources.data.xtream.XtreamCategory>>,
+        streamsResult: XtreamResult<List<XtreamLiveStream>>,
+    ): XtreamResult<List<XtreamLiveStream>> {
+        val categoryRows = (categoriesResult as? XtreamResult.Success)?.value
+            ?.filterNot { category -> ProviderCategoryVisibility.isUtilityLabel(category.name) }
+            ?: return streamsResult
+        val globalRows = (streamsResult as? XtreamResult.Success)?.value ?: return streamsResult
+        val categoryIds = categoryRows
+            .mapNotNull { category ->
+                XtreamLiveCategoryAttribution.normalizeProviderCategoryId(category.providerKey)
+            }
+            .distinct()
+        val normalizedGlobalRows = globalRows.map { stream ->
+            stream.copy(
+                categoryId = XtreamLiveCategoryAttribution.normalizeProviderCategoryId(stream.categoryId),
+            )
+        }
+
+        if (!XtreamLiveCategoryAttribution.needsRecovery(
+                knownCategoryIds = categoryIds,
+                streamCategoryIds = normalizedGlobalRows.map(XtreamLiveStream::categoryId),
+            )
+        ) {
+            return XtreamResult.Success(normalizedGlobalRows)
+        }
+
+        val categoryResults = coroutineScope {
+            val requestGate = Semaphore(XTREAM_CATEGORY_RECOVERY_CONCURRENCY)
+            categoryIds.map { categoryId ->
+                async {
+                    requestGate.withPermit {
+                        val rows = when (
+                            val result = xtreamClient.liveStreams(
+                                baseUrl = source.baseLocator,
+                                credential = credential,
+                                categoryId = categoryId,
+                            )
+                        ) {
+                            is XtreamResult.Success -> result.value
+                            is XtreamResult.Failure -> emptyList()
+                        }
+                        categoryId to rows
+                    }
+                }
+            }.awaitAll()
+        }
+
+        // Some Xtream servers ignore category_id and return the complete catalog for every request.
+        // Only attribute a stream when category-scoped responses place that stream in exactly one category.
+        val membershipByStreamId = linkedMapOf<String, MutableSet<String>>()
+        val sampleByStreamId = linkedMapOf<String, XtreamLiveStream>()
+        categoryResults.forEach { (categoryId, rows) ->
+            rows.forEach { stream ->
+                membershipByStreamId.getOrPut(stream.streamId) { linkedSetOf() }.add(categoryId)
+                sampleByStreamId.putIfAbsent(stream.streamId, stream)
+            }
+        }
+        val recoveredCategoryByStreamId = membershipByStreamId.mapNotNull { (streamId, memberships) ->
+            memberships.singleOrNull()?.let { categoryId -> streamId to categoryId }
+        }.toMap()
+        if (recoveredCategoryByStreamId.isEmpty()) {
+            return XtreamResult.Success(normalizedGlobalRows)
+        }
+
+        val knownCategoryIds = categoryIds.toSet()
+        val mergedIds = linkedSetOf<String>()
+        val merged = normalizedGlobalRows.map { stream ->
+            mergedIds += stream.streamId
+            val existingCategory = stream.categoryId?.takeIf(knownCategoryIds::contains)
+            stream.copy(
+                categoryId = existingCategory ?: recoveredCategoryByStreamId[stream.streamId],
+            )
+        }.toMutableList()
+
+        recoveredCategoryByStreamId.forEach { (streamId, categoryId) ->
+            if (mergedIds.add(streamId)) {
+                sampleByStreamId[streamId]?.let { sample ->
+                    merged += sample.copy(categoryId = categoryId)
+                }
+            }
+        }
+        return XtreamResult.Success(merged)
+    }
+
     private fun categoryIdMap(
         sourceId: String,
         kind: String,
@@ -178,9 +284,13 @@ class SourceCatalogLoader(
         is XtreamResult.Failure -> emptyMap()
         is XtreamResult.Success -> result.value
             .filterNot { category -> ProviderCategoryVisibility.isUtilityLabel(category.name) }
-            .associate { category ->
-                category.providerKey to StableIdentity.categoryId(sourceId, kind, category.providerKey)
+            .mapNotNull { category ->
+                val providerKey = XtreamLiveCategoryAttribution
+                    .normalizeProviderCategoryId(category.providerKey)
+                    ?: return@mapNotNull null
+                providerKey to StableIdentity.categoryId(sourceId, kind, providerKey)
             }
+            .toMap()
     }
 
     private fun mapCategories(
@@ -206,6 +316,10 @@ class SourceCatalogLoader(
     ): RemoteSection<R> = when (result) {
         is XtreamResult.Failure -> RemoteSection.failed(result.code)
         is XtreamResult.Success -> RemoteSection.success(mapper(result.value))
+    }
+
+    private companion object {
+        const val XTREAM_CATEGORY_RECOVERY_CONCURRENCY = 4
     }
 
     private fun failedPayload(code: String): ProviderRefreshPayload = ProviderRefreshPayload(
