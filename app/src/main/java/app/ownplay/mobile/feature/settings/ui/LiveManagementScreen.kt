@@ -1,9 +1,11 @@
 package app.ownplay.mobile.feature.settings.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -13,7 +15,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -27,8 +31,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -97,6 +103,14 @@ fun LiveManagementScreen(
                     }
                 }
             },
+            onResetOrder = {
+                val reset = orderedCategories.sortedWith(compareBy({ it.providerOrder }, { it.name.lowercase() }))
+                orderedCategories = reset
+                val sourceId = catalog.activeSourceId
+                if (sourceId != null) scope.launch {
+                    orderMutex.withLock { liveRepository.setCategoryOrder(sourceId, reset.map { it.categoryKey }) }
+                }
+            },
             modifier = modifier,
         )
     } else {
@@ -117,6 +131,11 @@ fun LiveManagementScreen(
                     scope.launch { orderMutex.withLock { liveRepository.setChannelOrder(movedIds) } }
                 }
             },
+            onResetOrder = {
+                val reset = orderedChannels.sortedWith(compareBy({ it.providerOrder }, { it.name.lowercase() }))
+                orderedChannels = reset
+                scope.launch { orderMutex.withLock { liveRepository.setChannelOrder(reset.map { it.channelId }) } }
+            },
             modifier = modifier,
         )
     }
@@ -130,10 +149,25 @@ private fun CategoryManagement(
     onOpenCategory: (String) -> Unit,
     onToggleCategory: (ManageableLiveCategory) -> Unit,
     onMoveCategory: (String, Int) -> Unit,
+    onResetOrder: () -> Unit,
     modifier: Modifier,
 ) {
+    var query by rememberSaveable(catalog.activeSourceId) { mutableStateOf("") }
+    val normalizedQuery = query.trim()
+    val filteredCategories = remember(orderedCategories, normalizedQuery) {
+        if (normalizedQuery.isBlank()) orderedCategories
+        else orderedCategories.filter { it.name.contains(normalizedQuery, ignoreCase = true) }
+    }
+    val uncategorizedVisible = catalog.channels.any { it.categoryKey == null } &&
+        (normalizedQuery.isBlank() || "Uncategorized".contains(normalizedQuery, ignoreCase = true))
+    val reorderEnabled = normalizedQuery.isBlank()
+
     Column(modifier = modifier.fillMaxSize()) {
-        ManagementHeader("Manage Live", "Categories", onBack)
+        ManagementHeader(
+            title = "Manage Live",
+            subtitle = "Categories · hold the ⋮⋮ grip, then drag up or down",
+            onBack = onBack,
+        )
         if (catalog.activeSourceId == null) {
             OwnPlayStatePanel(
                 title = "No active source",
@@ -142,28 +176,49 @@ private fun CategoryManagement(
             )
             return@Column
         }
+
+        ManagementTools(
+            query = query,
+            placeholder = "Search categories",
+            onQueryChange = { query = it },
+            reorderEnabled = reorderEnabled,
+            hasManualOrder = orderedCategories.any { it.manualOrder != null },
+            onResetOrder = onResetOrder,
+        )
+
         LazyColumn(
             modifier = Modifier.weight(1f),
             contentPadding = PaddingValues(horizontal = OwnPlaySpacing.Lg, vertical = OwnPlaySpacing.Sm),
             verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm),
         ) {
-            if (catalog.channels.any { it.categoryKey == null }) {
+            if (uncategorizedVisible) {
                 item(key = UNCATEGORIZED_SCOPE) {
                     OwnPlayPanel(modifier = Modifier.fillMaxWidth()) {
                         Row(
-                            modifier = Modifier.fillMaxWidth().padding(OwnPlaySpacing.Md),
+                            modifier = Modifier.fillMaxWidth().clickable { onOpenCategory(UNCATEGORIZED_SCOPE) }
+                                .padding(OwnPlaySpacing.Md),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Column(modifier = Modifier.weight(1f).clickable { onOpenCategory(UNCATEGORIZED_SCOPE) }) {
+                            Column(modifier = Modifier.weight(1f)) {
                                 Text("Uncategorized", style = MaterialTheme.typography.titleMedium, color = OwnPlayColors.TextPrimary)
-                                Text("Manage channels without a provider category", style = MaterialTheme.typography.bodyMedium, color = OwnPlayColors.TextSecondary)
+                                Text("Channels without a provider category", style = MaterialTheme.typography.bodyMedium, color = OwnPlayColors.TextSecondary)
                             }
                             Text("›", style = MaterialTheme.typography.titleLarge, color = OwnPlayColors.Accent)
                         }
                     }
                 }
             }
-            itemsIndexed(orderedCategories, key = { _, item -> item.categoryKey }) { _, category ->
+
+            if (filteredCategories.isEmpty() && !uncategorizedVisible) {
+                item(key = "no-category-results") {
+                    OwnPlayStatePanel(
+                        title = "No matching categories",
+                        message = "Try another search term.",
+                    )
+                }
+            }
+
+            itemsIndexed(filteredCategories, key = { _, item -> item.categoryKey }) { _, category ->
                 OwnPlayPanel(modifier = Modifier.fillMaxWidth()) {
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(OwnPlaySpacing.Md),
@@ -172,7 +227,7 @@ private fun CategoryManagement(
                         Column(modifier = Modifier.weight(1f).clickable { onOpenCategory(category.categoryKey) }) {
                             Text(category.name, style = MaterialTheme.typography.titleMedium, color = OwnPlayColors.TextPrimary)
                             Text(
-                                if (category.hidden) "Hidden category · tap to manage its channels" else "Visible category · tap to manage channels",
+                                if (category.hidden) "Hidden · tap to manage channels" else "Visible · tap to manage channels",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = OwnPlayColors.TextSecondary,
                             )
@@ -180,7 +235,10 @@ private fun CategoryManagement(
                         TextButton(onClick = { onToggleCategory(category) }) {
                             Text(if (category.hidden) "Show" else "Hide")
                         }
-                        DragHandle("Reorder ${category.name}") { direction -> onMoveCategory(category.categoryKey, direction) }
+                        DragHandle(
+                            contentDescription = "Reorder ${category.name}",
+                            enabled = reorderEnabled,
+                        ) { direction -> onMoveCategory(category.categoryKey, direction) }
                     }
                 }
             }
@@ -195,10 +253,19 @@ private fun ChannelManagement(
     onBack: () -> Unit,
     onToggleChannel: (ManageableLiveChannel) -> Unit,
     onMoveChannel: (String, Int) -> Unit,
+    onResetOrder: () -> Unit,
     modifier: Modifier,
 ) {
+    var query by rememberSaveable(title) { mutableStateOf("") }
+    val normalizedQuery = query.trim()
+    val filteredChannels = remember(channels, normalizedQuery) {
+        if (normalizedQuery.isBlank()) channels
+        else channels.filter { it.name.contains(normalizedQuery, ignoreCase = true) }
+    }
+    val reorderEnabled = normalizedQuery.isBlank()
+
     Column(modifier = modifier.fillMaxSize()) {
-        ManagementHeader(title, "Channels · long-press and drag ≡ to reorder", onBack)
+        ManagementHeader(title, "Channels · hold the ⋮⋮ grip, then drag up or down", onBack)
         if (channels.isEmpty()) {
             OwnPlayStatePanel(
                 title = "No channels in this category",
@@ -207,19 +274,39 @@ private fun ChannelManagement(
             )
             return@Column
         }
+
+        ManagementTools(
+            query = query,
+            placeholder = "Search channels",
+            onQueryChange = { query = it },
+            reorderEnabled = reorderEnabled,
+            hasManualOrder = channels.any { it.manualOrder != null },
+            onResetOrder = onResetOrder,
+        )
+
         LazyColumn(
             modifier = Modifier.weight(1f),
             contentPadding = PaddingValues(horizontal = OwnPlaySpacing.Lg, vertical = OwnPlaySpacing.Sm),
             verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm),
         ) {
-            itemsIndexed(channels, key = { _, item -> item.channelId }) { index, channel ->
+            if (filteredChannels.isEmpty()) {
+                item(key = "no-channel-results") {
+                    OwnPlayStatePanel(
+                        title = "No matching channels",
+                        message = "Try another search term.",
+                    )
+                }
+            }
+
+            itemsIndexed(filteredChannels, key = { _, item -> item.channelId }) { _, channel ->
+                val absoluteIndex = channels.indexOfFirst { it.channelId == channel.channelId }.coerceAtLeast(0)
                 OwnPlayPanel(modifier = Modifier.fillMaxWidth()) {
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(OwnPlaySpacing.Md),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
-                            (index + 1).toString().padStart(3, '0'),
+                            (absoluteIndex + 1).toString().padStart(3, '0'),
                             modifier = Modifier.padding(end = OwnPlaySpacing.Md),
                             style = MaterialTheme.typography.bodyMedium,
                             color = OwnPlayColors.TextSecondary,
@@ -235,9 +322,53 @@ private fun ChannelManagement(
                         TextButton(onClick = { onToggleChannel(channel) }) {
                             Text(if (channel.hidden) "Show" else "Hide")
                         }
-                        DragHandle("Reorder ${channel.name}") { direction -> onMoveChannel(channel.channelId, direction) }
+                        DragHandle(
+                            contentDescription = "Reorder ${channel.name}",
+                            enabled = reorderEnabled,
+                        ) { direction -> onMoveChannel(channel.channelId, direction) }
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ManagementTools(
+    query: String,
+    placeholder: String,
+    onQueryChange: (String) -> Unit,
+    reorderEnabled: Boolean,
+    hasManualOrder: Boolean,
+    onResetOrder: () -> Unit,
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = OwnPlaySpacing.Lg),
+        verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Xs),
+    ) {
+        OutlinedTextField(
+            value = query,
+            onValueChange = onQueryChange,
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text(placeholder) },
+            singleLine = true,
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = if (reorderEnabled) {
+                    "Hide/Show is immediate. Hold the grip to start reordering."
+                } else {
+                    "Search is active. Clear it to reorder; Hide/Show still works."
+                },
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.bodySmall,
+                color = OwnPlayColors.TextSecondary,
+            )
+            if (hasManualOrder && reorderEnabled) {
+                TextButton(onClick = onResetOrder) { Text("Reset order") }
             }
         }
     }
@@ -257,36 +388,71 @@ private fun ManagementHeader(title: String, subtitle: String, onBack: () -> Unit
 }
 
 @Composable
-private fun DragHandle(contentDescription: String, onMove: (Int) -> Unit) {
+private fun DragHandle(
+    contentDescription: String,
+    enabled: Boolean,
+    onMove: (Int) -> Unit,
+) {
     val thresholdPx = with(LocalDensity.current) { 36.dp.toPx() }
-    Text(
-        text = "≡",
+    val haptic = LocalHapticFeedback.current
+    var dragging by remember(contentDescription) { mutableStateOf(false) }
+    val dragModifier = if (enabled) {
+        Modifier.pointerInput(contentDescription, thresholdPx) {
+            var accumulated = 0f
+            detectDragGesturesAfterLongPress(
+                onDragStart = {
+                    accumulated = 0f
+                    dragging = true
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                },
+                onDragCancel = {
+                    accumulated = 0f
+                    dragging = false
+                },
+                onDragEnd = {
+                    accumulated = 0f
+                    dragging = false
+                },
+                onDrag = { change, dragAmount ->
+                    change.consume()
+                    accumulated += dragAmount.y
+                    when {
+                        accumulated >= thresholdPx -> {
+                            onMove(1)
+                            accumulated = 0f
+                        }
+                        accumulated <= -thresholdPx -> {
+                            onMove(-1)
+                            accumulated = 0f
+                        }
+                    }
+                },
+            )
+        }
+    } else {
+        Modifier
+    }
+
+    Box(
         modifier = Modifier
             .size(48.dp)
+            .background(
+                color = if (dragging) OwnPlayColors.AccentSoft else OwnPlayColors.SurfaceElevated,
+                shape = RoundedCornerShape(8.dp),
+            )
             .semantics { this.contentDescription = contentDescription }
-            .pointerInput(contentDescription, thresholdPx) {
-                var accumulated = 0f
-                detectDragGesturesAfterLongPress(
-                    onDragCancel = { accumulated = 0f },
-                    onDragEnd = { accumulated = 0f },
-                    onDrag = { change, dragAmount ->
-                        change.consume()
-                        accumulated += dragAmount.y
-                        when {
-                            accumulated >= thresholdPx -> {
-                                onMove(1)
-                                accumulated = 0f
-                            }
-                            accumulated <= -thresholdPx -> {
-                                onMove(-1)
-                                accumulated = 0f
-                            }
-                        }
-                    },
-                )
+            .then(dragModifier),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = "⋮⋮",
+            style = MaterialTheme.typography.titleLarge,
+            color = when {
+                dragging -> OwnPlayColors.Accent
+                enabled -> OwnPlayColors.TextPrimary
+                else -> OwnPlayColors.TextSecondary
             },
-        style = MaterialTheme.typography.headlineMedium,
-        color = OwnPlayColors.Accent,
-        fontWeight = FontWeight.Bold,
-    )
+            fontWeight = FontWeight.Bold,
+        )
+    }
 }
