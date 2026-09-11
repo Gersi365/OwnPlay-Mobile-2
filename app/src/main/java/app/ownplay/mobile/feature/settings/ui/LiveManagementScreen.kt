@@ -1,9 +1,11 @@
 package app.ownplay.mobile.feature.settings.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,7 +16,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -32,6 +36,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
@@ -41,6 +46,7 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import app.ownplay.mobile.design.OwnPlayColors
@@ -53,6 +59,7 @@ import app.ownplay.mobile.feature.live.domain.LiveRepository
 import app.ownplay.mobile.feature.live.domain.ManageableLiveCategory
 import app.ownplay.mobile.feature.live.domain.ManageableLiveChannel
 import app.ownplay.mobile.feature.settings.domain.ManualOrderPolicy
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -63,6 +70,7 @@ private class ReorderVisualState {
     var dragging by mutableStateOf(false)
     var offsetY by mutableFloatStateOf(0f)
     var itemHeightPx by mutableFloatStateOf(0f)
+    var autoScrollStepPx by mutableFloatStateOf(0f)
 }
 
 @Composable
@@ -74,6 +82,30 @@ private fun Modifier.reorderVisual(state: ReorderVisualState): Modifier =
         .onSizeChanged { state.itemHeightPx = it.height.toFloat() }
         .zIndex(if (state.dragging) 1f else 0f)
         .graphicsLayer { translationY = state.offsetY }
+
+private fun settleReorderOffset(
+    state: ReorderVisualState,
+    itemGapPx: Float,
+    onMove: (Int) -> Boolean,
+) {
+    val moveDistance = (state.itemHeightPx + itemGapPx).coerceAtLeast(1f)
+    while (state.offsetY >= moveDistance) {
+        if (onMove(1)) {
+            state.offsetY -= moveDistance
+        } else {
+            state.offsetY = moveDistance * 0.35f
+            break
+        }
+    }
+    while (state.offsetY <= -moveDistance) {
+        if (onMove(-1)) {
+            state.offsetY += moveDistance
+        } else {
+            state.offsetY = -moveDistance * 0.35f
+            break
+        }
+    }
+}
 
 @Composable
 fun LiveManagementScreen(
@@ -187,11 +219,12 @@ private fun CategoryManagement(
     val uncategorizedVisible = catalog.channels.any { it.categoryKey == null } &&
         (normalizedQuery.isBlank() || "Uncategorized".contains(normalizedQuery, ignoreCase = true))
     val reorderEnabled = normalizedQuery.isBlank()
+    val listState = rememberLazyListState()
 
     Column(modifier = modifier.fillMaxSize()) {
         ManagementHeader(
             title = "Manage Live",
-            subtitle = "Categories · hold the ⋮⋮ grip, then drag up or down",
+            subtitle = "Categories · hold the grip and drag. Move to an edge to scroll.",
             onBack = onBack,
         )
         if (catalog.activeSourceId == null) {
@@ -214,6 +247,7 @@ private fun CategoryManagement(
 
         LazyColumn(
             modifier = Modifier.weight(1f),
+            state = listState,
             contentPadding = PaddingValues(horizontal = OwnPlaySpacing.Lg, vertical = OwnPlaySpacing.Sm),
             verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm),
         ) {
@@ -252,24 +286,45 @@ private fun CategoryManagement(
                         .reorderVisual(dragState),
                 ) {
                     Row(
-                        modifier = Modifier.fillMaxWidth().padding(OwnPlaySpacing.Md),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = OwnPlaySpacing.Md, vertical = OwnPlaySpacing.Sm),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Column(modifier = Modifier.weight(1f).clickable { onOpenCategory(category.categoryKey) }) {
-                            Text(category.name, style = MaterialTheme.typography.titleMedium, color = OwnPlayColors.TextPrimary)
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable { onOpenCategory(category.categoryKey) }
+                                .padding(end = OwnPlaySpacing.Sm),
+                        ) {
                             Text(
-                                if (category.hidden) "Hidden · tap to manage channels" else "Visible · tap to manage channels",
-                                style = MaterialTheme.typography.bodyMedium,
+                                text = category.name,
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = OwnPlayColors.TextPrimary,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                text = if (category.hidden) "Hidden · Tap for channels" else "Visible · Tap for channels",
+                                style = MaterialTheme.typography.bodySmall,
                                 color = OwnPlayColors.TextSecondary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
                             )
                         }
-                        TextButton(onClick = { onToggleCategory(category) }) {
-                            Text(if (category.hidden) "Show" else "Hide")
+                        TextButton(
+                            onClick = { onToggleCategory(category) },
+                            contentPadding = PaddingValues(horizontal = OwnPlaySpacing.Sm),
+                        ) {
+                            Text(if (category.hidden) "Show" else "Hide", style = MaterialTheme.typography.labelMedium)
                         }
                         DragHandle(
+                            itemKey = category.categoryKey,
                             contentDescription = "Reorder ${category.name}",
                             enabled = reorderEnabled,
                             state = dragState,
+                            listState = listState,
                         ) { direction -> onMoveCategory(category.categoryKey, direction) }
                     }
                 }
@@ -295,9 +350,10 @@ private fun ChannelManagement(
         else channels.filter { it.name.contains(normalizedQuery, ignoreCase = true) }
     }
     val reorderEnabled = normalizedQuery.isBlank()
+    val listState = rememberLazyListState()
 
     Column(modifier = modifier.fillMaxSize()) {
-        ManagementHeader(title, "Channels · hold the ⋮⋮ grip, then drag up or down", onBack)
+        ManagementHeader(title, "Channels · hold the grip and drag. Move to an edge to scroll.", onBack)
         if (channels.isEmpty()) {
             OwnPlayStatePanel(
                 title = "No channels in this category",
@@ -318,6 +374,7 @@ private fun ChannelManagement(
 
         LazyColumn(
             modifier = Modifier.weight(1f),
+            state = listState,
             contentPadding = PaddingValues(horizontal = OwnPlaySpacing.Lg, vertical = OwnPlaySpacing.Sm),
             verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm),
         ) {
@@ -339,30 +396,45 @@ private fun ChannelManagement(
                         .reorderVisual(dragState),
                 ) {
                     Row(
-                        modifier = Modifier.fillMaxWidth().padding(OwnPlaySpacing.Md),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = OwnPlaySpacing.Md, vertical = OwnPlaySpacing.Sm),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
-                            (absoluteIndex + 1).toString().padStart(3, '0'),
-                            modifier = Modifier.padding(end = OwnPlaySpacing.Md),
-                            style = MaterialTheme.typography.bodyMedium,
+                            text = (absoluteIndex + 1).toString().padStart(3, '0'),
+                            modifier = Modifier.padding(end = OwnPlaySpacing.Sm),
+                            style = MaterialTheme.typography.bodySmall,
                             color = OwnPlayColors.TextSecondary,
                         )
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(channel.name, style = MaterialTheme.typography.titleMedium, color = OwnPlayColors.TextPrimary)
+                        Column(modifier = Modifier.weight(1f).padding(end = OwnPlaySpacing.Sm)) {
                             Text(
-                                if (channel.hidden) "Hidden individually" else "Visible",
-                                style = MaterialTheme.typography.bodyMedium,
+                                text = channel.name,
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = OwnPlayColors.TextPrimary,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                text = if (channel.hidden) "Hidden" else "Visible",
+                                style = MaterialTheme.typography.bodySmall,
                                 color = OwnPlayColors.TextSecondary,
+                                maxLines = 1,
                             )
                         }
-                        TextButton(onClick = { onToggleChannel(channel) }) {
-                            Text(if (channel.hidden) "Show" else "Hide")
+                        TextButton(
+                            onClick = { onToggleChannel(channel) },
+                            contentPadding = PaddingValues(horizontal = OwnPlaySpacing.Sm),
+                        ) {
+                            Text(if (channel.hidden) "Show" else "Hide", style = MaterialTheme.typography.labelMedium)
                         }
                         DragHandle(
+                            itemKey = channel.channelId,
                             contentDescription = "Reorder ${channel.name}",
                             enabled = reorderEnabled,
                             state = dragState,
+                            listState = listState,
                         ) { direction -> onMoveChannel(channel.channelId, direction) }
                     }
                 }
@@ -397,7 +469,7 @@ private fun ManagementTools(
         ) {
             Text(
                 text = if (reorderEnabled) {
-                    "Hide/Show is immediate. Hold the grip to drag an item into place."
+                    "Hide/Show is immediate. Hold the grip to reorder; drag to an edge to scroll."
                 } else {
                     "Search is active. Clear it to reorder; Hide/Show still works."
                 },
@@ -420,57 +492,96 @@ private fun ManagementHeader(title: String, subtitle: String, onBack: () -> Unit
         verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Xs),
     ) {
         Text("‹ Settings", modifier = Modifier.clickable(onClick = onBack), style = MaterialTheme.typography.labelLarge, color = OwnPlayColors.Accent)
-        Text(title, style = MaterialTheme.typography.headlineMedium, color = OwnPlayColors.TextPrimary)
-        Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = OwnPlayColors.TextSecondary)
+        Text(
+            text = title,
+            style = MaterialTheme.typography.headlineSmall,
+            color = OwnPlayColors.TextPrimary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            text = subtitle,
+            style = MaterialTheme.typography.bodySmall,
+            color = OwnPlayColors.TextSecondary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
 @Composable
 private fun DragHandle(
+    itemKey: String,
     contentDescription: String,
     enabled: Boolean,
     state: ReorderVisualState,
+    listState: LazyListState,
     onMove: (Int) -> Boolean,
 ) {
-    val itemGapPx = with(LocalDensity.current) { OwnPlaySpacing.Sm.toPx() }
+    val density = LocalDensity.current
+    val itemGapPx = with(density) { OwnPlaySpacing.Sm.toPx() }
+    val edgeZonePx = with(density) { 72.dp.toPx() }
+    val maxAutoScrollStepPx = with(density) { 12.dp.toPx() }
     val haptic = LocalHapticFeedback.current
+
+    LaunchedEffect(state.dragging, state.autoScrollStepPx, listState) {
+        while (state.dragging && state.autoScrollStepPx != 0f) {
+            val consumed = listState.scrollBy(state.autoScrollStepPx)
+            if (consumed == 0f) {
+                state.autoScrollStepPx = 0f
+                break
+            }
+            state.offsetY += consumed
+            settleReorderOffset(state, itemGapPx, onMove)
+            delay(16)
+        }
+    }
+
+    fun updateEdgeAutoScroll() {
+        if (!state.dragging) {
+            state.autoScrollStepPx = 0f
+            return
+        }
+        val layout = listState.layoutInfo
+        val item = layout.visibleItemsInfo.firstOrNull { it.key == itemKey }
+        if (item == null) {
+            state.autoScrollStepPx = 0f
+            return
+        }
+        val centerY = item.offset + (item.size / 2f) + state.offsetY
+        val topEdge = layout.viewportStartOffset + edgeZonePx
+        val bottomEdge = layout.viewportEndOffset - edgeZonePx
+        state.autoScrollStepPx = when {
+            centerY < topEdge -> -maxAutoScrollStepPx * ((topEdge - centerY) / edgeZonePx).coerceIn(0.2f, 1f)
+            centerY > bottomEdge -> maxAutoScrollStepPx * ((centerY - bottomEdge) / edgeZonePx).coerceIn(0.2f, 1f)
+            else -> 0f
+        }
+    }
+
     val dragModifier = if (enabled) {
-        Modifier.pointerInput(contentDescription, enabled) {
+        Modifier.pointerInput(itemKey, enabled) {
             detectDragGesturesAfterLongPress(
                 onDragStart = {
                     state.offsetY = 0f
+                    state.autoScrollStepPx = 0f
                     state.dragging = true
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                 },
                 onDragCancel = {
                     state.offsetY = 0f
+                    state.autoScrollStepPx = 0f
                     state.dragging = false
                 },
                 onDragEnd = {
                     state.offsetY = 0f
+                    state.autoScrollStepPx = 0f
                     state.dragging = false
                 },
                 onDrag = { change, dragAmount ->
                     change.consume()
                     state.offsetY += dragAmount.y
-                    val moveDistance = (state.itemHeightPx + itemGapPx).coerceAtLeast(1f)
-
-                    while (state.offsetY >= moveDistance) {
-                        if (onMove(1)) {
-                            state.offsetY -= moveDistance
-                        } else {
-                            state.offsetY = moveDistance * 0.35f
-                            break
-                        }
-                    }
-                    while (state.offsetY <= -moveDistance) {
-                        if (onMove(-1)) {
-                            state.offsetY += moveDistance
-                        } else {
-                            state.offsetY = -moveDistance * 0.35f
-                            break
-                        }
-                    }
+                    settleReorderOffset(state, itemGapPx, onMove)
+                    updateEdgeAutoScroll()
                 },
             )
         }
@@ -480,24 +591,34 @@ private fun DragHandle(
 
     Box(
         modifier = Modifier
-            .size(48.dp)
+            .size(44.dp)
             .background(
                 color = if (state.dragging) OwnPlayColors.AccentSoft else OwnPlayColors.SurfaceElevated,
-                shape = RoundedCornerShape(8.dp),
+                shape = RoundedCornerShape(10.dp),
             )
             .semantics { this.contentDescription = contentDescription }
             .then(dragModifier),
         contentAlignment = Alignment.Center,
     ) {
-        Text(
-            text = "⋮⋮",
-            style = MaterialTheme.typography.titleLarge,
-            color = when {
-                state.dragging -> OwnPlayColors.Accent
-                enabled -> OwnPlayColors.TextPrimary
-                else -> OwnPlayColors.TextSecondary
-            },
-            fontWeight = FontWeight.Bold,
-        )
+        DragGripDots(active = state.dragging, enabled = enabled)
+    }
+}
+
+@Composable
+private fun DragGripDots(active: Boolean, enabled: Boolean) {
+    val dotColor = when {
+        active -> OwnPlayColors.Accent
+        enabled -> OwnPlayColors.TextPrimary
+        else -> OwnPlayColors.TextSecondary
+    }
+    Canvas(modifier = Modifier.size(22.dp)) {
+        val radius = 1.7.dp.toPx()
+        val xs = listOf(size.width * 0.36f, size.width * 0.64f)
+        val ys = listOf(size.height * 0.28f, size.height * 0.50f, size.height * 0.72f)
+        ys.forEach { y ->
+            xs.forEach { x ->
+                drawCircle(color = dotColor, radius = radius, center = Offset(x, y))
+            }
+        }
     }
 }

@@ -62,12 +62,7 @@ class MainActivity : ComponentActivity() {
             OwnPlayApp(
                 services = services,
                 onExitConfirmed = { finish() },
-                onFullscreenChanged = { fullscreen ->
-                    contentFullscreen = fullscreen
-                    setContentOrientation(fullscreen)
-                    setImmersiveFullscreen(fullscreen)
-                    updatePictureInPictureParams()
-                },
+                onFullscreenChanged = ::handleContentFullscreenChanged,
             )
         }
     }
@@ -186,6 +181,18 @@ class MainActivity : ComponentActivity() {
         val attributes = window.attributes
         attributes.screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
         window.attributes = attributes
+    }
+
+    private fun handleContentFullscreenChanged(fullscreen: Boolean) {
+        contentFullscreen = fullscreen
+        updatePictureInPictureParams()
+        window.decorView.postOnAnimation {
+            if (contentFullscreen != fullscreen || isFinishing || isDestroyed) {
+                return@postOnAnimation
+            }
+            setContentOrientation(fullscreen)
+            setImmersiveFullscreen(fullscreen)
+        }
     }
 
     private fun setContentOrientation(fullscreen: Boolean) {
