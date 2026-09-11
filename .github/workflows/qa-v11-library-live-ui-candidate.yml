@@ -1,0 +1,79 @@
+name: QA v11 Library Live UI candidate
+
+on:
+  push:
+    branches:
+      - qa-fix-v11-library-live-ui
+
+permissions:
+  contents: write
+
+jobs:
+  patch-validate-publish-candidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      SOURCE_SHA: f5ea502c06387667c1c798015b5041a26e18b2c2
+      CANDIDATE_BRANCH: qa-candidate-f5ea502-v11-library-live-ui-1
+
+    steps:
+      - name: Checkout helper branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Preserve patch script outside repository
+        shell: bash
+        run: cp tools/qa-v11-library-live-ui-patch.py /tmp/qa-v11-library-live-ui-patch.py
+
+      - name: Checkout exact authorized source
+        shell: bash
+        run: |
+          git checkout --detach "$SOURCE_SHA"
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+
+      - name: Apply focused source patch
+        shell: bash
+        run: |
+          python3 /tmp/qa-v11-library-live-ui-patch.py
+          git diff --check
+          changed="$(git diff --name-only)"
+          printf '%s\n' "$changed"
+          test "$changed" = $'app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryShell.kt\napp/src/main/java/app/ownplay/mobile/feature/live/ui/LiveShell.kt'
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK 36
+        shell: bash
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Set up Gradle 9.6.0
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.6.0'
+
+      - name: Validate source without APK generation
+        shell: bash
+        run: bash tools/validate-source-no-apk.sh
+
+      - name: Commit validated candidate from exact source parent
+        shell: bash
+        run: |
+          git config user.name "Gersi365"
+          git config user.email "Gersi365@outlook.com"
+          git add app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryShell.kt \
+                  app/src/main/java/app/ownplay/mobile/feature/live/ui/LiveShell.kt
+          git commit -m "Make Library playback video-first and soften Live loading"
+          test "$(git rev-parse HEAD^)" = "$SOURCE_SHA"
+          test "$(git diff --name-only "$SOURCE_SHA"..HEAD)" = $'app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryShell.kt\napp/src/main/java/app/ownplay/mobile/feature/live/ui/LiveShell.kt'
+
+      - name: Publish non-destructive candidate branch
+        shell: bash
+        run: git push origin HEAD:"refs/heads/$CANDIDATE_BRANCH"
