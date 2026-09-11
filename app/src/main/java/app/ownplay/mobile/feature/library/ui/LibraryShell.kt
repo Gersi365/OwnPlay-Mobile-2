@@ -1005,10 +1005,18 @@ private fun LibraryFullscreenPlayer(
 
     BackHandler(onBack = ::closePlayer)
 
-    LaunchedEffect(playback.contentId, playback.offline, overlayVisible) {
-        if (overlayVisible) {
+    LaunchedEffect(
+        playback.contentId,
+        playback.offline,
+        overlayVisible,
+        playerState.isPlaying,
+        playerState.phase,
+    ) {
+        if (overlayVisible && LibraryPlayerControlsPolicy.shouldAutoHide(playerState)) {
             delay(4_000)
-            overlayVisible = false
+            if (LibraryPlayerControlsPolicy.shouldAutoHide(playbackController.currentSnapshot())) {
+                overlayVisible = false
+            }
         }
     }
 
