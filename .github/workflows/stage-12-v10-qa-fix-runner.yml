@@ -41,6 +41,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          python3 runner/tools/stage12_v10_patch_preflight.py runner/tools/stage12_v10_patch.py
           python3 runner/tools/stage12_v10_patch.py source
           cd source
           git diff --check
