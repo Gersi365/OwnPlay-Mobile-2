@@ -803,7 +803,7 @@ jobs:
           '''.replace('          ', ''))
           PY
 
-          changed="$(git diff --name-only | sort)"
+          changed="$( { git diff --name-only; git ls-files --others --exclude-standard; } | sort -u )"
           expected="$(printf '%s\n' \
             app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryShell.kt \
             app/src/main/java/app/ownplay/mobile/feature/live/ui/LiveShell.kt \
