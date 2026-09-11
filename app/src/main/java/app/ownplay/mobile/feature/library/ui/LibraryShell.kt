@@ -644,16 +644,21 @@ private fun ContinueWatchingCard(
                         color = OwnPlayColors.TextSecondary,
                     )
                 }
-                OwnPlayPrimaryButton(
-                    text = "Resume",
-                    onClick = onResume,
+                Row(
                     modifier = Modifier.fillMaxWidth(),
-                )
-                OwnPlaySecondaryButton(
-                    text = "Play from Beginning",
-                    onClick = onBeginning,
-                    modifier = Modifier.fillMaxWidth(),
-                )
+                    horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm),
+                ) {
+                    OwnPlayPrimaryButton(
+                        text = "Resume",
+                        onClick = onResume,
+                        modifier = Modifier.weight(1f).height(44.dp),
+                    )
+                    OwnPlaySecondaryButton(
+                        text = "Play from Beginning",
+                        onClick = onBeginning,
+                        modifier = Modifier.weight(1f).height(44.dp),
+                    )
+                }
             }
         }
     }
@@ -799,6 +804,7 @@ private fun DownloadedRow(
                         DownloadControls(
                             item = item,
                             onAction = { action -> onAction(media, item, action) },
+                            compact = true,
                         )
                     }
                 }
@@ -852,9 +858,9 @@ private fun MovieDetail(
                     onBeginning = onBeginning,
                 )
             } else {
-                OwnPlayPrimaryButton(text = "Play", onClick = onBeginning, modifier = Modifier.fillMaxWidth())
+                OwnPlayPrimaryButton(text = "Play", onClick = onBeginning, modifier = Modifier.fillMaxWidth().height(44.dp))
             }
-            DownloadControls(item = downloadItem, onAction = onDownloadAction)
+            DownloadControls(item = downloadItem, onAction = onDownloadAction, compact = true)
             Spacer(modifier = Modifier.height(OwnPlaySpacing.Xl))
         }
     }
@@ -1037,8 +1043,8 @@ private fun EpisodeRow(
 ) {
     OwnPlayPanel(modifier = Modifier.fillMaxWidth()) {
         Column(
-            modifier = Modifier.padding(OwnPlaySpacing.Lg),
-            verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),
+            modifier = Modifier.padding(OwnPlaySpacing.Md),
+            verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -1064,9 +1070,9 @@ private fun EpisodeRow(
                     onBeginning = onBeginning,
                 )
             } else {
-                OwnPlayPrimaryButton(text = "Play", onClick = onBeginning, modifier = Modifier.fillMaxWidth())
+                OwnPlayPrimaryButton(text = "Play", onClick = onBeginning, modifier = Modifier.fillMaxWidth().height(44.dp))
             }
-            DownloadControls(item = downloadItem, onAction = onDownloadAction)
+            DownloadControls(item = downloadItem, onAction = onDownloadAction, compact = true)
         }
     }
 }
@@ -1082,11 +1088,11 @@ private fun PlaybackChoiceButtons(
         horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),
     ) {
         if (preferResume) {
-            OwnPlayPrimaryButton("Resume", onResume, Modifier.weight(1f))
-            OwnPlaySecondaryButton("Play from Beginning", onBeginning, Modifier.weight(1f))
+            OwnPlayPrimaryButton("Resume", onResume, Modifier.weight(1f).height(44.dp))
+            OwnPlaySecondaryButton("Play from Beginning", onBeginning, Modifier.weight(1f).height(44.dp))
         } else {
-            OwnPlayPrimaryButton("Play from Beginning", onBeginning, Modifier.weight(1f))
-            OwnPlaySecondaryButton("Resume", onResume, Modifier.weight(1f))
+            OwnPlayPrimaryButton("Play from Beginning", onBeginning, Modifier.weight(1f).height(44.dp))
+            OwnPlaySecondaryButton("Resume", onResume, Modifier.weight(1f).height(44.dp))
         }
     }
 }

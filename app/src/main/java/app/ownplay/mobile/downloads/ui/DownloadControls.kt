@@ -30,11 +30,12 @@ fun DownloadControls(
     item: DownloadItem?,
     onAction: (DownloadAction) -> Unit,
     modifier: Modifier = Modifier,
+    compact: Boolean = false,
 ) {
     val primaryAction = DownloadStatePolicy.primaryAction(item)
     Column(
         modifier = modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm),
+        verticalArrangement = Arrangement.spacedBy(if (compact) OwnPlaySpacing.Xs else OwnPlaySpacing.Sm),
     ) {
         if (item != null) {
             Text(
@@ -66,18 +67,26 @@ fun DownloadControls(
 
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm),
+            horizontalArrangement = Arrangement.spacedBy(if (compact) OwnPlaySpacing.Xs else OwnPlaySpacing.Sm),
         ) {
-            OwnPlayPrimaryButton(
-                text = actionLabel(primaryAction),
-                onClick = { onAction(primaryAction) },
-                modifier = Modifier.weight(1f),
-            )
+            if (compact && primaryAction == DownloadAction.DOWNLOAD) {
+                OwnPlaySecondaryButton(
+                    text = actionLabel(primaryAction),
+                    onClick = { onAction(primaryAction) },
+                    modifier = Modifier.weight(1f).height(44.dp),
+                )
+            } else {
+                OwnPlayPrimaryButton(
+                    text = actionLabel(primaryAction),
+                    onClick = { onAction(primaryAction) },
+                    modifier = Modifier.weight(1f).height(if (compact) 44.dp else 52.dp),
+                )
+            }
             if (item != null) {
                 OwnPlaySecondaryButton(
                     text = "Remove",
                     onClick = { onAction(DownloadAction.REMOVE) },
-                    modifier = Modifier.weight(0.7f),
+                    modifier = Modifier.weight(0.7f).height(if (compact) 44.dp else 52.dp),
                 )
             }
         }
