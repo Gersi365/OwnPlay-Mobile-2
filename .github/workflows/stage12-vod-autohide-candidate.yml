@@ -1,0 +1,180 @@
+name: Stage 12 VOD auto-hide candidate
+
+on:
+  push:
+    branches:
+      - tooling-vod-autohide-fix
+
+permissions:
+  contents: write
+
+jobs:
+  validate-and-push-candidate:
+    runs-on: ubuntu-24.04
+    env:
+      EXPECTED_BASE: 032b78eb41cf7adb7ba73bc1b6a63abbcd3b9870
+      CANDIDATE_BRANCH: stage12-vod-autohide-candidate
+    steps:
+      - name: Checkout tooling trigger
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify tooling branch derives from exact source base
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "$EXPECTED_BASE"
+          git checkout --detach "$EXPECTED_BASE"
+          test "$(git rev-parse HEAD)" = "$EXPECTED_BASE"
+          test -z "$(git status --porcelain)"
+
+      - name: Apply minimal fullscreen auto-hide patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryShell.kt")
+          text = path.read_text()
+          old = '''    LaunchedEffect(playback.contentId, playback.offline, overlayVisible) {
+              if (overlayVisible) {
+                  delay(4_000)
+                  overlayVisible = false
+              }
+          }
+          '''
+          new = '''    LaunchedEffect(
+              playback.contentId,
+              playback.offline,
+              overlayVisible,
+              playerState.isPlaying,
+              playerState.phase,
+          ) {
+              if (overlayVisible && LibraryPlayerControlsPolicy.shouldAutoHide(playerState)) {
+                  delay(4_000)
+                  if (LibraryPlayerControlsPolicy.shouldAutoHide(playbackController.currentSnapshot())) {
+                      overlayVisible = false
+                  }
+              }
+          }
+          '''
+          if text.count(old) != 1:
+              raise SystemExit(f"expected exactly one auto-hide block, found {text.count(old)}")
+          path.write_text(text.replace(old, new, 1))
+          PY
+
+          cat > app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryPlayerControlsPolicy.kt <<'EOF'
+          package app.ownplay.mobile.feature.library.ui
+
+          import app.ownplay.mobile.playback.domain.PlaybackPhase
+          import app.ownplay.mobile.playback.domain.PlaybackSnapshot
+
+          internal object LibraryPlayerControlsPolicy {
+              fun shouldAutoHide(snapshot: PlaybackSnapshot): Boolean =
+                  snapshot.phase == PlaybackPhase.READY && snapshot.isPlaying
+          }
+          EOF
+
+          cat > app/src/test/java/app/ownplay/mobile/feature/library/ui/LibraryPlayerControlsPolicyTest.kt <<'EOF'
+          package app.ownplay.mobile.feature.library.ui
+
+          import app.ownplay.mobile.playback.domain.PlaybackPhase
+          import app.ownplay.mobile.playback.domain.PlaybackSnapshot
+          import kotlin.test.Test
+          import kotlin.test.assertFalse
+          import kotlin.test.assertTrue
+
+          class LibraryPlayerControlsPolicyTest {
+              @Test
+              fun `auto hide only while ready and actively playing`() {
+                  assertTrue(
+                      LibraryPlayerControlsPolicy.shouldAutoHide(
+                          PlaybackSnapshot(phase = PlaybackPhase.READY, isPlaying = true),
+                      ),
+                  )
+              }
+
+              @Test
+              fun `paused controls stay visible`() {
+                  assertFalse(
+                      LibraryPlayerControlsPolicy.shouldAutoHide(
+                          PlaybackSnapshot(phase = PlaybackPhase.READY, isPlaying = false),
+                      ),
+                  )
+              }
+
+              @Test
+              fun `buffering error ended and idle controls stay visible`() {
+                  listOf(
+                      PlaybackPhase.BUFFERING,
+                      PlaybackPhase.ERROR,
+                      PlaybackPhase.ENDED,
+                      PlaybackPhase.IDLE,
+                      PlaybackPhase.RELEASED,
+                  ).forEach { phase ->
+                      assertFalse(
+                          LibraryPlayerControlsPolicy.shouldAutoHide(
+                              PlaybackSnapshot(phase = phase, isPlaying = true),
+                          ),
+                          "phase=$phase must not auto-hide controls",
+                      )
+                  }
+              }
+          }
+          EOF
+
+          changed="$(git status --porcelain | awk '{print $2}' | sort)"
+          expected="$(printf '%s\n' \
+            app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryPlayerControlsPolicy.kt \
+            app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryShell.kt \
+            app/src/test/java/app/ownplay/mobile/feature/library/ui/LibraryPlayerControlsPolicyTest.kt | sort)"
+          test "$changed" = "$expected"
+          git diff --check
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK 36
+        shell: bash
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Set up Gradle 9.6.0
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.6.0'
+          cache-read-only: true
+
+      - name: Validate patched source without APK generation
+        shell: bash
+        run: bash tools/validate-source-no-apk.sh
+
+      - name: Commit exact validated tree and push candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_BASE"
+          changed="$(git status --porcelain | awk '{print $2}' | sort)"
+          expected="$(printf '%s\n' \
+            app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryPlayerControlsPolicy.kt \
+            app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryShell.kt \
+            app/src/test/java/app/ownplay/mobile/feature/library/ui/LibraryPlayerControlsPolicyTest.kt | sort)"
+          test "$changed" = "$expected"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryShell.kt \
+            app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryPlayerControlsPolicy.kt \
+            app/src/test/java/app/ownplay/mobile/feature/library/ui/LibraryPlayerControlsPolicyTest.kt
+          git commit -m "Fix fullscreen control auto-hide semantics"
+          candidate_sha="$(git rev-parse HEAD)"
+          test "$(git rev-parse HEAD^)" = "$EXPECTED_BASE"
+          echo "Validated candidate SHA: $candidate_sha"
+          git push origin "HEAD:refs/heads/$CANDIDATE_BRANCH"
