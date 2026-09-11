@@ -77,7 +77,7 @@ class OkHttpXtreamClient(
             val streamId = obj["stream_id"]?.text()?.takeIf(String::isNotBlank) ?: return@mapArray null
             XtreamLiveStream(
                 streamId = streamId,
-                categoryId = obj["category_id"]?.text()?.trim()?.takeIf(String::isNotEmpty),
+                categoryId = obj.liveCategoryId(),
                 name = obj["name"]?.text().orEmpty().ifBlank { "Unnamed channel" },
                 epgChannelId = obj["epg_channel_id"]?.text(),
                 streamIcon = obj["stream_icon"]?.text(),
@@ -248,6 +248,24 @@ class OkHttpXtreamClient(
             2 -> parts[0] * 60 + parts[1]
             else -> duration.toLongOrNull()
         }
+    }
+
+    private fun JsonObject.liveCategoryId(): String? =
+        XtreamLiveCategoryAttribution.resolveProviderCategoryId(
+            primary = this["category_id"]?.text(),
+            fallbacks = this["category_ids"].categoryIdCandidates(),
+        )
+
+    private fun JsonElement?.categoryIdCandidates(): List<String?> = when (this) {
+        is JsonArray -> map { it.text() }
+        is JsonPrimitive -> text()
+            ?.trim()
+            ?.removePrefix("[")
+            ?.removeSuffix("]")
+            ?.split(',')
+            ?.map { candidate -> candidate.trim().trim('"') }
+            .orEmpty()
+        else -> emptyList()
     }
 
     private fun JsonElement.asObject(): JsonObject? = this as? JsonObject
