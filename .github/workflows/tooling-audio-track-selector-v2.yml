@@ -1,0 +1,113 @@
+name: Validate audio track selector candidate v2
+
+on:
+  push:
+    branches:
+      - tooling-audio-track-selector-v2-da5bb37
+
+permissions:
+  contents: write
+
+jobs:
+  build-candidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      BASE_SHA: da5bb3757243ae81e52d904b374f4e99954a384d
+      PATCH_SOURCE_BRANCH: tooling-audio-track-selector-da5bb37
+      CANDIDATE_BRANCH: stage-12-audio-track-selector-candidate
+
+    steps:
+      - name: Checkout exact base
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.BASE_SHA }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Verify exact base
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "$BASE_SHA"
+          test -z "$(git status --porcelain)"
+          echo "Exact base: $BASE_SHA"
+
+      - name: Reuse guarded source patch
+        shell: bash
+        run: |
+          git show "origin/$PATCH_SOURCE_BRANCH:.github/workflows/tooling-audio-track-selector.yml" > /tmp/source-workflow.yml
+          python3 - <<'PY'
+          from pathlib import Path
+
+          lines = Path('/tmp/source-workflow.yml').read_text().splitlines()
+          start = next(i for i, line in enumerate(lines) if line.strip() == "python3 - <<'PY'")
+          end = next(i for i in range(start + 1, len(lines)) if lines[i].strip() == 'PY')
+          script = []
+          for line in lines[start + 1:end]:
+              script.append(line[10:] if line.startswith('          ') else line)
+          Path('/tmp/audio-track-selector-patch.py').write_text('\n'.join(script) + '\n')
+          PY
+          python3 /tmp/audio-track-selector-patch.py
+
+          git diff --check
+          actual_files="$({
+            git diff --name-only
+            git ls-files --others --exclude-standard
+          } | sort -u)"
+          expected_files="$(cat <<'EOF' | sort
+          app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryShell.kt
+          app/src/main/java/app/ownplay/mobile/feature/live/ui/LiveShell.kt
+          app/src/main/java/app/ownplay/mobile/playback/Media3PlaybackController.kt
+          app/src/main/java/app/ownplay/mobile/playback/PlaybackController.kt
+          app/src/main/java/app/ownplay/mobile/playback/domain/AudioTrackPolicy.kt
+          app/src/main/java/app/ownplay/mobile/playback/domain/PlaybackModels.kt
+          app/src/main/java/app/ownplay/mobile/playback/ui/AudioTrackSelectorPanel.kt
+          app/src/test/java/app/ownplay/mobile/playback/domain/AudioTrackPolicyTest.kt
+          EOF
+          )"
+          printf 'Actual changed files:\n%s\n' "$actual_files"
+          test "$actual_files" = "$expected_files"
+          echo "PASS: guarded patch changed only expected files, including new untracked files."
+          git diff --stat
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK 36
+        shell: bash
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Set up Gradle 9.6.0
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.6.0'
+
+      - name: Validate source without APK generation
+        shell: bash
+        run: bash tools/validate-source-no-apk.sh
+
+      - name: Commit and push validated candidate
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "$BASE_SHA"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryShell.kt \
+            app/src/main/java/app/ownplay/mobile/feature/live/ui/LiveShell.kt \
+            app/src/main/java/app/ownplay/mobile/playback/Media3PlaybackController.kt \
+            app/src/main/java/app/ownplay/mobile/playback/PlaybackController.kt \
+            app/src/main/java/app/ownplay/mobile/playback/domain/AudioTrackPolicy.kt \
+            app/src/main/java/app/ownplay/mobile/playback/domain/PlaybackModels.kt \
+            app/src/main/java/app/ownplay/mobile/playback/ui/AudioTrackSelectorPanel.kt \
+            app/src/test/java/app/ownplay/mobile/playback/domain/AudioTrackPolicyTest.kt
+          git commit -m "Add audio track selection controls"
+          test "$(git rev-parse HEAD^)" = "$BASE_SHA"
+          git push origin "HEAD:refs/heads/$CANDIDATE_BRANCH"
+          echo "Candidate SHA: $(git rev-parse HEAD)"
