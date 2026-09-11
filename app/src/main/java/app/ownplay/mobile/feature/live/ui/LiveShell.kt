@@ -113,6 +113,7 @@ fun LiveShell(
     var presentationState by remember { mutableStateOf(LivePresentationState()) }
     var resolutionError by remember { mutableStateOf<String?>(null) }
     var fallbackLoadRequest by remember { mutableStateOf<PlaybackLoadRequest?>(null) }
+    var waitingForInitialChannels by remember(catalog?.activeSourceId) { mutableStateOf(false) }
 
     fun applyEffect(effect: LiveEffect) {
         when (effect) {
@@ -201,6 +202,18 @@ fun LiveShell(
         }
     }
 
+    LaunchedEffect(catalog?.activeSourceId, catalog?.channels?.size) {
+        val hasActiveSource = catalog?.activeSourceId != null
+        val hasNoProviderChannels = catalog?.channels?.isEmpty() == true
+        if (hasActiveSource && hasNoProviderChannels) {
+            waitingForInitialChannels = true
+            delay(12_000)
+            waitingForInitialChannels = false
+        } else {
+            waitingForInitialChannels = false
+        }
+    }
+
     LaunchedEffect(
         playback.phase,
         playback.audioTrackPresent,
@@ -276,6 +289,7 @@ fun LiveShell(
     } else {
         LiveBrowseAndPreview(
             catalog = catalog,
+            waitingForInitialChannels = waitingForInitialChannels,
             channels = visibleChannels,
             categories = categories,
             liveRepository = liveRepository,
@@ -309,6 +323,7 @@ fun LiveShell(
 @Composable
 private fun LiveBrowseAndPreview(
     catalog: LiveCatalog?,
+    waitingForInitialChannels: Boolean,
     channels: List<LiveChannel>,
     categories: List<LiveCategory>,
     liveRepository: LiveRepository,
@@ -392,11 +407,29 @@ private fun LiveBrowseAndPreview(
                 }
             }
 
+            catalog.channels.isEmpty() && waitingForInitialChannels -> item {
+                Box(modifier = Modifier.padding(horizontal = OwnPlaySpacing.Lg, vertical = OwnPlaySpacing.Sm)) {
+                    OwnPlayStatePanel(
+                        title = "Loading Live channels…",
+                        message = "Connecting to ${catalog.activeSourceName ?: "the active source"}. Large provider catalogs can take a moment to appear.",
+                    )
+                }
+            }
+
+            catalog.channels.isEmpty() -> item {
+                Box(modifier = Modifier.padding(horizontal = OwnPlaySpacing.Lg, vertical = OwnPlaySpacing.Sm)) {
+                    OwnPlayStatePanel(
+                        title = "Live channels are not ready",
+                        message = "Channels will appear automatically if the source is still refreshing. Otherwise refresh ${catalog.activeSourceName ?: "the active source"} in Settings > Sources.",
+                    )
+                }
+            }
+
             channels.isEmpty() -> item {
                 Box(modifier = Modifier.padding(horizontal = OwnPlaySpacing.Lg, vertical = OwnPlaySpacing.Sm)) {
                     OwnPlayStatePanel(
-                        title = "No channels available",
-                        message = "Refresh ${catalog.activeSourceName ?: "the active source"} to load Live channels.",
+                        title = "No channels in this category",
+                        message = "Choose another provider category.",
                     )
                 }
             }
