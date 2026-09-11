@@ -88,9 +88,9 @@ jobs:
 
           import app.ownplay.mobile.playback.domain.PlaybackPhase
           import app.ownplay.mobile.playback.domain.PlaybackSnapshot
-          import kotlin.test.Test
-          import kotlin.test.assertFalse
-          import kotlin.test.assertTrue
+          import org.junit.Assert.assertFalse
+          import org.junit.Assert.assertTrue
+          import org.junit.Test
 
           class LibraryPlayerControlsPolicyTest {
               @Test
@@ -121,10 +121,10 @@ jobs:
                       PlaybackPhase.RELEASED,
                   ).forEach { phase ->
                       assertFalse(
+                          "phase=$phase must not auto-hide controls",
                           LibraryPlayerControlsPolicy.shouldAutoHide(
                               PlaybackSnapshot(phase = phase, isPlaying = true),
                           ),
-                          "phase=$phase must not auto-hide controls",
                       )
                   }
               }
