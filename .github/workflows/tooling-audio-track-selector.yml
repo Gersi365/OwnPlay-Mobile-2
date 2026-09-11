@@ -1,0 +1,220 @@
+name: Validate audio track selector candidate
+
+on:
+  push:
+    branches:
+      - tooling-audio-track-selector-da5bb37
+
+permissions:
+  contents: write
+
+jobs:
+  build-candidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      BASE_SHA: da5bb3757243ae81e52d904b374f4e99954a384d
+      CANDIDATE_BRANCH: stage-12-audio-track-selector-candidate
+
+    steps:
+      - name: Checkout exact base
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.BASE_SHA }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Verify exact base
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "$BASE_SHA"
+          test -z "$(git status --porcelain)"
+          echo "Exact base: $BASE_SHA"
+
+      - name: Apply guarded audio track selector patch
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{path}: expected exactly one match, found {count}")
+              p.write_text(text.replace(old, new, 1))
+
+          replace_once(
+              "app/src/main/java/app/ownplay/mobile/playback/domain/PlaybackModels.kt",
+              """data class PlaybackSnapshot(\n""",
+              """data class PlaybackAudioTrack(\n    val selectionId: String,\n    val label: String? = null,\n    val language: String? = null,\n    val mimeType: String? = null,\n    val codecs: String? = null,\n    val channelCount: Int? = null,\n    val sampleRate: Int? = null,\n    val selected: Boolean = false,\n    val supported: Boolean = true,\n) {\n    init {\n        require(selectionId.isNotBlank()) { \"Audio track selection id must not be blank.\" }\n    }\n}\n\ndata class PlaybackSnapshot(\n""",
+          )
+          replace_once(
+              "app/src/main/java/app/ownplay/mobile/playback/domain/PlaybackModels.kt",
+              """    val activeTarget: VideoTarget = VideoTarget.NONE,\n    val audioTrackPresent: Boolean? = null,\n""",
+              """    val activeTarget: VideoTarget = VideoTarget.NONE,\n    val audioTracks: List<PlaybackAudioTrack> = emptyList(),\n    val audioTrackPresent: Boolean? = null,\n""",
+          )
+
+          replace_once(
+              "app/src/main/java/app/ownplay/mobile/playback/PlaybackController.kt",
+              """    suspend fun setVolume(volume: Float)\n\n    suspend fun seekTo(positionMs: Long)\n""",
+              """    suspend fun setVolume(volume: Float)\n\n    suspend fun selectAudioTrack(selectionId: String?)\n\n    suspend fun seekTo(positionMs: Long)\n""",
+          )
+
+          path = Path("app/src/main/java/app/ownplay/mobile/playback/domain/AudioTrackPolicy.kt")
+          path.write_text("""package app.ownplay.mobile.playback.domain\n\nimport java.util.Locale\n\ndata class AudioTrackSelectionKey(\n    val groupIndex: Int,\n    val trackIndex: Int,\n)\n\nobject AudioTrackPolicy {\n    fun selectionId(groupIndex: Int, trackIndex: Int): String {\n        require(groupIndex >= 0) { \"Audio group index must be non-negative.\" }\n        require(trackIndex >= 0) { \"Audio track index must be non-negative.\" }\n        return \"$groupIndex:$trackIndex\"\n    }\n\n    fun parseSelectionId(selectionId: String): AudioTrackSelectionKey? {\n        val parts = selectionId.split(':')\n        if (parts.size != 2) return null\n        val groupIndex = parts[0].toIntOrNull() ?: return null\n        val trackIndex = parts[1].toIntOrNull() ?: return null\n        if (groupIndex < 0 || trackIndex < 0) return null\n        return AudioTrackSelectionKey(groupIndex, trackIndex)\n    }\n\n    fun primaryLabel(track: PlaybackAudioTrack, ordinal: Int): String {\n        val explicit = track.label?.trim()?.takeIf { it.isNotEmpty() }\n        if (explicit != null) return explicit\n        val language = track.language?.trim()?.takeIf { it.isNotEmpty() }\n        if (language != null) return language.uppercase(Locale.US)\n        return \"Audio ${ordinal.coerceAtLeast(1)}\"\n    }\n\n    fun detailLabel(track: PlaybackAudioTrack): String {\n        val parts = mutableListOf<String>()\n        track.language\n            ?.trim()\n            ?.takeIf { it.isNotEmpty() }\n            ?.uppercase(Locale.US)\n            ?.let(parts::add)\n\n        val format = AudioFormatLabelPolicy.describe(track.mimeType, track.codecs)\n        if (format != \"unknown format\") parts += format\n\n        track.channelCount?.takeIf { it > 0 }?.let { channels ->\n            parts += when (channels) {\n                1 -> \"Mono\"\n                2 -> \"Stereo\"\n                else -> \"${channels}ch\"\n            }\n        }\n        track.sampleRate?.takeIf { it > 0 }?.let { sampleRate ->\n            parts += \"${sampleRate / 1000.0} kHz\"\n        }\n        if (!track.supported) parts += \"Unsupported\"\n        return parts.distinct().joinToString(\" • \").ifBlank { \"Audio track\" }\n    }\n}\n""")
+
+          replace_once(
+              "app/src/main/java/app/ownplay/mobile/playback/Media3PlaybackController.kt",
+              """import androidx.media3.common.Tracks\n""",
+              """import androidx.media3.common.TrackSelectionOverride\nimport androidx.media3.common.Tracks\n""",
+          )
+          replace_once(
+              "app/src/main/java/app/ownplay/mobile/playback/Media3PlaybackController.kt",
+              """import app.ownplay.mobile.playback.domain.PlaybackLoadRequest\n""",
+              """import app.ownplay.mobile.playback.domain.AudioTrackPolicy\nimport app.ownplay.mobile.playback.domain.PlaybackAudioTrack\nimport app.ownplay.mobile.playback.domain.PlaybackLoadRequest\n""",
+          )
+          replace_once(
+              "app/src/main/java/app/ownplay/mobile/playback/Media3PlaybackController.kt",
+              """        mutateOnPlayerThread {\n            currentMedia = request.media\n            val mediaItemBuilder = MediaItem.Builder()\n""",
+              """        mutateOnPlayerThread {\n            currentMedia = request.media\n            player.trackSelectionParameters = player.trackSelectionParameters\n                .buildUpon()\n                .clearOverridesOfType(C.TRACK_TYPE_AUDIO)\n                .build()\n            val mediaItemBuilder = MediaItem.Builder()\n""",
+          )
+          replace_once(
+              "app/src/main/java/app/ownplay/mobile/playback/Media3PlaybackController.kt",
+              """    override suspend fun setVolume(volume: Float) {\n        mutateOnPlayerThread {\n            player.volume = PlayerLocalControlPolicy.clampVolume(volume)\n            refreshSnapshot()\n        }\n    }\n\n    override suspend fun seekTo(positionMs: Long) {\n""",
+              """    override suspend fun setVolume(volume: Float) {\n        mutateOnPlayerThread {\n            player.volume = PlayerLocalControlPolicy.clampVolume(volume)\n            refreshSnapshot()\n        }\n    }\n\n    override suspend fun selectAudioTrack(selectionId: String?) {\n        mutateOnPlayerThread {\n            val builder = player.trackSelectionParameters.buildUpon()\n            if (selectionId == null) {\n                player.trackSelectionParameters = builder\n                    .clearOverridesOfType(C.TRACK_TYPE_AUDIO)\n                    .build()\n                refreshSnapshot()\n                return@mutateOnPlayerThread\n            }\n\n            val key = AudioTrackPolicy.parseSelectionId(selectionId) ?: return@mutateOnPlayerThread\n            val audioGroups = player.currentTracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }\n            val group = audioGroups.getOrNull(key.groupIndex) ?: return@mutateOnPlayerThread\n            if (key.trackIndex !in 0 until group.length || !group.isTrackSupported(key.trackIndex)) {\n                return@mutateOnPlayerThread\n            }\n\n            player.trackSelectionParameters = builder\n                .setOverrideForType(\n                    TrackSelectionOverride(group.mediaTrackGroup, key.trackIndex),\n                )\n                .build()\n            refreshSnapshot()\n        }\n    }\n\n    override suspend fun seekTo(positionMs: Long) {\n""",
+          )
+          replace_once(
+              "app/src/main/java/app/ownplay/mobile/playback/Media3PlaybackController.kt",
+              """            activeTarget = ownership.activeTarget,\n            audioTrackPresent = audio.present,\n""",
+              """            activeTarget = ownership.activeTarget,\n            audioTracks = audio.tracks,\n            audioTrackPresent = audio.present,\n""",
+          )
+          replace_once(
+              "app/src/main/java/app/ownplay/mobile/playback/Media3PlaybackController.kt",
+              """    private data class AudioTrackStatus(\n        val present: Boolean?,\n        val supported: Boolean?,\n        val selected: Boolean?,\n        val mimeType: String? = null,\n        val codecs: String? = null,\n        val channelCount: Int? = null,\n        val sampleRate: Int? = null,\n    )\n\n    private fun currentAudioTrackStatus(): AudioTrackStatus {\n        val groups = player.currentTracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }\n        if (groups.isEmpty()) return AudioTrackStatus(null, null, null)\n\n        var firstFormat: Format? = null\n        var selectedFormat: Format? = null\n        var supported = false\n        var selected = false\n        groups.forEach { group ->\n            for (trackIndex in 0 until group.length) {\n                val format = group.getTrackFormat(trackIndex)\n                if (firstFormat == null) firstFormat = format\n                if (group.isTrackSupported(trackIndex)) supported = true\n                if (group.isTrackSelected(trackIndex)) {\n                    selected = true\n                    if (selectedFormat == null) selectedFormat = format\n                }\n            }\n        }\n        val format = selectedFormat ?: firstFormat\n        return AudioTrackStatus(\n            present = true,\n            supported = supported,\n            selected = selected,\n            mimeType = format?.sampleMimeType,\n            codecs = format?.codecs,\n            channelCount = format?.channelCount?.takeIf { it > 0 },\n            sampleRate = format?.sampleRate?.takeIf { it > 0 },\n        )\n    }\n""",
+              """    private data class AudioTrackStatus(\n        val present: Boolean?,\n        val supported: Boolean?,\n        val selected: Boolean?,\n        val tracks: List<PlaybackAudioTrack> = emptyList(),\n        val mimeType: String? = null,\n        val codecs: String? = null,\n        val channelCount: Int? = null,\n        val sampleRate: Int? = null,\n    )\n\n    private fun currentAudioTrackStatus(): AudioTrackStatus {\n        val groups = player.currentTracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }\n        if (groups.isEmpty()) return AudioTrackStatus(null, null, null)\n\n        var firstFormat: Format? = null\n        var selectedFormat: Format? = null\n        var supported = false\n        var selected = false\n        val tracks = mutableListOf<PlaybackAudioTrack>()\n        groups.forEachIndexed { groupIndex, group ->\n            for (trackIndex in 0 until group.length) {\n                val format = group.getTrackFormat(trackIndex)\n                val trackSupported = group.isTrackSupported(trackIndex)\n                val trackSelected = group.isTrackSelected(trackIndex)\n                tracks += PlaybackAudioTrack(\n                    selectionId = AudioTrackPolicy.selectionId(groupIndex, trackIndex),\n                    label = format.label,\n                    language = format.language,\n                    mimeType = format.sampleMimeType,\n                    codecs = format.codecs,\n                    channelCount = format.channelCount.takeIf { it > 0 },\n                    sampleRate = format.sampleRate.takeIf { it > 0 },\n                    selected = trackSelected,\n                    supported = trackSupported,\n                )\n                if (firstFormat == null) firstFormat = format\n                if (trackSupported) supported = true\n                if (trackSelected) {\n                    selected = true\n                    if (selectedFormat == null) selectedFormat = format\n                }\n            }\n        }\n        val format = selectedFormat ?: firstFormat\n        return AudioTrackStatus(\n            present = true,\n            supported = supported,\n            selected = selected,\n            tracks = tracks,\n            mimeType = format?.sampleMimeType,\n            codecs = format?.codecs,\n            channelCount = format?.channelCount?.takeIf { it > 0 },\n            sampleRate = format?.sampleRate?.takeIf { it > 0 },\n        )\n    }\n""",
+          )
+
+          ui = Path("app/src/main/java/app/ownplay/mobile/playback/ui/AudioTrackSelectorPanel.kt")
+          ui.write_text("""package app.ownplay.mobile.playback.ui\n\nimport androidx.compose.foundation.BorderStroke\nimport androidx.compose.foundation.clickable\nimport androidx.compose.foundation.layout.Arrangement\nimport androidx.compose.foundation.layout.Column\nimport androidx.compose.foundation.layout.Row\nimport androidx.compose.foundation.layout.fillMaxWidth\nimport androidx.compose.foundation.layout.heightIn\nimport androidx.compose.foundation.layout.padding\nimport androidx.compose.foundation.layout.width\nimport androidx.compose.foundation.lazy.LazyColumn\nimport androidx.compose.foundation.lazy.itemsIndexed\nimport androidx.compose.material3.MaterialTheme\nimport androidx.compose.material3.Surface\nimport androidx.compose.material3.Text\nimport androidx.compose.runtime.Composable\nimport androidx.compose.ui.Alignment\nimport androidx.compose.ui.Modifier\nimport androidx.compose.ui.unit.dp\nimport app.ownplay.mobile.design.OwnPlayColors\nimport app.ownplay.mobile.design.OwnPlayShapeTokens\nimport app.ownplay.mobile.design.OwnPlaySpacing\nimport app.ownplay.mobile.playback.domain.AudioTrackPolicy\nimport app.ownplay.mobile.playback.domain.PlaybackAudioTrack\n\n@Composable\nfun AudioTrackSelectorPanel(\n    tracks: List<PlaybackAudioTrack>,\n    onSelect: (String?) -> Unit,\n    onDismiss: () -> Unit,\n    modifier: Modifier = Modifier,\n) {\n    Surface(\n        modifier = modifier.width(340.dp),\n        color = OwnPlayColors.Surface.copy(alpha = 0.97f),\n        shape = OwnPlayShapeTokens.Medium,\n        border = BorderStroke(1.dp, OwnPlayColors.Divider),\n        tonalElevation = 0.dp,\n    ) {\n        Column(\n            modifier = Modifier.padding(OwnPlaySpacing.Md),\n            verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm),\n        ) {\n            Row(\n                modifier = Modifier.fillMaxWidth(),\n                horizontalArrangement = Arrangement.SpaceBetween,\n                verticalAlignment = Alignment.CenterVertically,\n            ) {\n                Text(\n                    text = \"AUDIO\",\n                    style = MaterialTheme.typography.titleMedium,\n                    color = OwnPlayColors.TextPrimary,\n                )\n                Text(\n                    text = \"CLOSE\",\n                    modifier = Modifier\n                        .clickable(onClick = onDismiss)\n                        .padding(OwnPlaySpacing.Sm),\n                    style = MaterialTheme.typography.labelLarge,\n                    color = OwnPlayColors.Accent,\n                )\n            }\n\n            LazyColumn(\n                modifier = Modifier.heightIn(max = 320.dp),\n                verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Xs),\n            ) {\n                item(key = \"auto\") {\n                    AudioTrackRow(\n                        title = \"Auto\",\n                        detail = \"Use player default selection\",\n                        selected = false,\n                        supported = true,\n                        onClick = { onSelect(null) },\n                    )\n                }\n                itemsIndexed(\n                    items = tracks,\n                    key = { _, track -> track.selectionId },\n                ) { index, track ->\n                    AudioTrackRow(\n                        title = AudioTrackPolicy.primaryLabel(track, index + 1),\n                        detail = AudioTrackPolicy.detailLabel(track),\n                        selected = track.selected,\n                        supported = track.supported,\n                        onClick = { onSelect(track.selectionId) },\n                    )\n                }\n            }\n        }\n    }\n}\n\n@Composable\nprivate fun AudioTrackRow(\n    title: String,\n    detail: String,\n    selected: Boolean,\n    supported: Boolean,\n    onClick: () -> Unit,\n) {\n    Surface(\n        modifier = Modifier\n            .fillMaxWidth()\n            .clickable(enabled = supported, onClick = onClick),\n        color = if (selected) OwnPlayColors.SurfaceSelected else OwnPlayColors.SurfaceElevated,\n        shape = OwnPlayShapeTokens.Small,\n        border = BorderStroke(\n            width = 1.dp,\n            color = if (selected) OwnPlayColors.Accent else OwnPlayColors.Divider,\n        ),\n        tonalElevation = 0.dp,\n    ) {\n        Row(\n            modifier = Modifier.padding(horizontal = OwnPlaySpacing.Md, vertical = OwnPlaySpacing.Sm),\n            horizontalArrangement = Arrangement.SpaceBetween,\n            verticalAlignment = Alignment.CenterVertically,\n        ) {\n            Column(\n                modifier = Modifier.weight(1f),\n                verticalArrangement = Arrangement.spacedBy(2.dp),\n            ) {\n                Text(\n                    text = title,\n                    style = MaterialTheme.typography.bodyLarge,\n                    color = if (supported) OwnPlayColors.TextPrimary else OwnPlayColors.TextSecondary,\n                )\n                Text(\n                    text = detail,\n                    style = MaterialTheme.typography.bodySmall,\n                    color = OwnPlayColors.TextSecondary,\n                )\n            }\n            if (selected) {\n                Text(\n                    text = \"SELECTED\",\n                    style = MaterialTheme.typography.labelSmall,\n                    color = OwnPlayColors.Accent,\n                )\n            }\n        }\n    }\n}\n""")
+
+          replace_once(
+              "app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryShell.kt",
+              """import app.ownplay.mobile.playback.ui.PlayerLocalControlHudOverlay\n""",
+              """import app.ownplay.mobile.playback.ui.AudioTrackSelectorPanel\nimport app.ownplay.mobile.playback.ui.PlayerLocalControlHudOverlay\n""",
+          )
+          replace_once(
+              "app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryShell.kt",
+              """    var overlayVisible by remember(playback.contentId, playback.offline) { mutableStateOf(true) }\n    var pendingSeekMs by remember(playback.contentId, playback.offline) { mutableStateOf<Long?>(null) }\n""",
+              """    var overlayVisible by remember(playback.contentId, playback.offline) { mutableStateOf(true) }\n    var audioSelectorVisible by remember(playback.contentId, playback.offline) { mutableStateOf(false) }\n    var pendingSeekMs by remember(playback.contentId, playback.offline) { mutableStateOf<Long?>(null) }\n""",
+          )
+          replace_once(
+              "app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryShell.kt",
+              """    LaunchedEffect(playback.contentId, playback.offline) {\n        var persistCountdown = 0\n""",
+              """    LaunchedEffect(overlayVisible) {\n        if (!overlayVisible) audioSelectorVisible = false\n    }\n\n    LaunchedEffect(playback.contentId, playback.offline) {\n        var persistCountdown = 0\n""",
+          )
+          replace_once(
+              "app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryShell.kt",
+              """                        if (playerState.phase == PlaybackPhase.ERROR) {\n                            OwnPlaySecondaryButton(\n                                text = \"Retry\",\n                                onClick = { scope.launch { playbackController.retry() } },\n                                modifier = Modifier.weight(0.8f),\n                            )\n                        }\n                    }\n""",
+              """                        if (playerState.phase == PlaybackPhase.ERROR) {\n                            OwnPlaySecondaryButton(\n                                text = \"Retry\",\n                                onClick = { scope.launch { playbackController.retry() } },\n                                modifier = Modifier.weight(0.8f),\n                            )\n                        }\n                        if (playerState.audioTracks.isNotEmpty()) {\n                            OwnPlaySecondaryButton(\n                                text = \"Audio\",\n                                onClick = { audioSelectorVisible = !audioSelectorVisible },\n                                modifier = Modifier.weight(0.8f),\n                            )\n                        }\n                    }\n""",
+          )
+          replace_once(
+              "app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryShell.kt",
+              """                    Text(\n                        text = \"BACK TO LIBRARY\",\n                        modifier = Modifier\n                            .align(Alignment.End)\n                            .clickable(onClick = ::closePlayer)\n                            .padding(vertical = OwnPlaySpacing.Sm),\n                        style = MaterialTheme.typography.labelLarge,\n                        color = OwnPlayColors.Accent,\n                    )\n                }\n            }\n        }\n    }\n}\n""",
+              """                    Text(\n                        text = \"BACK TO LIBRARY\",\n                        modifier = Modifier\n                            .align(Alignment.End)\n                            .clickable(onClick = ::closePlayer)\n                            .padding(vertical = OwnPlaySpacing.Sm),\n                        style = MaterialTheme.typography.labelLarge,\n                        color = OwnPlayColors.Accent,\n                    )\n                }\n            }\n\n            if (audioSelectorVisible && playerState.audioTracks.isNotEmpty()) {\n                AudioTrackSelectorPanel(\n                    tracks = playerState.audioTracks,\n                    onSelect = { selectionId ->\n                        scope.launch { playbackController.selectAudioTrack(selectionId) }\n                        audioSelectorVisible = false\n                    },\n                    onDismiss = { audioSelectorVisible = false },\n                    modifier = Modifier\n                        .align(Alignment.CenterEnd)\n                        .padding(OwnPlaySpacing.Xl),\n                )\n            }\n        }\n    }\n}\n""",
+          )
+
+          replace_once(
+              "app/src/main/java/app/ownplay/mobile/feature/live/ui/LiveShell.kt",
+              """import app.ownplay.mobile.playback.domain.AudioFormatLabelPolicy\n""",
+              """import app.ownplay.mobile.playback.domain.AudioFormatLabelPolicy\nimport app.ownplay.mobile.playback.domain.PlaybackAudioTrack\n""",
+          )
+          replace_once(
+              "app/src/main/java/app/ownplay/mobile/feature/live/ui/LiveShell.kt",
+              """import app.ownplay.mobile.playback.ui.PlayerLocalControlHudOverlay\n""",
+              """import app.ownplay.mobile.playback.ui.AudioTrackSelectorPanel\nimport app.ownplay.mobile.playback.ui.PlayerLocalControlHudOverlay\n""",
+          )
+          replace_once(
+              "app/src/main/java/app/ownplay/mobile/feature/live/ui/LiveShell.kt",
+              """            guide = selectedGuide,\n            audioCompatibilityMessage = audioCompatibilityMessage,\n            modifier = modifier,\n""",
+              """            guide = selectedGuide,\n            audioCompatibilityMessage = audioCompatibilityMessage,\n            audioTracks = playback.audioTracks,\n            modifier = modifier,\n""",
+          )
+          replace_once(
+              "app/src/main/java/app/ownplay/mobile/feature/live/ui/LiveShell.kt",
+              """    guide: LiveNowNext,\n    audioCompatibilityMessage: String?,\n    modifier: Modifier = Modifier,\n) {\n    var overlayVisible by remember(channel.channelId) { mutableStateOf(true) }\n""",
+              """    guide: LiveNowNext,\n    audioCompatibilityMessage: String?,\n    audioTracks: List<PlaybackAudioTrack>,\n    modifier: Modifier = Modifier,\n) {\n    var overlayVisible by remember(channel.channelId) { mutableStateOf(true) }\n    var audioSelectorVisible by remember(channel.channelId) { mutableStateOf(false) }\n""",
+          )
+          replace_once(
+              "app/src/main/java/app/ownplay/mobile/feature/live/ui/LiveShell.kt",
+              """    LaunchedEffect(overlayVisible, channel.channelId) {\n        if (overlayVisible) {\n            delay(4_000)\n            overlayVisible = false\n        }\n    }\n\n    Box(\n""",
+              """    LaunchedEffect(overlayVisible, channel.channelId) {\n        if (overlayVisible) {\n            delay(4_000)\n            overlayVisible = false\n        }\n    }\n\n    LaunchedEffect(overlayVisible) {\n        if (!overlayVisible) audioSelectorVisible = false\n    }\n\n    Box(\n""",
+          )
+          replace_once(
+              "app/src/main/java/app/ownplay/mobile/feature/live/ui/LiveShell.kt",
+              """                    Text(\n                        text = \"BACK TO PREVIEW\",\n                        style = MaterialTheme.typography.labelLarge,\n                        color = OwnPlayColors.Accent,\n                    )\n                }\n            }\n        }\n    }\n}\n""",
+              """                    if (audioTracks.isNotEmpty()) {\n                        Text(\n                            text = \"AUDIO\",\n                            modifier = Modifier\n                                .clickable { audioSelectorVisible = !audioSelectorVisible }\n                                .padding(OwnPlaySpacing.Sm),\n                            style = MaterialTheme.typography.labelLarge,\n                            color = OwnPlayColors.Accent,\n                        )\n                    }\n                    Text(\n                        text = \"BACK TO PREVIEW\",\n                        style = MaterialTheme.typography.labelLarge,\n                        color = OwnPlayColors.Accent,\n                    )\n                }\n            }\n\n            if (audioSelectorVisible && audioTracks.isNotEmpty()) {\n                AudioTrackSelectorPanel(\n                    tracks = audioTracks,\n                    onSelect = { selectionId ->\n                        controllerScope.launch { playbackController.selectAudioTrack(selectionId) }\n                        audioSelectorVisible = false\n                    },\n                    onDismiss = { audioSelectorVisible = false },\n                    modifier = Modifier\n                        .align(Alignment.CenterEnd)\n                        .padding(OwnPlaySpacing.Xl),\n                )\n            }\n        }\n    }\n}\n""",
+          )
+
+          test = Path("app/src/test/java/app/ownplay/mobile/playback/domain/AudioTrackPolicyTest.kt")
+          test.write_text("""package app.ownplay.mobile.playback.domain\n\nimport org.junit.Assert.assertEquals\nimport org.junit.Assert.assertNull\nimport org.junit.Test\n\nclass AudioTrackPolicyTest {\n    @Test\n    fun selectionId_roundTripsGroupAndTrackIndexes() {\n        val id = AudioTrackPolicy.selectionId(groupIndex = 2, trackIndex = 3)\n\n        assertEquals(\"2:3\", id)\n        assertEquals(AudioTrackSelectionKey(2, 3), AudioTrackPolicy.parseSelectionId(id))\n    }\n\n    @Test\n    fun parseSelectionId_rejectsMalformedOrNegativeValues() {\n        assertNull(AudioTrackPolicy.parseSelectionId(\"\"))\n        assertNull(AudioTrackPolicy.parseSelectionId(\"1\"))\n        assertNull(AudioTrackPolicy.parseSelectionId(\"1:x\"))\n        assertNull(AudioTrackPolicy.parseSelectionId(\"-1:0\"))\n        assertNull(AudioTrackPolicy.parseSelectionId(\"0:-1\"))\n    }\n\n    @Test\n    fun primaryLabel_prefersProviderLabelThenLanguageThenOrdinal() {\n        assertEquals(\n            \"English Commentary\",\n            AudioTrackPolicy.primaryLabel(\n                PlaybackAudioTrack(selectionId = \"0:0\", label = \" English Commentary \", language = \"eng\"),\n                ordinal = 1,\n            ),\n        )\n        assertEquals(\n            \"SQI\",\n            AudioTrackPolicy.primaryLabel(\n                PlaybackAudioTrack(selectionId = \"0:1\", language = \"sqi\"),\n                ordinal = 2,\n            ),\n        )\n        assertEquals(\n            \"Audio 3\",\n            AudioTrackPolicy.primaryLabel(PlaybackAudioTrack(selectionId = \"0:2\"), ordinal = 3),\n        )\n    }\n\n    @Test\n    fun detailLabel_describesFormatChannelsAndUnsupportedState() {\n        val detail = AudioTrackPolicy.detailLabel(\n            PlaybackAudioTrack(\n                selectionId = \"0:0\",\n                language = \"eng\",\n                mimeType = \"audio/aac\",\n                channelCount = 2,\n                supported = false,\n            ),\n        )\n\n        assertEquals(\"ENG • AAC • Stereo • Unsupported\", detail)\n    }\n}\n""")
+          PY
+
+          git diff --check
+          actual_files="$(git diff --name-only | sort)"
+          expected_files="$(cat <<'EOF' | sort
+          app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryShell.kt
+          app/src/main/java/app/ownplay/mobile/feature/live/ui/LiveShell.kt
+          app/src/main/java/app/ownplay/mobile/playback/Media3PlaybackController.kt
+          app/src/main/java/app/ownplay/mobile/playback/PlaybackController.kt
+          app/src/main/java/app/ownplay/mobile/playback/domain/AudioTrackPolicy.kt
+          app/src/main/java/app/ownplay/mobile/playback/domain/PlaybackModels.kt
+          app/src/main/java/app/ownplay/mobile/playback/ui/AudioTrackSelectorPanel.kt
+          app/src/test/java/app/ownplay/mobile/playback/domain/AudioTrackPolicyTest.kt
+          EOF
+          )"
+          test "$actual_files" = "$expected_files"
+          echo "PASS: guarded patch changed only expected files."
+          git diff --stat
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK 36
+        shell: bash
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Set up Gradle 9.6.0
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.6.0'
+
+      - name: Validate source without APK generation
+        shell: bash
+        run: bash tools/validate-source-no-apk.sh
+
+      - name: Commit and push validated candidate
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "$BASE_SHA"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryShell.kt \
+            app/src/main/java/app/ownplay/mobile/feature/live/ui/LiveShell.kt \
+            app/src/main/java/app/ownplay/mobile/playback/Media3PlaybackController.kt \
+            app/src/main/java/app/ownplay/mobile/playback/PlaybackController.kt \
+            app/src/main/java/app/ownplay/mobile/playback/domain/AudioTrackPolicy.kt \
+            app/src/main/java/app/ownplay/mobile/playback/domain/PlaybackModels.kt \
+            app/src/main/java/app/ownplay/mobile/playback/ui/AudioTrackSelectorPanel.kt \
+            app/src/test/java/app/ownplay/mobile/playback/domain/AudioTrackPolicyTest.kt
+          git commit -m "Add audio track selection controls"
+          test "$(git rev-parse HEAD^)" = "$BASE_SHA"
+          git push origin "HEAD:refs/heads/$CANDIDATE_BRANCH"
+          echo "Candidate SHA: $(git rev-parse HEAD)"
