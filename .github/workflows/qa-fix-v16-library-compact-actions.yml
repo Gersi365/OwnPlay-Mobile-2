@@ -1,0 +1,185 @@
+name: Apply QA v16 Library compact actions
+
+on:
+  push:
+    branches:
+      - qa-fix-v16-library-compact-actions-runner
+
+permissions:
+  contents: write
+
+jobs:
+  fix-and-validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      SOURCE_SHA: dbfe4e8b85dc2eb54f71fed2d3ef7b1a46024634
+      TARGET_BRANCH: stage-12-stabilization
+
+    steps:
+      - name: Checkout helper history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Guard exact target source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_BRANCH"
+          current="$(git rev-parse "origin/$TARGET_BRANCH")"
+          test "$current" = "$SOURCE_SHA"
+          git checkout --detach "$SOURCE_SHA"
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          test -z "$(git status --porcelain)"
+          echo "Validated exact source: $SOURCE_SHA"
+
+      - name: Apply Library compact action fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          library = Path("app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryShell.kt")
+          text = library.read_text()
+
+          replacements = [
+              (
+                  '''                OwnPlayPrimaryButton(\n                    text = "Resume",\n                    onClick = onResume,\n                    modifier = Modifier.fillMaxWidth(),\n                )\n                OwnPlaySecondaryButton(\n                    text = "Play from Beginning",\n                    onClick = onBeginning,\n                    modifier = Modifier.fillMaxWidth(),\n                )''',
+                  '''                Row(\n                    modifier = Modifier.fillMaxWidth(),\n                    horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm),\n                ) {\n                    OwnPlayPrimaryButton(\n                        text = "Resume",\n                        onClick = onResume,\n                        modifier = Modifier.weight(1f).height(44.dp),\n                    )\n                    OwnPlaySecondaryButton(\n                        text = "Play from Beginning",\n                        onClick = onBeginning,\n                        modifier = Modifier.weight(1f).height(44.dp),\n                    )\n                }''',
+                  1,
+              ),
+              (
+                  'OwnPlayPrimaryButton(text = "Play", onClick = onBeginning, modifier = Modifier.fillMaxWidth())',
+                  'OwnPlayPrimaryButton(text = "Play", onClick = onBeginning, modifier = Modifier.fillMaxWidth().height(44.dp))',
+                  2,
+              ),
+              (
+                  'DownloadControls(item = downloadItem, onAction = onDownloadAction)',
+                  'DownloadControls(item = downloadItem, onAction = onDownloadAction, compact = true)',
+                  2,
+              ),
+              (
+                  '''                        DownloadControls(\n                            item = item,\n                            onAction = { action -> onAction(media, item, action) },\n                        )''',
+                  '''                        DownloadControls(\n                            item = item,\n                            onAction = { action -> onAction(media, item, action) },\n                            compact = true,\n                        )''',
+                  1,
+              ),
+              (
+                  'OwnPlayPrimaryButton("Resume", onResume, Modifier.weight(1f))',
+                  'OwnPlayPrimaryButton("Resume", onResume, Modifier.weight(1f).height(44.dp))',
+                  1,
+              ),
+              (
+                  'OwnPlaySecondaryButton("Play from Beginning", onBeginning, Modifier.weight(1f))',
+                  'OwnPlaySecondaryButton("Play from Beginning", onBeginning, Modifier.weight(1f).height(44.dp))',
+                  1,
+              ),
+              (
+                  'OwnPlayPrimaryButton("Play from Beginning", onBeginning, Modifier.weight(1f))',
+                  'OwnPlayPrimaryButton("Play from Beginning", onBeginning, Modifier.weight(1f).height(44.dp))',
+                  1,
+              ),
+              (
+                  'OwnPlaySecondaryButton("Resume", onResume, Modifier.weight(1f))',
+                  'OwnPlaySecondaryButton("Resume", onResume, Modifier.weight(1f).height(44.dp))',
+                  1,
+              ),
+              (
+                  '''            modifier = Modifier.padding(OwnPlaySpacing.Lg),\n            verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),''',
+                  '''            modifier = Modifier.padding(OwnPlaySpacing.Md),\n            verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm),''',
+                  1,
+              ),
+          ]
+
+          for old, new, expected in replacements:
+              actual = text.count(old)
+              if actual != expected:
+                  raise SystemExit(f"LibraryShell replacement count mismatch: expected {expected}, got {actual} for {old[:80]!r}")
+              text = text.replace(old, new)
+          library.write_text(text)
+
+          downloads = Path("app/src/main/java/app/ownplay/mobile/downloads/ui/DownloadControls.kt")
+          text = downloads.read_text()
+          replacements = [
+              (
+                  '''fun DownloadControls(\n    item: DownloadItem?,\n    onAction: (DownloadAction) -> Unit,\n    modifier: Modifier = Modifier,\n) {''',
+                  '''fun DownloadControls(\n    item: DownloadItem?,\n    onAction: (DownloadAction) -> Unit,\n    modifier: Modifier = Modifier,\n    compact: Boolean = false,\n) {''',
+                  1,
+              ),
+              (
+                  'verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm),',
+                  'verticalArrangement = Arrangement.spacedBy(if (compact) OwnPlaySpacing.Xs else OwnPlaySpacing.Sm),',
+                  1,
+              ),
+              (
+                  'horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm),',
+                  'horizontalArrangement = Arrangement.spacedBy(if (compact) OwnPlaySpacing.Xs else OwnPlaySpacing.Sm),',
+                  1,
+              ),
+              (
+                  '''            OwnPlayPrimaryButton(\n                text = actionLabel(primaryAction),\n                onClick = { onAction(primaryAction) },\n                modifier = Modifier.weight(1f),\n            )''',
+                  '''            if (compact && primaryAction == DownloadAction.DOWNLOAD) {\n                OwnPlaySecondaryButton(\n                    text = actionLabel(primaryAction),\n                    onClick = { onAction(primaryAction) },\n                    modifier = Modifier.weight(1f).height(44.dp),\n                )\n            } else {\n                OwnPlayPrimaryButton(\n                    text = actionLabel(primaryAction),\n                    onClick = { onAction(primaryAction) },\n                    modifier = Modifier.weight(1f).height(if (compact) 44.dp else 52.dp),\n                )\n            }''',
+                  1,
+              ),
+              (
+                  'modifier = Modifier.weight(0.7f),',
+                  'modifier = Modifier.weight(0.7f).height(if (compact) 44.dp else 52.dp),',
+                  1,
+              ),
+          ]
+          for old, new, expected in replacements:
+              actual = text.count(old)
+              if actual != expected:
+                  raise SystemExit(f"DownloadControls replacement count mismatch: expected {expected}, got {actual} for {old[:80]!r}")
+              text = text.replace(old, new)
+          downloads.write_text(text)
+          PY
+
+          changed="$(git diff --name-only | sort)"
+          expected=$(printf '%s\n%s\n' \
+            'app/src/main/java/app/ownplay/mobile/downloads/ui/DownloadControls.kt' \
+            'app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryShell.kt' | sort)
+          test "$changed" = "$expected"
+          git diff --check
+          git diff --stat
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK 36
+        shell: bash
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Set up Gradle 9.6.0
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "9.6.0"
+          cache-read-only: true
+
+      - name: Validate source without APK generation
+        shell: bash
+        run: bash tools/validate-source-no-apk.sh
+
+      - name: Commit and fast-forward target branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "Gersi365"
+          git config user.email "Gersi365@outlook.com"
+          git add \
+            app/src/main/java/app/ownplay/mobile/downloads/ui/DownloadControls.kt \
+            app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryShell.kt
+          git commit -m "Compact Library playback and download actions"
+          new_sha="$(git rev-parse HEAD)"
+          test "$(git rev-parse HEAD^)" = "$SOURCE_SHA"
+          git fetch origin "$TARGET_BRANCH"
+          test "$(git rev-parse "origin/$TARGET_BRANCH")" = "$SOURCE_SHA"
+          git push origin "HEAD:refs/heads/$TARGET_BRANCH"
+          echo "Published exact candidate: $new_sha"
