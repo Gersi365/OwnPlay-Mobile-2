@@ -1,0 +1,445 @@
+name: Apply v11 physical QA UI fixes
+
+on:
+  push:
+    branches:
+      - qa-fix-v11-library-live-ui
+
+permissions:
+  contents: write
+
+jobs:
+  patch-validate-push:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      SOURCE_SHA: f5ea502c06387667c1c798015b5041a26e18b2c2
+      TARGET_BRANCH: stage-12-stabilization
+
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          persist-credentials: true
+          fetch-depth: 1
+
+      - name: Verify exact source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          test -z "$(git status --porcelain)"
+
+      - name: Apply focused physical QA fixes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          live_path = Path("app/src/main/java/app/ownplay/mobile/feature/live/ui/LiveShell.kt")
+          live = live_path.read_text()
+
+          old = '''    var presentationState by remember { mutableStateOf(LivePresentationState()) }
+              var resolutionError by remember { mutableStateOf<String?>(null) }
+              var fallbackLoadRequest by remember { mutableStateOf<PlaybackLoadRequest?>(null) }
+          '''.replace('              ', '')
+          new = '''    var presentationState by remember { mutableStateOf(LivePresentationState()) }
+              var resolutionError by remember { mutableStateOf<String?>(null) }
+              var fallbackLoadRequest by remember { mutableStateOf<PlaybackLoadRequest?>(null) }
+              var waitingForInitialChannels by remember(catalog?.activeSourceId) { mutableStateOf(false) }
+          '''.replace('              ', '')
+          if old not in live:
+              raise SystemExit("Live state anchor not found")
+          live = live.replace(old, new, 1)
+
+          old = '''    LaunchedEffect(categories, selectedCategoryKey) {
+              val resolvedCategoryKey = LiveBrowsePolicy.activeCategoryKey(categories, selectedCategoryKey)
+              if (selectedCategoryKey != resolvedCategoryKey) {
+                  selectedCategoryKey = resolvedCategoryKey
+              }
+          }
+          '''.replace('              ', '')
+          new = '''    LaunchedEffect(categories, selectedCategoryKey) {
+              val resolvedCategoryKey = LiveBrowsePolicy.activeCategoryKey(categories, selectedCategoryKey)
+              if (selectedCategoryKey != resolvedCategoryKey) {
+                  selectedCategoryKey = resolvedCategoryKey
+              }
+          }
+
+              LaunchedEffect(catalog?.activeSourceId, catalog?.channels?.size) {
+                  val hasActiveSource = catalog?.activeSourceId != null
+                  val hasNoProviderChannels = catalog?.channels?.isEmpty() == true
+                  if (hasActiveSource && hasNoProviderChannels) {
+                      waitingForInitialChannels = true
+                      delay(12_000)
+                      waitingForInitialChannels = false
+                  } else {
+                      waitingForInitialChannels = false
+                  }
+              }
+          '''.replace('              ', '')
+          if old not in live:
+              raise SystemExit("Live category effect anchor not found")
+          live = live.replace(old, new, 1)
+
+          old = '''        LiveBrowseAndPreview(
+              catalog = catalog,
+              channels = visibleChannels,
+          '''.replace('              ', '')
+          new = '''        LiveBrowseAndPreview(
+              catalog = catalog,
+              waitingForInitialChannels = waitingForInitialChannels,
+              channels = visibleChannels,
+          '''.replace('              ', '')
+          if old not in live:
+              raise SystemExit("Live browse call anchor not found")
+          live = live.replace(old, new, 1)
+
+          old = '''private fun LiveBrowseAndPreview(
+              catalog: LiveCatalog?,
+              channels: List<LiveChannel>,
+          '''.replace('              ', '')
+          new = '''private fun LiveBrowseAndPreview(
+              catalog: LiveCatalog?,
+              waitingForInitialChannels: Boolean,
+              channels: List<LiveChannel>,
+          '''.replace('              ', '')
+          if old not in live:
+              raise SystemExit("Live browse signature anchor not found")
+          live = live.replace(old, new, 1)
+
+          old = '''            channels.isEmpty() -> item {
+                  Box(modifier = Modifier.padding(horizontal = OwnPlaySpacing.Lg, vertical = OwnPlaySpacing.Sm)) {
+                      OwnPlayStatePanel(
+                          title = "No channels available",
+                          message = "Refresh ${catalog.activeSourceName ?: "the active source"} to load Live channels.",
+                      )
+                  }
+              }
+          '''.replace('              ', '')
+          new = '''            catalog.channels.isEmpty() && waitingForInitialChannels -> item {
+                  Box(modifier = Modifier.padding(horizontal = OwnPlaySpacing.Lg, vertical = OwnPlaySpacing.Sm)) {
+                      OwnPlayStatePanel(
+                          title = "Loading Live channels…",
+                          message = "Connecting to ${catalog.activeSourceName ?: "the active source"}. Large provider catalogs can take a moment to appear.",
+                      )
+                  }
+              }
+
+              catalog.channels.isEmpty() -> item {
+                  Box(modifier = Modifier.padding(horizontal = OwnPlaySpacing.Lg, vertical = OwnPlaySpacing.Sm)) {
+                      OwnPlayStatePanel(
+                          title = "Live channels are not ready",
+                          message = "If the source is still refreshing, channels will appear automatically. Otherwise refresh ${catalog.activeSourceName ?: "the active source"} in Settings > Sources.",
+                      )
+                  }
+              }
+
+              channels.isEmpty() -> item {
+                  Box(modifier = Modifier.padding(horizontal = OwnPlaySpacing.Lg, vertical = OwnPlaySpacing.Sm)) {
+                      OwnPlayStatePanel(
+                          title = "No channels in this category",
+                          message = "Choose another provider category.",
+                      )
+                  }
+              }
+          '''.replace('              ', '')
+          if old not in live:
+              raise SystemExit("Live empty-state anchor not found")
+          live = live.replace(old, new, 1)
+          live_path.write_text(live)
+
+          library_path = Path("app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryShell.kt")
+          library = library_path.read_text()
+          library = library.replace("import app.ownplay.mobile.design.OwnPlayWordmark\n", "", 1)
+
+          old = '''            Row(
+                  modifier = Modifier
+                      .align(Alignment.TopStart)
+                      .padding(horizontal = OwnPlaySpacing.Xl, vertical = OwnPlaySpacing.Lg),
+                  verticalAlignment = Alignment.CenterVertically,
+                  horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),
+              ) {
+                  OwnPlayWordmark(showTagline = false)
+                  Text(
+                      text = if (playback.offline) "OFFLINE" else playback.mediaKind.name,
+                      style = MaterialTheme.typography.labelLarge,
+                      color = OwnPlayColors.Accent,
+                  )
+              }
+          '''.replace('              ', '')
+          new = '''            Row(
+                  modifier = Modifier
+                      .align(Alignment.TopStart)
+                      .padding(horizontal = OwnPlaySpacing.Lg, vertical = OwnPlaySpacing.Md),
+                  verticalAlignment = Alignment.CenterVertically,
+                  horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),
+              ) {
+                  Text(
+                      text = "‹ LIBRARY",
+                      modifier = Modifier
+                          .clickable(onClick = ::closePlayer)
+                          .padding(vertical = OwnPlaySpacing.Xs),
+                      style = MaterialTheme.typography.labelLarge,
+                      color = OwnPlayColors.Accent,
+                      fontWeight = FontWeight.SemiBold,
+                  )
+                  Text(
+                      text = if (playback.offline) "OFFLINE" else playback.mediaKind.name,
+                      style = MaterialTheme.typography.labelMedium,
+                      color = OwnPlayColors.TextSecondary,
+                  )
+              }
+          '''.replace('              ', '')
+          if old not in library:
+              raise SystemExit("Library top overlay anchor not found")
+          library = library.replace(old, new, 1)
+
+          old = '''                modifier = Modifier
+                      .align(Alignment.BottomCenter)
+                      .fillMaxWidth()
+                      .padding(OwnPlaySpacing.Xl),
+                  color = OwnPlayColors.Surface.copy(alpha = 0.94f),
+                  shape = OwnPlayShapeTokens.Medium,
+          '''.replace('              ', '')
+          new = '''                modifier = Modifier
+                      .align(Alignment.BottomCenter)
+                      .fillMaxWidth()
+                      .padding(horizontal = OwnPlaySpacing.Lg, vertical = OwnPlaySpacing.Md),
+                  color = OwnPlayColors.Surface.copy(alpha = 0.86f),
+                  shape = OwnPlayShapeTokens.Small,
+          '''.replace('              ', '')
+          if old not in library:
+              raise SystemExit("Library player surface anchor not found")
+          library = library.replace(old, new, 1)
+
+          old = '''                Column(
+                      modifier = Modifier.padding(OwnPlaySpacing.Lg),
+                      verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm),
+                  ) {
+                      Text(playback.title, style = MaterialTheme.typography.titleLarge, color = OwnPlayColors.TextPrimary)
+                      playback.subtitle?.let { subtitle ->
+                          Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = OwnPlayColors.TextSecondary)
+                      }
+          '''.replace('              ', '')
+          new = '''                Column(
+                      modifier = Modifier.padding(horizontal = OwnPlaySpacing.Md, vertical = OwnPlaySpacing.Sm),
+                      verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Xs),
+                  ) {
+                      Text(
+                          text = playback.title,
+                          style = MaterialTheme.typography.titleMedium,
+                          color = OwnPlayColors.TextPrimary,
+                          maxLines = 1,
+                      )
+                      playback.subtitle?.let { subtitle ->
+                          Text(
+                              text = subtitle,
+                              style = MaterialTheme.typography.bodySmall,
+                              color = OwnPlayColors.TextSecondary,
+                              maxLines = 1,
+                          )
+                      }
+          '''.replace('              ', '')
+          if old not in library:
+              raise SystemExit("Library player title anchor not found")
+          library = library.replace(old, new, 1)
+
+          old = '''                    Row(
+                          modifier = Modifier.fillMaxWidth(),
+                          horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm),
+                      ) {
+                          OwnPlaySecondaryButton(
+                              text = "−10s",
+                              onClick = {
+                                  scope.launch {
+                                      playbackController.seekTo((playerState.positionMs - 10_000L).coerceAtLeast(0L))
+                                  }
+                              },
+                              modifier = Modifier.weight(0.8f),
+                          )
+                          OwnPlayPrimaryButton(
+                              text = if (playerState.playWhenReady) "Pause" else "Play",
+                              onClick = {
+                                  scope.launch { playbackController.setPlayWhenReady(!playerState.playWhenReady) }
+                              },
+                              modifier = Modifier.weight(1f),
+                          )
+                          OwnPlaySecondaryButton(
+                              text = "+10s",
+                              onClick = {
+                                  scope.launch {
+                                      val upper = playerState.durationMs ?: playback.knownDurationMs ?: Long.MAX_VALUE
+                                      playbackController.seekTo((playerState.positionMs + 10_000L).coerceAtMost(upper))
+                                  }
+                              },
+                              modifier = Modifier.weight(0.8f),
+                          )
+                          if (playerState.phase == PlaybackPhase.ERROR) {
+                              OwnPlaySecondaryButton(
+                                  text = "Retry",
+                                  onClick = { scope.launch { playbackController.retry() } },
+                                  modifier = Modifier.weight(0.8f),
+                              )
+                          }
+                          if (playerState.audioTracks.isNotEmpty()) {
+                              OwnPlaySecondaryButton(
+                                  text = "Audio",
+                                  onClick = { audioSelectorVisible = !audioSelectorVisible },
+                                  modifier = Modifier.weight(0.8f),
+                              )
+                          }
+                      }
+                      Text(
+                          text = "BACK TO LIBRARY",
+                          modifier = Modifier
+                              .align(Alignment.End)
+                              .clickable(onClick = ::closePlayer)
+                              .padding(vertical = OwnPlaySpacing.Sm),
+                          style = MaterialTheme.typography.labelLarge,
+                          color = OwnPlayColors.Accent,
+                      )
+          '''.replace('              ', '')
+          new = '''                    Row(
+                          modifier = Modifier.fillMaxWidth(),
+                          horizontalArrangement = Arrangement.spacedBy(
+                              OwnPlaySpacing.Sm,
+                              Alignment.CenterHorizontally,
+                          ),
+                          verticalAlignment = Alignment.CenterVertically,
+                      ) {
+                          LibraryPlayerControlButton(
+                              text = "−10s",
+                              onClick = {
+                                  scope.launch {
+                                      playbackController.seekTo((playerState.positionMs - 10_000L).coerceAtLeast(0L))
+                                  }
+                              },
+                          )
+                          LibraryPlayerControlButton(
+                              text = if (playerState.playWhenReady) "Pause" else "Play",
+                              emphasized = true,
+                              onClick = {
+                                  scope.launch { playbackController.setPlayWhenReady(!playerState.playWhenReady) }
+                              },
+                          )
+                          LibraryPlayerControlButton(
+                              text = "+10s",
+                              onClick = {
+                                  scope.launch {
+                                      val upper = playerState.durationMs ?: playback.knownDurationMs ?: Long.MAX_VALUE
+                                      playbackController.seekTo((playerState.positionMs + 10_000L).coerceAtMost(upper))
+                                  }
+                              },
+                          )
+                          if (playerState.phase == PlaybackPhase.ERROR) {
+                              LibraryPlayerControlButton(
+                                  text = "Retry",
+                                  onClick = { scope.launch { playbackController.retry() } },
+                              )
+                          }
+                          if (playerState.audioTracks.isNotEmpty()) {
+                              LibraryPlayerControlButton(
+                                  text = "Audio",
+                                  onClick = { audioSelectorVisible = !audioSelectorVisible },
+                              )
+                          }
+                      }
+          '''.replace('              ', '')
+          if old not in library:
+              raise SystemExit("Library large controls anchor not found")
+          library = library.replace(old, new, 1)
+
+          marker = '''@Composable
+          private fun LibraryPlaybackSurface(
+          '''.replace('          ', '')
+          helper = '''@Composable
+          private fun LibraryPlayerControlButton(
+              text: String,
+              emphasized: Boolean = false,
+              onClick: () -> Unit,
+          ) {
+              Surface(
+                  onClick = onClick,
+                  shape = OwnPlayShapeTokens.Small,
+                  color = if (emphasized) OwnPlayColors.Accent else OwnPlayColors.Background.copy(alpha = 0.72f),
+                  border = BorderStroke(
+                      width = 1.dp,
+                      color = if (emphasized) OwnPlayColors.Accent else OwnPlayColors.Divider,
+                  ),
+                  tonalElevation = 0.dp,
+              ) {
+                  Text(
+                      text = text,
+                      modifier = Modifier.padding(horizontal = OwnPlaySpacing.Md, vertical = OwnPlaySpacing.Sm),
+                      style = MaterialTheme.typography.labelLarge,
+                      color = if (emphasized) Color.White else OwnPlayColors.TextPrimary,
+                      fontWeight = FontWeight.SemiBold,
+                  )
+              }
+          }
+
+          @Composable
+          private fun LibraryPlaybackSurface(
+          '''.replace('          ', '')
+          if marker not in library:
+              raise SystemExit("Library playback helper insertion anchor not found")
+          library = library.replace(marker, helper, 1)
+          library_path.write_text(library)
+          PY
+
+          git diff --check
+          changed="$(git diff --name-only | sort)"
+          expected="$(printf '%s\n' \
+            app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryShell.kt \
+            app/src/main/java/app/ownplay/mobile/feature/live/ui/LiveShell.kt | sort)"
+          test "$changed" = "$expected"
+          git diff --stat
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK 36
+        shell: bash
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Set up Gradle 9.6.0
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.6.0'
+          cache-read-only: true
+
+      - name: Validate source without APK generation
+        shell: bash
+        run: bash tools/validate-source-no-apk.sh
+
+      - name: Commit and fast-forward target branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          test ! -e app/build/outputs/apk
+          test ! -e app/build/outputs/bundle
+          git diff --check
+          changed="$(git diff --name-only | sort)"
+          expected="$(printf '%s\n' \
+            app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryShell.kt \
+            app/src/main/java/app/ownplay/mobile/feature/live/ui/LiveShell.kt | sort)"
+          test "$changed" = "$expected"
+
+          git fetch origin "$TARGET_BRANCH"
+          test "$(git rev-parse FETCH_HEAD)" = "$SOURCE_SHA"
+
+          git config user.name "Gersi365"
+          git config user.email "Gersi365@outlook.com"
+          git add app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryShell.kt \
+                  app/src/main/java/app/ownplay/mobile/feature/live/ui/LiveShell.kt
+          git commit -m "Refine Library playback controls and Live loading state"
+          git push origin HEAD:refs/heads/$TARGET_BRANCH
