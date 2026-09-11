@@ -1,0 +1,53 @@
+OwnPlay Player Glass Pass — source evidence
+
+Exact source HEAD: f3f0b6cdec1053d4725bd072f165f519197f70c0
+Parent: 3f10f94bc603028731dae9dc3f21e3c28397a594
+Commit: Polish fullscreen player with cinematic glass chrome
+
+Scope
+- Library fullscreen presentation only
+- Live fullscreen presentation only
+- Audio track selector presentation only
+- Shared PlayerGlassChrome presentation primitives
+- No playback-controller, provider, Room schema, download, signing, release, or deployment changes
+
+Visual direction
+- video-first fullscreen
+- top and bottom cinematic gradient scrims instead of large opaque cards
+- compact translucent/glass controls with subtle borders
+- Library: back/title at top, central -10 / play-pause / +10, thin bottom timeline and compact Audio/Retry
+- Live: back/channel/LIVE at top; now/next and compact Audio at bottom; no large bottom card/wordmark chrome
+- audio selector uses translucent surfaces and lower-contrast borders
+- glass effect intentionally uses translucency/gradients rather than expensive full-screen backdrop blur
+
+Changed application files
+- app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryShell.kt
+- app/src/main/java/app/ownplay/mobile/feature/live/ui/LiveShell.kt
+- app/src/main/java/app/ownplay/mobile/playback/ui/AudioTrackSelectorPanel.kt
+- app/src/main/java/app/ownplay/mobile/playback/ui/PlayerGlassChrome.kt
+
+Source validation
+- standard PR Run #85 / 34653318891: action_required with no executed validation job; not counted as PASS
+- isolated exact-head workflow: Validate exact f3f0b6c player glass source
+- Run: 34653426022
+- Job: 103440526183
+- exact checkout verified: f3f0b6cdec1053d4725bd072f165f519197f70c0
+- compileDebugKotlin: PASS
+- compile/testDebugUnitTest: PASS
+- lintDebug: PASS
+- BUILD SUCCESSFUL in 3m25s, 34/34 tasks executed
+- generated Room schemas match committed HEAD: PASS
+- source-only validation produced no APK/AAB: PASS
+- workflow artifacts: 0
+
+Warnings were pre-existing only:
+- DownloadRepositoryImpl.kt: Elvis operator always returns left operand
+- LibraryShell.kt: unnecessary safe call at existing catalog/detail sites
+Infrastructure deprecation warnings are not app failures.
+
+Physical status
+- NOT_YET_VERIFIED
+- No APK was generated or signed for this visual source pass.
+- Source/CI PASS does not imply visual or physical acceptance.
+
+No merge, ready-for-review, release/deploy, production-signing change, branch deletion, force push/reset/rebase/history rewrite, destructive database operation, or user-data deletion was performed.
