@@ -24,7 +24,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^)" = "$EXPECTED_BASE"
+          test "$(git merge-base HEAD "$EXPECTED_BASE")" = "$EXPECTED_BASE"
+          changed_from_base="$(git diff --name-only "$EXPECTED_BASE"...HEAD | sort)"
+          test "$changed_from_base" = ".github/workflows/stage12-vod-autohide-candidate.yml"
           git checkout --detach "$EXPECTED_BASE"
           test "$(git rev-parse HEAD)" = "$EXPECTED_BASE"
           test -z "$(git status --porcelain)"
@@ -34,35 +36,39 @@ jobs:
         run: |
           set -euo pipefail
           python3 - <<'PY'
+          import re
           from pathlib import Path
 
           path = Path("app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryShell.kt")
           text = path.read_text()
-          old = '''    LaunchedEffect(playback.contentId, playback.offline, overlayVisible) {
-              if (overlayVisible) {
-                  delay(4_000)
-                  overlayVisible = false
-              }
-          }
-          '''
-          new = '''    LaunchedEffect(
-              playback.contentId,
-              playback.offline,
-              overlayVisible,
-              playerState.isPlaying,
-              playerState.phase,
-          ) {
-              if (overlayVisible && LibraryPlayerControlsPolicy.shouldAutoHide(playerState)) {
-                  delay(4_000)
-                  if (LibraryPlayerControlsPolicy.shouldAutoHide(playbackController.currentSnapshot())) {
-                      overlayVisible = false
-                  }
-              }
-          }
-          '''
-          if text.count(old) != 1:
-              raise SystemExit(f"expected exactly one auto-hide block, found {text.count(old)}")
-          path.write_text(text.replace(old, new, 1))
+          pattern = re.compile(
+              r"(?m)^    LaunchedEffect\(playback\.contentId, playback\.offline, overlayVisible\) \{\n"
+              r"        if \(overlayVisible\) \{\n"
+              r"            delay\(4_000\)\n"
+              r"            overlayVisible = false\n"
+              r"        \}\n"
+              r"    \}\n"
+          )
+          replacement = (
+              "    LaunchedEffect(\n"
+              "        playback.contentId,\n"
+              "        playback.offline,\n"
+              "        overlayVisible,\n"
+              "        playerState.isPlaying,\n"
+              "        playerState.phase,\n"
+              "    ) {\n"
+              "        if (overlayVisible && LibraryPlayerControlsPolicy.shouldAutoHide(playerState)) {\n"
+              "            delay(4_000)\n"
+              "            if (LibraryPlayerControlsPolicy.shouldAutoHide(playbackController.currentSnapshot())) {\n"
+              "                overlayVisible = false\n"
+              "            }\n"
+              "        }\n"
+              "    }\n"
+          )
+          updated, count = pattern.subn(replacement, text, count=1)
+          if count != 1:
+              raise SystemExit(f"expected exactly one auto-hide block, found {count}")
+          path.write_text(updated)
           PY
 
           cat > app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryPlayerControlsPolicy.kt <<'EOF'
@@ -106,7 +112,7 @@ jobs:
               }
 
               @Test
-              fun `buffering error ended and idle controls stay visible`() {
+              fun `buffering error ended idle and released controls stay visible`() {
                   listOf(
                       PlaybackPhase.BUFFERING,
                       PlaybackPhase.ERROR,
