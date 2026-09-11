@@ -1,8 +1,10 @@
 package app.ownplay.mobile.feature.library.ui
 
+import android.graphics.BitmapFactory
 import android.view.SurfaceView
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -31,6 +33,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -38,6 +41,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -82,10 +88,15 @@ import app.ownplay.mobile.playback.domain.VideoTarget
 import app.ownplay.mobile.playback.ui.AudioTrackSelectorPanel
 import app.ownplay.mobile.playback.ui.PlayerLocalControlHudOverlay
 import app.ownplay.mobile.playback.ui.playerLocalVerticalControls
+import java.io.ByteArrayOutputStream
+import java.net.HttpURLConnection
+import java.net.URL
 import kotlin.math.roundToLong
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
 fun LibraryShell(
@@ -396,7 +407,10 @@ private fun LibraryHome(
                 OwnPlayStatePanel(title = "Action unavailable", message = errorMessage)
             }
 
-            OwnPlaySectionHeader(title = "Continue Watching")
+            OwnPlaySectionHeader(
+                title = "Continue Watching",
+                actionLabel = catalog?.continueWatching?.size?.takeIf { it > 0 }?.let { "$it in progress" },
+            )
             when {
                 catalog == null -> OwnPlayStatePanel(
                     title = "Loading Library",
@@ -413,14 +427,11 @@ private fun LibraryHome(
                     message = "Movies and episodes with saved progress will appear here.",
                 )
 
-                else -> {
-                    val item = catalog.continueWatching.first()
-                    ContinueWatchingCard(
-                        item = item,
-                        onResume = { onContinueResume(item) },
-                        onBeginning = { onContinueBeginning(item) },
-                    )
-                }
+                else -> ContinueWatchingRow(
+                    items = catalog.continueWatching,
+                    onResume = onContinueResume,
+                    onBeginning = onContinueBeginning,
+                )
             }
 
             OwnPlaySectionHeader(
@@ -535,6 +546,26 @@ private fun LibraryCategoryChip(
 }
 
 @Composable
+private fun ContinueWatchingRow(
+    items: List<ContinueWatchingItem>,
+    onResume: (ContinueWatchingItem) -> Unit,
+    onBeginning: (ContinueWatchingItem) -> Unit,
+) {
+    LazyRow(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),
+    ) {
+        items(items, key = { "${it.mediaKind}:${it.contentId}" }) { item ->
+            ContinueWatchingCard(
+                item = item,
+                onResume = { onResume(item) },
+                onBeginning = { onBeginning(item) },
+            )
+        }
+    }
+}
+
+@Composable
 private fun ContinueWatchingCard(
     item: ContinueWatchingItem,
     onResume: () -> Unit,
@@ -545,17 +576,28 @@ private fun ContinueWatchingCard(
     } else {
         0f
     }
-    OwnPlayPanel(modifier = Modifier.fillMaxWidth()) {
+    OwnPlayPanel(modifier = Modifier.width(320.dp)) {
         Column {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(190.dp)
-                    .background(OwnPlayColors.SurfaceElevated)
-                    .padding(OwnPlaySpacing.Lg),
+                    .height(176.dp)
+                    .background(OwnPlayColors.SurfaceElevated),
                 contentAlignment = Alignment.BottomStart,
             ) {
-                Column(verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Xs)) {
+                RemoteArtwork(
+                    locator = item.artworkUrl,
+                    contentDescription = "${item.title} artwork",
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop,
+                )
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(OwnPlayColors.Background.copy(alpha = 0.78f))
+                        .padding(OwnPlaySpacing.Md),
+                    verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Xs),
+                ) {
                     Text(
                         text = item.mediaKind.name,
                         style = MaterialTheme.typography.labelMedium,
@@ -563,21 +605,23 @@ private fun ContinueWatchingCard(
                     )
                     Text(
                         text = item.title,
-                        style = MaterialTheme.typography.headlineMedium,
+                        style = MaterialTheme.typography.titleLarge,
                         color = OwnPlayColors.TextPrimary,
+                        maxLines = 2,
                     )
                     item.subtitle?.let { subtitle ->
                         Text(
                             text = subtitle,
-                            style = MaterialTheme.typography.bodyLarge,
+                            style = MaterialTheme.typography.bodyMedium,
                             color = OwnPlayColors.TextSecondary,
+                            maxLines = 1,
                         )
                     }
                 }
             }
             Column(
-                modifier = Modifier.padding(OwnPlaySpacing.Lg),
-                verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),
+                modifier = Modifier.padding(OwnPlaySpacing.Md),
+                verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm),
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(
@@ -601,21 +645,16 @@ private fun ContinueWatchingCard(
                         color = OwnPlayColors.TextSecondary,
                     )
                 }
-                Row(
+                OwnPlayPrimaryButton(
+                    text = "Resume",
+                    onClick = onResume,
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),
-                ) {
-                    OwnPlayPrimaryButton(
-                        text = "Resume",
-                        onClick = onResume,
-                        modifier = Modifier.weight(1f),
-                    )
-                    OwnPlaySecondaryButton(
-                        text = "Play from Beginning",
-                        onClick = onBeginning,
-                        modifier = Modifier.weight(1f),
-                    )
-                }
+                )
+                OwnPlaySecondaryButton(
+                    text = "Play from Beginning",
+                    onClick = onBeginning,
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
         }
     }
@@ -633,6 +672,7 @@ private fun MovieRow(movies: List<LibraryMovie>, onMovieSelected: (LibraryMovie)
         ) { movie ->
             PosterCard(
                 title = movie.name,
+                artworkUrl = movie.posterUrl,
                 eyebrow = movie.rating?.let { "★ $it" } ?: "MOVIE",
                 onClick = { onMovieSelected(movie) },
             )
@@ -652,6 +692,7 @@ private fun SeriesRow(seriesItems: List<LibrarySeries>, onSeriesSelected: (Libra
         ) { series ->
             PosterCard(
                 title = series.name,
+                artworkUrl = series.posterUrl,
                 eyebrow = series.rating?.let { "★ $it" } ?: "SERIES",
                 onClick = { onSeriesSelected(series) },
             )
@@ -660,10 +701,15 @@ private fun SeriesRow(seriesItems: List<LibrarySeries>, onSeriesSelected: (Libra
 }
 
 @Composable
-private fun PosterCard(title: String, eyebrow: String, onClick: () -> Unit) {
+private fun PosterCard(
+    title: String,
+    artworkUrl: String?,
+    eyebrow: String,
+    onClick: () -> Unit,
+) {
     Surface(
         onClick = onClick,
-        modifier = Modifier.width(132.dp),
+        modifier = Modifier.width(148.dp),
         color = OwnPlayColors.Surface,
         shape = OwnPlayShapeTokens.Small,
         border = BorderStroke(1.dp, OwnPlayColors.Divider),
@@ -674,24 +720,41 @@ private fun PosterCard(title: String, eyebrow: String, onClick: () -> Unit) {
                 modifier = Modifier
                     .fillMaxWidth()
                     .aspectRatio(0.68f)
-                    .background(OwnPlayColors.SurfaceElevated)
-                    .padding(OwnPlaySpacing.Sm),
-                contentAlignment = Alignment.BottomStart,
+                    .background(OwnPlayColors.SurfaceElevated),
+                contentAlignment = Alignment.Center,
             ) {
+                if (artworkUrl.isNullOrBlank()) {
+                    Text(
+                        text = title,
+                        modifier = Modifier.padding(OwnPlaySpacing.Sm),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = OwnPlayColors.TextSecondary,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 3,
+                    )
+                } else {
+                    RemoteArtwork(
+                        locator = artworkUrl,
+                        contentDescription = "$title poster",
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop,
+                    )
+                }
+            }
+            Column(modifier = Modifier.padding(OwnPlaySpacing.Sm)) {
                 Text(
                     text = title,
                     style = MaterialTheme.typography.labelLarge,
                     color = OwnPlayColors.TextPrimary,
                     fontWeight = FontWeight.SemiBold,
-                    maxLines = 3,
+                    maxLines = 2,
+                )
+                Text(
+                    text = eyebrow,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = OwnPlayColors.TextSecondary,
                 )
             }
-            Text(
-                text = eyebrow,
-                modifier = Modifier.padding(OwnPlaySpacing.Sm),
-                style = MaterialTheme.typography.labelMedium,
-                color = OwnPlayColors.TextSecondary,
-            )
         }
     }
 }
@@ -774,23 +837,12 @@ private fun MovieDetail(
                 style = MaterialTheme.typography.labelLarge,
                 color = OwnPlayColors.Accent,
             )
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .aspectRatio(16f / 9f)
-                    .clip(OwnPlayShapeTokens.Medium)
-                    .background(OwnPlayColors.SurfaceElevated)
-                    .padding(OwnPlaySpacing.Xl),
-                contentAlignment = Alignment.BottomStart,
-            ) {
-                Column(verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Xs)) {
-                    Text("MOVIE", style = MaterialTheme.typography.labelMedium, color = OwnPlayColors.Accent)
-                    Text(movie.name, style = MaterialTheme.typography.headlineMedium, color = OwnPlayColors.TextPrimary)
-                    movie.rating?.let { rating ->
-                        Text("★ $rating", style = MaterialTheme.typography.bodyMedium, color = OwnPlayColors.TextSecondary)
-                    }
-                }
-            }
+            LibraryHero(
+                title = movie.name,
+                label = "MOVIE",
+                rating = movie.rating,
+                artworkUrl = movie.backdropUrl ?: movie.posterUrl,
+            )
             if (errorMessage != null) {
                 OwnPlayStatePanel(title = "Action unavailable", message = errorMessage)
             }
@@ -840,23 +892,12 @@ private fun SeriesDetail(
                 style = MaterialTheme.typography.labelLarge,
                 color = OwnPlayColors.Accent,
             )
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .aspectRatio(16f / 9f)
-                    .clip(OwnPlayShapeTokens.Medium)
-                    .background(OwnPlayColors.SurfaceElevated)
-                    .padding(OwnPlaySpacing.Xl),
-                contentAlignment = Alignment.BottomStart,
-            ) {
-                Column(verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Xs)) {
-                    Text("SERIES", style = MaterialTheme.typography.labelMedium, color = OwnPlayColors.Accent)
-                    Text(series.name, style = MaterialTheme.typography.headlineMedium, color = OwnPlayColors.TextPrimary)
-                    series.rating?.let { rating ->
-                        Text("★ $rating", style = MaterialTheme.typography.bodyMedium, color = OwnPlayColors.TextSecondary)
-                    }
-                }
-            }
+            LibraryHero(
+                title = series.name,
+                label = "SERIES",
+                rating = series.rating,
+                artworkUrl = series.backdropUrl ?: series.posterUrl,
+            )
             series.description?.takeIf { it.isNotBlank() }?.let { description ->
                 Text(description, style = MaterialTheme.typography.bodyLarge, color = OwnPlayColors.TextSecondary)
             }
@@ -896,6 +937,95 @@ private fun SeriesDetail(
         }
     }
 }
+
+@Composable
+private fun LibraryHero(
+    title: String,
+    label: String,
+    rating: String?,
+    artworkUrl: String?,
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .aspectRatio(16f / 9f)
+            .clip(OwnPlayShapeTokens.Medium)
+            .background(OwnPlayColors.SurfaceElevated),
+        contentAlignment = Alignment.BottomStart,
+    ) {
+        RemoteArtwork(
+            locator = artworkUrl,
+            contentDescription = "$title backdrop",
+            modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.Crop,
+        )
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(OwnPlayColors.Background.copy(alpha = 0.76f))
+                .padding(OwnPlaySpacing.Xl),
+            verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Xs),
+        ) {
+            Text(label, style = MaterialTheme.typography.labelMedium, color = OwnPlayColors.Accent)
+            Text(title, style = MaterialTheme.typography.headlineMedium, color = OwnPlayColors.TextPrimary)
+            rating?.let {
+                Text("★ $it", style = MaterialTheme.typography.bodyMedium, color = OwnPlayColors.TextSecondary)
+            }
+        }
+    }
+}
+
+@Composable
+private fun RemoteArtwork(
+    locator: String?,
+    contentDescription: String,
+    modifier: Modifier = Modifier,
+    contentScale: ContentScale = ContentScale.Crop,
+) {
+    val bitmap by produceState<ImageBitmap?>(initialValue = null, key1 = locator) {
+        value = locator?.takeIf { it.isNotBlank() }?.let { loadLibraryArtwork(it) }
+    }
+    if (bitmap != null) {
+        Image(
+            bitmap = bitmap!!,
+            contentDescription = contentDescription,
+            modifier = modifier,
+            contentScale = contentScale,
+        )
+    } else {
+        Box(modifier = modifier.background(OwnPlayColors.SurfaceElevated))
+    }
+}
+
+private suspend fun loadLibraryArtwork(locator: String) = withContext(Dispatchers.IO) {
+    runCatching {
+        val connection = URL(locator).openConnection() as? HttpURLConnection ?: return@runCatching null
+        connection.connectTimeout = 4_000
+        connection.readTimeout = 5_000
+        connection.instanceFollowRedirects = true
+        try {
+            if (connection.responseCode !in 200..299) return@runCatching null
+            val output = ByteArrayOutputStream()
+            connection.inputStream.use { input ->
+                val buffer = ByteArray(8_192)
+                var total = 0
+                while (true) {
+                    val count = input.read(buffer)
+                    if (count <= 0) break
+                    total += count
+                    if (total > MAX_LIBRARY_ARTWORK_BYTES) return@runCatching null
+                    output.write(buffer, 0, count)
+                }
+            }
+            val bytes = output.toByteArray()
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
+        } finally {
+            connection.disconnect()
+        }
+    }.getOrNull()
+}
+
+private const val MAX_LIBRARY_ARTWORK_BYTES = 4 * 1024 * 1024
 
 @Composable
 private fun EpisodeRow(
