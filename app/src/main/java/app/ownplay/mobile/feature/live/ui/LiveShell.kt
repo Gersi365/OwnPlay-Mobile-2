@@ -78,6 +78,7 @@ import app.ownplay.mobile.playback.domain.PlaybackKind
 import app.ownplay.mobile.playback.domain.PlaybackLoadRequest
 import app.ownplay.mobile.playback.domain.PlaybackMedia
 import app.ownplay.mobile.playback.domain.PlaybackPhase
+import app.ownplay.mobile.playback.domain.PlaybackSnapshot
 import app.ownplay.mobile.playback.domain.VideoTarget
 import app.ownplay.mobile.playback.ui.AudioTrackSelectorPanel
 import app.ownplay.mobile.playback.ui.PlayerLocalControlHudOverlay
@@ -262,11 +263,12 @@ fun LiveShell(
             channelNumber = channelNumber,
             playbackController = playbackController,
             controllerScope = scope,
-            playbackPhase = playback.phase,
+            playbackSnapshot = playback,
             resolutionError = resolutionError,
             guide = selectedGuide,
             audioCompatibilityMessage = audioCompatibilityMessage,
             audioTracks = playback.audioTracks,
+            onBackToPreview = { dispatch(LiveIntent.BackPressed) },
             modifier = modifier,
         )
     } else {
@@ -350,6 +352,27 @@ private fun LiveBrowseAndPreview(
             }
         }
 
+        if (selectedChannel != null) {
+            item(key = "live-preview") {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = OwnPlaySpacing.Lg, vertical = OwnPlaySpacing.Sm),
+                    verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm),
+                ) {
+                    PreviewSurface(
+                        selectedChannel = selectedChannel,
+                        playbackController = playbackController,
+                        controllerScope = controllerScope,
+                        playbackPhase = playbackPhase,
+                        resolutionError = resolutionError,
+                        audioCompatibilityMessage = audioCompatibilityMessage,
+                    )
+                    NowPlayingPanel(selectedChannel = selectedChannel, guide = selectedGuide)
+                }
+            }
+        }
+
         when {
             catalog == null -> item {
                 Box(modifier = Modifier.padding(horizontal = OwnPlaySpacing.Lg, vertical = OwnPlaySpacing.Sm)) {
@@ -384,23 +407,11 @@ private fun LiveBrowseAndPreview(
             ) { index, channel ->
                 val selected = channel.channelId == selectedChannel?.channelId
                 val guide = if (selected) selectedGuide else rememberLiveGuide(liveRepository, channel.channelId)
-                Column(
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = OwnPlaySpacing.Lg, vertical = OwnPlaySpacing.Xs),
-                    verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Xs),
                 ) {
-                    if (selected) {
-                        PreviewSurface(
-                            selectedChannel = channel,
-                            playbackController = playbackController,
-                            controllerScope = controllerScope,
-                            playbackPhase = playbackPhase,
-                            resolutionError = resolutionError,
-                            audioCompatibilityMessage = audioCompatibilityMessage,
-                        )
-                    }
-
                     ChannelRow(
                         number = (index + 1).toString().padStart(3, '0'),
                         channel = channel,
@@ -409,10 +420,6 @@ private fun LiveBrowseAndPreview(
                         showChannelLogos = showChannelLogos,
                         onClick = { onChannelTapped(channel) },
                     )
-
-                    if (selected) {
-                        NowPlayingPanel(selectedChannel = channel, guide = guide)
-                    }
                 }
             }
         }
@@ -718,21 +725,29 @@ private fun FullscreenLive(
     channelNumber: String,
     playbackController: PlaybackController,
     controllerScope: CoroutineScope,
-    playbackPhase: PlaybackPhase,
+    playbackSnapshot: PlaybackSnapshot,
     resolutionError: String?,
     guide: LiveNowNext,
     audioCompatibilityMessage: String?,
     audioTracks: List<PlaybackAudioTrack>,
+    onBackToPreview: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var overlayVisible by remember(channel.channelId) { mutableStateOf(true) }
     var audioSelectorVisible by remember(channel.channelId) { mutableStateOf(false) }
     val interactionSource = remember { MutableInteractionSource() }
 
-    LaunchedEffect(overlayVisible, channel.channelId) {
-        if (overlayVisible) {
+    LaunchedEffect(
+        overlayVisible,
+        channel.channelId,
+        playbackSnapshot.phase,
+        playbackSnapshot.isPlaying,
+    ) {
+        if (overlayVisible && LivePlayerControlsPolicy.shouldAutoHide(playbackSnapshot)) {
             delay(4_000)
-            overlayVisible = false
+            if (LivePlayerControlsPolicy.shouldAutoHide(playbackController.currentSnapshot())) {
+                overlayVisible = false
+            }
         }
     }
 
@@ -809,9 +824,9 @@ private fun FullscreenLive(
                         Text(
                             text = when {
                                 resolutionError != null -> resolutionError
-                                playbackPhase == PlaybackPhase.ERROR -> "Playback unavailable"
+                                playbackSnapshot.phase == PlaybackPhase.ERROR -> "Playback unavailable"
                                 audioCompatibilityMessage != null -> audioCompatibilityMessage
-                                playbackPhase == PlaybackPhase.BUFFERING -> "Buffering live stream…"
+                                playbackSnapshot.phase == PlaybackPhase.BUFFERING -> "Buffering live stream…"
                                 guide.now != null -> "Now ${programTimeRange(guide.now)} • ${guide.now.title}"
                                 else -> "Live • Guide unavailable"
                             },
@@ -840,6 +855,9 @@ private fun FullscreenLive(
                     }
                     Text(
                         text = "BACK TO PREVIEW",
+                        modifier = Modifier
+                            .clickable(onClick = onBackToPreview)
+                            .padding(OwnPlaySpacing.Sm),
                         style = MaterialTheme.typography.labelLarge,
                         color = OwnPlayColors.Accent,
                     )
