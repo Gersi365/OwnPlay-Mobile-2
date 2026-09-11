@@ -326,6 +326,16 @@ private fun LiveBrowseAndPreview(
     onChannelTapped: (LiveChannel) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    var emptyChannelWaitElapsed by remember(catalog?.activeSourceId) { mutableStateOf(false) }
+
+    LaunchedEffect(catalog?.activeSourceId, channels.isEmpty()) {
+        emptyChannelWaitElapsed = false
+        if (catalog?.activeSourceId != null && channels.isEmpty()) {
+            delay(12_000)
+            emptyChannelWaitElapsed = true
+        }
+    }
+
     LaunchedEffect(selectedChannel?.channelId, selectedCategoryKey, channels, categories) {
         val selectedId = selectedChannel?.channelId ?: return@LaunchedEffect
         val selectedIndex = channels.indexOfFirst { it.channelId == selectedId }
@@ -395,8 +405,17 @@ private fun LiveBrowseAndPreview(
             channels.isEmpty() -> item {
                 Box(modifier = Modifier.padding(horizontal = OwnPlaySpacing.Lg, vertical = OwnPlaySpacing.Sm)) {
                     OwnPlayStatePanel(
-                        title = "No channels available",
-                        message = "Refresh ${catalog.activeSourceName ?: "the active source"} to load Live channels.",
+                        title = if (emptyChannelWaitElapsed) {
+                            "Still waiting for Live channels"
+                        } else {
+                            "Loading Live channels…"
+                        },
+                        message = if (emptyChannelWaitElapsed) {
+                            "No channel data has arrived yet from ${catalog.activeSourceName ?: "the active source"}. " +
+                                "Refresh the source in Settings if this persists."
+                        } else {
+                            "Waiting for ${catalog.activeSourceName ?: "the active source"} to provide channel data."
+                        },
                     )
                 }
             }
