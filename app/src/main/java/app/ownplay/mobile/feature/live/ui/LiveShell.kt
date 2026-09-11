@@ -402,11 +402,12 @@ private fun LiveBrowseAndPreview(
             }
 
             else -> channels.forEachIndexed { index, channel ->
-                val selected = channel.channelId == selectedChannel?.channelId
-                if (selected && selectedChannel != null) {
+                val selectedPreviewChannel = selectedChannel?.takeIf { it.channelId == channel.channelId }
+                val selected = selectedPreviewChannel != null
+                if (selectedPreviewChannel != null) {
                     item(key = "live-preview-${channel.channelId}") {
                         LivePreviewBlock(
-                            selectedChannel = selectedChannel,
+                            selectedChannel = selectedPreviewChannel,
                             playbackController = playbackController,
                             controllerScope = controllerScope,
                             playbackPhase = playbackPhase,
