@@ -13,4 +13,11 @@ class LiveOrientationPolicyTest {
         assertTrue(LiveOrientationPolicy.isPortrait(0))
         assertTrue(LiveOrientationPolicy.isPortrait(180))
     }
+
+    @Test
+    fun `manual fullscreen exit stays in preview until portrait rearms orientation entry`() {
+        assertTrue(LiveOrientationPolicy.shouldAutoEnterFullscreen(90, armed = true))
+        assertFalse(LiveOrientationPolicy.shouldAutoEnterFullscreen(90, armed = false))
+        assertFalse(LiveOrientationPolicy.shouldAutoEnterFullscreen(0, armed = true))
+    }
 }

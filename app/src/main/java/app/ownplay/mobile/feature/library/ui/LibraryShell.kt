@@ -581,6 +581,7 @@ private fun ContinueWatchingCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(176.dp)
+                    .clip(OwnPlayShapeTokens.Medium)
                     .background(OwnPlayColors.SurfaceElevated),
                 contentAlignment = Alignment.BottomStart,
             ) {
@@ -645,18 +646,18 @@ private fun ContinueWatchingCard(
                     )
                 }
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
                     OwnPlayPrimaryButton(
                         text = "Resume",
                         onClick = onResume,
-                        modifier = Modifier.weight(1f).height(44.dp),
+                        modifier = Modifier.height(40.dp),
                     )
                     OwnPlaySecondaryButton(
-                        text = "Play from Beginning",
+                        text = "Start Over",
                         onClick = onBeginning,
-                        modifier = Modifier.weight(1f).height(44.dp),
+                        modifier = Modifier.height(40.dp),
                     )
                 }
             }
@@ -724,6 +725,7 @@ private fun PosterCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .aspectRatio(0.68f)
+                    .clip(OwnPlayShapeTokens.Small)
                     .background(OwnPlayColors.SurfaceElevated),
                 contentAlignment = Alignment.Center,
             ) {
@@ -857,10 +859,20 @@ private fun MovieDetail(
                     onResume = onResume,
                     onBeginning = onBeginning,
                 )
+                DownloadControls(item = downloadItem, onAction = onDownloadAction, compact = true)
             } else {
-                OwnPlayPrimaryButton(text = "Play", onClick = onBeginning, modifier = Modifier.fillMaxWidth().height(44.dp))
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    OwnPlayPrimaryButton(
+                        text = "Play",
+                        onClick = onBeginning,
+                        modifier = Modifier.height(40.dp),
+                    )
+                    DownloadControls(item = downloadItem, onAction = onDownloadAction, compact = true)
+                }
             }
-            DownloadControls(item = downloadItem, onAction = onDownloadAction, compact = true)
             Spacer(modifier = Modifier.height(OwnPlaySpacing.Xl))
         }
     }
@@ -1069,10 +1081,20 @@ private fun EpisodeRow(
                     onResume = onResume,
                     onBeginning = onBeginning,
                 )
+                DownloadControls(item = downloadItem, onAction = onDownloadAction, compact = true)
             } else {
-                OwnPlayPrimaryButton(text = "Play", onClick = onBeginning, modifier = Modifier.fillMaxWidth().height(44.dp))
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    OwnPlayPrimaryButton(
+                        text = "Play",
+                        onClick = onBeginning,
+                        modifier = Modifier.height(40.dp),
+                    )
+                    DownloadControls(item = downloadItem, onAction = onDownloadAction, compact = true)
+                }
             }
-            DownloadControls(item = downloadItem, onAction = onDownloadAction, compact = true)
         }
     }
 }
@@ -1084,15 +1106,15 @@ private fun PlaybackChoiceButtons(
     onBeginning: () -> Unit,
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),
+        horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         if (preferResume) {
-            OwnPlayPrimaryButton("Resume", onResume, Modifier.weight(1f).height(44.dp))
-            OwnPlaySecondaryButton("Play from Beginning", onBeginning, Modifier.weight(1f).height(44.dp))
+            OwnPlayPrimaryButton("Resume", onResume, Modifier.height(40.dp))
+            OwnPlaySecondaryButton("Start Over", onBeginning, Modifier.height(40.dp))
         } else {
-            OwnPlayPrimaryButton("Play from Beginning", onBeginning, Modifier.weight(1f).height(44.dp))
-            OwnPlaySecondaryButton("Resume", onResume, Modifier.weight(1f).height(44.dp))
+            OwnPlayPrimaryButton("Start Over", onBeginning, Modifier.height(40.dp))
+            OwnPlaySecondaryButton("Resume", onResume, Modifier.height(40.dp))
         }
     }
 }

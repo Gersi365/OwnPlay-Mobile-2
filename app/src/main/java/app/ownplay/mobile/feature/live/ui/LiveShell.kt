@@ -114,6 +114,7 @@ fun LiveShell(
     var resolutionError by remember { mutableStateOf<String?>(null) }
     var fallbackLoadRequest by remember { mutableStateOf<PlaybackLoadRequest?>(null) }
     var waitingForInitialChannels by remember(catalog?.activeSourceId) { mutableStateOf(false) }
+    var orientationFullscreenArmed by remember { mutableStateOf(true) }
 
     fun applyEffect(effect: LiveEffect) {
         when (effect) {
@@ -254,11 +255,18 @@ fun LiveShell(
                 override fun onOrientationChanged(orientation: Int) {
                     if (orientation == ORIENTATION_UNKNOWN) return
                     when {
-                        LiveOrientationPolicy.isLandscape(orientation) && !landscapeTriggered -> {
+                        LiveOrientationPolicy.isPortrait(orientation) -> {
+                            landscapeTriggered = false
+                            orientationFullscreenArmed = true
+                        }
+                        LiveOrientationPolicy.shouldAutoEnterFullscreen(
+                            orientationDegrees = orientation,
+                            armed = orientationFullscreenArmed,
+                        ) && !landscapeTriggered -> {
                             landscapeTriggered = true
+                            orientationFullscreenArmed = false
                             dispatch(LiveIntent.ChannelTapped(selectedId))
                         }
-                        LiveOrientationPolicy.isPortrait(orientation) -> landscapeTriggered = false
                     }
                 }
             }
@@ -268,6 +276,9 @@ fun LiveShell(
     }
 
     BackHandler(enabled = presentationState.presentation != LivePresentation.BROWSE) {
+        if (presentationState.presentation == LivePresentation.FULLSCREEN) {
+            orientationFullscreenArmed = false
+        }
         dispatch(LiveIntent.BackPressed)
     }
 
@@ -283,7 +294,10 @@ fun LiveShell(
             guide = selectedGuide,
             audioCompatibilityMessage = audioCompatibilityMessage,
             audioTracks = playback.audioTracks,
-            onBackToPreview = { dispatch(LiveIntent.BackPressed) },
+            onBackToPreview = {
+                orientationFullscreenArmed = false
+                dispatch(LiveIntent.BackPressed)
+            },
             modifier = modifier,
         )
     } else {
