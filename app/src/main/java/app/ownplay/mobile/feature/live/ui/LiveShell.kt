@@ -23,9 +23,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -107,6 +108,7 @@ fun LiveShell(
     val catalog by catalogFlow.collectAsState(initial = null)
     val playback by playbackController.state.collectAsState()
     val scope = rememberCoroutineScope()
+    val browseListState = rememberLazyListState()
 
     var presentationState by remember { mutableStateOf(LivePresentationState()) }
     var resolutionError by remember { mutableStateOf<String?>(null) }
@@ -295,6 +297,7 @@ fun LiveShell(
             selectedGuide = selectedGuide,
             audioCompatibilityMessage = audioCompatibilityMessage,
             showChannelLogos = showChannelLogos,
+            listState = browseListState,
             onChannelTapped = { channel ->
                 dispatch(LiveIntent.ChannelTapped(channel.channelId))
             },
@@ -319,11 +322,29 @@ private fun LiveBrowseAndPreview(
     selectedGuide: LiveNowNext,
     audioCompatibilityMessage: String?,
     showChannelLogos: Boolean,
+    listState: LazyListState,
     onChannelTapped: (LiveChannel) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    LaunchedEffect(selectedChannel?.channelId, selectedCategoryKey, channels, categories) {
+        val selectedId = selectedChannel?.channelId ?: return@LaunchedEffect
+        val selectedIndex = channels.indexOfFirst { it.channelId == selectedId }
+        if (selectedIndex < 0) return@LaunchedEffect
+
+        val fixedItemsBeforeChannels = 2 + if (categories.isNotEmpty()) 1 else 0
+        val previewItemIndex = fixedItemsBeforeChannels + selectedIndex
+        repeat(4) {
+            if (listState.layoutInfo.totalItemsCount > previewItemIndex) {
+                listState.animateScrollToItem(previewItemIndex)
+                return@LaunchedEffect
+            }
+            delay(16)
+        }
+    }
+
     LazyColumn(
         modifier = modifier.fillMaxSize(),
+        state = listState,
     ) {
         item {
             OwnPlayTopBar(showTagline = false)
@@ -349,27 +370,6 @@ private fun LiveBrowseAndPreview(
                     selectedCategoryKey = selectedCategoryKey,
                     onSelected = onCategorySelected,
                 )
-            }
-        }
-
-        if (selectedChannel != null) {
-            item(key = "live-preview") {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = OwnPlaySpacing.Lg, vertical = OwnPlaySpacing.Sm),
-                    verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm),
-                ) {
-                    PreviewSurface(
-                        selectedChannel = selectedChannel,
-                        playbackController = playbackController,
-                        controllerScope = controllerScope,
-                        playbackPhase = playbackPhase,
-                        resolutionError = resolutionError,
-                        audioCompatibilityMessage = audioCompatibilityMessage,
-                    )
-                    NowPlayingPanel(selectedChannel = selectedChannel, guide = selectedGuide)
-                }
             }
         }
 
@@ -401,25 +401,38 @@ private fun LiveBrowseAndPreview(
                 }
             }
 
-            else -> itemsIndexed(
-                items = channels,
-                key = { _, channel -> channel.channelId },
-            ) { index, channel ->
+            else -> channels.forEachIndexed { index, channel ->
                 val selected = channel.channelId == selectedChannel?.channelId
-                val guide = if (selected) selectedGuide else rememberLiveGuide(liveRepository, channel.channelId)
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = OwnPlaySpacing.Lg, vertical = OwnPlaySpacing.Xs),
-                ) {
-                    ChannelRow(
-                        number = (index + 1).toString().padStart(3, '0'),
-                        channel = channel,
-                        selected = selected,
-                        guide = guide,
-                        showChannelLogos = showChannelLogos,
-                        onClick = { onChannelTapped(channel) },
-                    )
+                if (selected && selectedChannel != null) {
+                    item(key = "live-preview-${channel.channelId}") {
+                        LivePreviewBlock(
+                            selectedChannel = selectedChannel,
+                            playbackController = playbackController,
+                            controllerScope = controllerScope,
+                            playbackPhase = playbackPhase,
+                            resolutionError = resolutionError,
+                            guide = selectedGuide,
+                            audioCompatibilityMessage = audioCompatibilityMessage,
+                        )
+                    }
+                }
+
+                item(key = channel.channelId) {
+                    val guide = if (selected) selectedGuide else rememberLiveGuide(liveRepository, channel.channelId)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = OwnPlaySpacing.Lg, vertical = OwnPlaySpacing.Xs),
+                    ) {
+                        ChannelRow(
+                            number = (index + 1).toString().padStart(3, '0'),
+                            channel = channel,
+                            selected = selected,
+                            guide = guide,
+                            showChannelLogos = showChannelLogos,
+                            onClick = { onChannelTapped(channel) },
+                        )
+                    }
                 }
             }
         }
@@ -427,6 +440,34 @@ private fun LiveBrowseAndPreview(
         item {
             Spacer(modifier = Modifier.height(OwnPlaySpacing.Xl))
         }
+    }
+}
+
+@Composable
+private fun LivePreviewBlock(
+    selectedChannel: LiveChannel,
+    playbackController: PlaybackController,
+    controllerScope: CoroutineScope,
+    playbackPhase: PlaybackPhase,
+    resolutionError: String?,
+    guide: LiveNowNext,
+    audioCompatibilityMessage: String?,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = OwnPlaySpacing.Lg, vertical = OwnPlaySpacing.Sm),
+        verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm),
+    ) {
+        PreviewSurface(
+            selectedChannel = selectedChannel,
+            playbackController = playbackController,
+            controllerScope = controllerScope,
+            playbackPhase = playbackPhase,
+            resolutionError = resolutionError,
+            audioCompatibilityMessage = audioCompatibilityMessage,
+        )
+        NowPlayingPanel(selectedChannel = selectedChannel, guide = guide)
     }
 }
 
@@ -544,50 +585,48 @@ private fun PreviewSurface(
 }
 
 @Composable
-private fun NowPlayingPanel(selectedChannel: LiveChannel?, guide: LiveNowNext) {
+private fun NowPlayingPanel(selectedChannel: LiveChannel, guide: LiveNowNext) {
     OwnPlayPanel(modifier = Modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier.padding(OwnPlaySpacing.Lg),
-            horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Lg),
+        Column(
+            modifier = Modifier.padding(horizontal = OwnPlaySpacing.Md, vertical = OwnPlaySpacing.Sm),
+            verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Xs),
         ) {
-            Column(modifier = Modifier.weight(1f)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm),
+            ) {
                 Text(
-                    text = "Now",
-                    style = MaterialTheme.typography.bodyMedium,
+                    text = "NOW",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = OwnPlayColors.Accent,
+                    fontWeight = FontWeight.Bold,
+                )
+                Text(
+                    text = guide.now?.let(::programTimeRange)?.takeIf { it.isNotBlank() } ?: "LIVE",
+                    style = MaterialTheme.typography.labelSmall,
                     color = OwnPlayColors.TextSecondary,
                 )
                 Text(
-                    text = guide.now?.title ?: selectedChannel?.name ?: "Select a channel",
-                    style = MaterialTheme.typography.titleLarge,
-                    color = OwnPlayColors.TextPrimary,
-                )
-                Text(
-                    text = guide.now?.let(::programTimeRange) ?: "Guide unavailable",
-                    style = MaterialTheme.typography.bodyMedium,
+                    text = selectedChannel.name,
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.labelMedium,
                     color = OwnPlayColors.TextSecondary,
+                    maxLines = 1,
                 )
             }
-            Box(
-                modifier = Modifier
-                    .width(1.dp)
-                    .height(86.dp)
-                    .background(OwnPlayColors.Divider),
+            Text(
+                text = guide.now?.title ?: "Guide unavailable",
+                style = MaterialTheme.typography.titleMedium,
+                color = OwnPlayColors.TextPrimary,
+                maxLines = 1,
             )
-            Column(modifier = Modifier.weight(1f)) {
+            guide.next?.let { next ->
                 Text(
-                    text = "Next",
-                    style = MaterialTheme.typography.bodyMedium,
+                    text = "NEXT ${programTimeRange(next)} • ${next.title}",
+                    style = MaterialTheme.typography.bodySmall,
                     color = OwnPlayColors.TextSecondary,
-                )
-                Text(
-                    text = guide.next?.title ?: "Guide unavailable",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = OwnPlayColors.TextPrimary,
-                )
-                Text(
-                    text = guide.next?.let(::programTimeRange) ?: "EPG is optional and never blocks playback",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = OwnPlayColors.TextSecondary,
+                    maxLines = 1,
                 )
             }
         }
