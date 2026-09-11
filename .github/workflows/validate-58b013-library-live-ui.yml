@@ -1,0 +1,52 @@
+name: Validate exact 58b013 Library Live UI source
+
+on:
+  push:
+    branches:
+      - qa-validate-58b013-library-live-ui
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      EXPECTED_SHA: 58b01385254948a1c21dafcae391846a6222a744
+
+    steps:
+      - name: Checkout exact final source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_SHA }}
+          persist-credentials: false
+
+      - name: Verify exact final source
+        shell: bash
+        run: |
+          actual_sha="$(git rev-parse HEAD)"
+          test "$actual_sha" = "$EXPECTED_SHA"
+          echo "Validated final source HEAD: $actual_sha"
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK 36
+        shell: bash
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Set up Gradle 9.6.0
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.6.0'
+
+      - name: Validate exact final source without APK generation
+        shell: bash
+        run: bash tools/validate-source-no-apk.sh
