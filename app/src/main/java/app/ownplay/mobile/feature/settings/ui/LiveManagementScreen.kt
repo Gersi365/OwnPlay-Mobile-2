@@ -65,6 +65,10 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
 private const val UNCATEGORIZED_SCOPE = "__ownplay_uncategorized__"
+private const val DESTINATION_HOME = "home"
+private const val DESTINATION_CATEGORIES = "categories"
+private const val DESTINATION_CHANNEL_CATEGORIES = "channel_categories"
+private const val DESTINATION_CHANNELS = "channels"
 
 private class ReorderVisualState {
     var dragging by mutableStateOf(false)
@@ -117,6 +121,7 @@ fun LiveManagementScreen(
     val catalog by catalogFlow.collectAsState(initial = LiveManagementCatalog())
     val scope = rememberCoroutineScope()
     val orderMutex = remember { Mutex() }
+    var destination by rememberSaveable { mutableStateOf(DESTINATION_HOME) }
     var selectedScope by rememberSaveable { mutableStateOf<String?>(null) }
     var orderedCategories by remember { mutableStateOf<List<ManageableLiveCategory>>(emptyList()) }
     var orderedChannels by remember { mutableStateOf<List<ManageableLiveChannel>>(emptyList()) }
@@ -132,14 +137,32 @@ fun LiveManagementScreen(
         }
     }
 
-    BackHandler(enabled = selectedScope != null) { selectedScope = null }
+    BackHandler(enabled = destination != DESTINATION_HOME) {
+        when (destination) {
+            DESTINATION_CHANNELS -> {
+                selectedScope = null
+                destination = DESTINATION_CHANNEL_CATEGORIES
+            }
+            else -> {
+                selectedScope = null
+                destination = DESTINATION_HOME
+            }
+        }
+    }
 
-    if (selectedScope == null) {
-        CategoryManagement(
+    when (destination) {
+        DESTINATION_HOME -> LiveManagementHome(
+            catalog = catalog,
+            onBack = onBack,
+            onManageCategories = { destination = DESTINATION_CATEGORIES },
+            onManageChannels = { destination = DESTINATION_CHANNEL_CATEGORIES },
+            modifier = modifier,
+        )
+
+        DESTINATION_CATEGORIES -> CategoryManagement(
             catalog = catalog,
             orderedCategories = orderedCategories,
-            onBack = onBack,
-            onOpenCategory = { selectedScope = it },
+            onBack = { destination = DESTINATION_HOME },
             onToggleCategory = { category ->
                 scope.launch { liveRepository.setCategoryHidden(category.sourceId, category.categoryKey, !category.hidden) }
             },
@@ -168,34 +191,270 @@ fun LiveManagementScreen(
             },
             modifier = modifier,
         )
-    } else {
-        val selectedCategory = catalog.categories.firstOrNull { it.categoryKey == selectedScope }
-        ChannelManagement(
-            title = selectedCategory?.name ?: "Uncategorized",
-            channels = orderedChannels,
-            onBack = { selectedScope = null },
-            onToggleChannel = { channel ->
-                scope.launch { liveRepository.setChannelHidden(channel.channelId, !channel.hidden) }
-            },
-            onMoveChannel = { channelId, direction ->
-                val currentIds = orderedChannels.map { it.channelId }
-                val movedIds = ManualOrderPolicy.move(currentIds, channelId, direction)
-                if (movedIds != currentIds) {
-                    val byId = orderedChannels.associateBy { it.channelId }
-                    orderedChannels = movedIds.mapNotNull(byId::get)
-                    scope.launch { orderMutex.withLock { liveRepository.setChannelOrder(movedIds) } }
-                    true
-                } else {
-                    false
-                }
-            },
-            onResetOrder = {
-                val channelIds = orderedChannels.map { it.channelId }
-                orderedChannels = orderedChannels.sortedWith(compareBy({ it.providerOrder }, { it.name.lowercase() }))
-                scope.launch { orderMutex.withLock { liveRepository.resetChannelOrder(channelIds) } }
+
+        DESTINATION_CHANNEL_CATEGORIES -> ChannelCategoryPicker(
+            catalog = catalog,
+            onBack = { destination = DESTINATION_HOME },
+            onOpenCategory = { categoryKey ->
+                selectedScope = categoryKey
+                destination = DESTINATION_CHANNELS
             },
             modifier = modifier,
         )
+
+        DESTINATION_CHANNELS -> {
+            val selectedCategory = catalog.categories.firstOrNull { it.categoryKey == selectedScope }
+            ChannelManagement(
+                title = selectedCategory?.name ?: "Uncategorized",
+                channels = orderedChannels,
+                onBack = {
+                    selectedScope = null
+                    destination = DESTINATION_CHANNEL_CATEGORIES
+                },
+                onToggleChannel = { channel ->
+                    scope.launch { liveRepository.setChannelHidden(channel.channelId, !channel.hidden) }
+                },
+                onMoveChannel = { channelId, direction ->
+                    val currentIds = orderedChannels.map { it.channelId }
+                    val movedIds = ManualOrderPolicy.move(currentIds, channelId, direction)
+                    if (movedIds != currentIds) {
+                        val byId = orderedChannels.associateBy { it.channelId }
+                        orderedChannels = movedIds.mapNotNull(byId::get)
+                        scope.launch { orderMutex.withLock { liveRepository.setChannelOrder(movedIds) } }
+                        true
+                    } else {
+                        false
+                    }
+                },
+                onResetOrder = {
+                    val channelIds = orderedChannels.map { it.channelId }
+                    orderedChannels = orderedChannels.sortedWith(compareBy({ it.providerOrder }, { it.name.lowercase() }))
+                    scope.launch { orderMutex.withLock { liveRepository.resetChannelOrder(channelIds) } }
+                },
+                modifier = modifier,
+            )
+        }
+
+        else -> {
+            selectedScope = null
+            destination = DESTINATION_HOME
+        }
+    }
+}
+
+@Composable
+private fun LiveManagementHome(
+    catalog: LiveManagementCatalog,
+    onBack: () -> Unit,
+    onManageCategories: () -> Unit,
+    onManageChannels: () -> Unit,
+    modifier: Modifier,
+) {
+    Column(modifier = modifier.fillMaxSize()) {
+        ManagementHeader(
+            title = "Manage Live",
+            subtitle = "Choose what you want to organize.",
+            onBack = onBack,
+        )
+        if (catalog.activeSourceId == null) {
+            OwnPlayStatePanel(
+                title = "No active source",
+                message = "Select a source first. Live management is stored per source.",
+                modifier = Modifier.padding(OwnPlaySpacing.Lg),
+            )
+            return@Column
+        }
+
+        Column(
+            modifier = Modifier.padding(OwnPlaySpacing.Lg),
+            verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),
+        ) {
+            OwnPlayPanel(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onManageCategories),
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(OwnPlaySpacing.Md),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Manage categories",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = OwnPlayColors.TextPrimary,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Text(
+                            text = "Show, hide, and reorder Live categories.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = OwnPlayColors.TextSecondary,
+                        )
+                    }
+                    Text("›", style = MaterialTheme.typography.titleLarge, color = OwnPlayColors.Accent)
+                }
+            }
+
+            OwnPlayPanel(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onManageChannels),
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(OwnPlaySpacing.Md),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Manage channels",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = OwnPlayColors.TextPrimary,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Text(
+                            text = "Choose a category, then show, hide, or reorder its channels.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = OwnPlayColors.TextSecondary,
+                        )
+                    }
+                    Text("›", style = MaterialTheme.typography.titleLarge, color = OwnPlayColors.Accent)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ChannelCategoryPicker(
+    catalog: LiveManagementCatalog,
+    onBack: () -> Unit,
+    onOpenCategory: (String) -> Unit,
+    modifier: Modifier,
+) {
+    var query by rememberSaveable(catalog.activeSourceId) { mutableStateOf("") }
+    val normalizedQuery = query.trim()
+    val filteredCategories = remember(catalog.categories, normalizedQuery) {
+        if (normalizedQuery.isBlank()) catalog.categories
+        else catalog.categories.filter { it.name.contains(normalizedQuery, ignoreCase = true) }
+    }
+    val channelCounts = remember(catalog.channels) {
+        catalog.channels.groupingBy { it.categoryKey }.eachCount()
+    }
+    val uncategorizedCount = channelCounts[null] ?: 0
+    val showUncategorized = uncategorizedCount > 0 &&
+        (normalizedQuery.isBlank() || "Uncategorized".contains(normalizedQuery, ignoreCase = true))
+
+    Column(modifier = modifier.fillMaxSize()) {
+        ManagementHeader(
+            title = "Manage channels",
+            subtitle = "Choose a category to manage its channels.",
+            onBack = onBack,
+        )
+        if (catalog.activeSourceId == null) {
+            OwnPlayStatePanel(
+                title = "No active source",
+                message = "Select a source first. Channel visibility and order are stored per source.",
+                modifier = Modifier.padding(OwnPlaySpacing.Lg),
+            )
+            return@Column
+        }
+
+        OutlinedTextField(
+            value = query,
+            onValueChange = { query = it },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = OwnPlaySpacing.Lg, vertical = OwnPlaySpacing.Sm),
+            singleLine = true,
+            label = { Text("Search categories") },
+        )
+
+        LazyColumn(
+            modifier = Modifier.weight(1f),
+            contentPadding = PaddingValues(horizontal = OwnPlaySpacing.Lg, vertical = OwnPlaySpacing.Sm),
+            verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm),
+        ) {
+            itemsIndexed(filteredCategories, key = { _, item -> item.categoryKey }) { _, category ->
+                val channelCount = channelCounts[category.categoryKey] ?: 0
+                OwnPlayPanel(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onOpenCategory(category.categoryKey) },
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(OwnPlaySpacing.Md),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = category.name,
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = OwnPlayColors.TextPrimary,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                text = "$channelCount channels",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = OwnPlayColors.TextSecondary,
+                                maxLines = 1,
+                            )
+                        }
+                        Text("›", style = MaterialTheme.typography.titleLarge, color = OwnPlayColors.Accent)
+                    }
+                }
+            }
+
+            if (showUncategorized) {
+                item(key = UNCATEGORIZED_SCOPE) {
+                    OwnPlayPanel(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onOpenCategory(UNCATEGORIZED_SCOPE) },
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(OwnPlaySpacing.Md),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Uncategorized",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = OwnPlayColors.TextPrimary,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                                Text(
+                                    text = "$uncategorizedCount channels without a provider category",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = OwnPlayColors.TextSecondary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                            Text("›", style = MaterialTheme.typography.titleLarge, color = OwnPlayColors.Accent)
+                        }
+                    }
+                }
+            }
+
+            if (filteredCategories.isEmpty() && !showUncategorized) {
+                item(key = "no-channel-category-results") {
+                    OwnPlayStatePanel(
+                        title = "No matching categories",
+                        message = "Try another search term.",
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -204,7 +463,6 @@ private fun CategoryManagement(
     catalog: LiveManagementCatalog,
     orderedCategories: List<ManageableLiveCategory>,
     onBack: () -> Unit,
-    onOpenCategory: (String) -> Unit,
     onToggleCategory: (ManageableLiveCategory) -> Unit,
     onMoveCategory: (String, Int) -> Boolean,
     onResetOrder: () -> Unit,
@@ -216,15 +474,13 @@ private fun CategoryManagement(
         if (normalizedQuery.isBlank()) orderedCategories
         else orderedCategories.filter { it.name.contains(normalizedQuery, ignoreCase = true) }
     }
-    val uncategorizedVisible = catalog.channels.any { it.categoryKey == null } &&
-        (normalizedQuery.isBlank() || "Uncategorized".contains(normalizedQuery, ignoreCase = true))
     val reorderEnabled = normalizedQuery.isBlank()
     val listState = rememberLazyListState()
 
     Column(modifier = modifier.fillMaxSize()) {
         ManagementHeader(
-            title = "Manage Live",
-            subtitle = "Categories · hold the grip and drag. Move to an edge to scroll.",
+            title = "Manage categories",
+            subtitle = "Show, hide, or reorder categories. Drag to an edge to scroll.",
             onBack = onBack,
         )
         if (catalog.activeSourceId == null) {
@@ -251,25 +507,7 @@ private fun CategoryManagement(
             contentPadding = PaddingValues(horizontal = OwnPlaySpacing.Lg, vertical = OwnPlaySpacing.Sm),
             verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm),
         ) {
-            if (uncategorizedVisible) {
-                item(key = UNCATEGORIZED_SCOPE) {
-                    OwnPlayPanel(modifier = Modifier.fillMaxWidth()) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().clickable { onOpenCategory(UNCATEGORIZED_SCOPE) }
-                                .padding(OwnPlaySpacing.Md),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text("Uncategorized", style = MaterialTheme.typography.titleMedium, color = OwnPlayColors.TextPrimary)
-                                Text("Channels without a provider category", style = MaterialTheme.typography.bodyMedium, color = OwnPlayColors.TextSecondary)
-                            }
-                            Text("›", style = MaterialTheme.typography.titleLarge, color = OwnPlayColors.Accent)
-                        }
-                    }
-                }
-            }
-
-            if (filteredCategories.isEmpty() && !uncategorizedVisible) {
+            if (filteredCategories.isEmpty()) {
                 item(key = "no-category-results") {
                     OwnPlayStatePanel(
                         title = "No matching categories",
@@ -294,7 +532,6 @@ private fun CategoryManagement(
                         Column(
                             modifier = Modifier
                                 .weight(1f)
-                                .clickable { onOpenCategory(category.categoryKey) }
                                 .padding(end = OwnPlaySpacing.Sm),
                         ) {
                             Text(
@@ -306,7 +543,7 @@ private fun CategoryManagement(
                                 overflow = TextOverflow.Ellipsis,
                             )
                             Text(
-                                text = if (category.hidden) "Hidden · Tap for channels" else "Visible · Tap for channels",
+                                text = if (category.hidden) "Hidden" else "Visible",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = OwnPlayColors.TextSecondary,
                                 maxLines = 1,
