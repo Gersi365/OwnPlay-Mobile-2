@@ -1,0 +1,99 @@
+name: Apply v11 physical QA UI fixes v3
+
+on:
+  push:
+    branches:
+      - qa-fix-v11-library-live-ui
+
+permissions:
+  contents: write
+
+jobs:
+  patch-validate-push:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      SOURCE_SHA: f5ea502c06387667c1c798015b5041a26e18b2c2
+      TARGET_BRANCH: stage-12-stabilization
+    steps:
+      - name: Checkout helper
+        uses: actions/checkout@v4
+        with:
+          ref: qa-fix-v11-library-live-ui
+          path: helper
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Stage patch helper
+        shell: bash
+        run: cp helper/.github/scripts/apply_v11_ui_fixes.py "$RUNNER_TEMP/apply_v11_ui_fixes.py"
+
+      - name: Checkout exact source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          path: source
+          persist-credentials: true
+          fetch-depth: 1
+
+      - name: Verify exact source and target guard
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          test -z "$(git status --porcelain)"
+          git fetch origin "$TARGET_BRANCH"
+          test "$(git rev-parse FETCH_HEAD)" = "$SOURCE_SHA"
+
+      - name: Apply focused fixes
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 "$RUNNER_TEMP/apply_v11_ui_fixes.py"
+          git diff --check
+          changed="$(git diff --name-only | sort)"
+          expected="$(printf '%s\n' app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryShell.kt app/src/main/java/app/ownplay/mobile/feature/live/ui/LiveShell.kt | sort)"
+          test "$changed" = "$expected"
+          git diff --stat
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK 36
+        shell: bash
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Set up Gradle 9.6.0
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.6.0'
+          cache-read-only: true
+
+      - name: Validate source without APK generation
+        working-directory: source
+        shell: bash
+        run: bash tools/validate-source-no-apk.sh
+
+      - name: Commit and fast-forward target branch
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test ! -e app/build/outputs/apk
+          test ! -e app/build/outputs/bundle
+          git diff --check
+          git fetch origin "$TARGET_BRANCH"
+          test "$(git rev-parse FETCH_HEAD)" = "$SOURCE_SHA"
+          git config user.name "Gersi365"
+          git config user.email "Gersi365@outlook.com"
+          git add app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryShell.kt app/src/main/java/app/ownplay/mobile/feature/live/ui/LiveShell.kt
+          git commit -m "Refine Library playback controls and Live loading state"
+          git push origin HEAD:refs/heads/$TARGET_BRANCH
