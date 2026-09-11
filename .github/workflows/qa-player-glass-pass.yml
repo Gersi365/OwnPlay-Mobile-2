@@ -1,0 +1,854 @@
+name: Apply cinematic player glass pass
+
+on:
+  push:
+    branches:
+      - qa-player-glass-pass-3f10f94
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      SOURCE_SHA: 3f10f94bc603028731dae9dc3f21e3c28397a594
+      TARGET_BRANCH: stage-12-stabilization
+
+    steps:
+      - name: Checkout helper branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify source and target guard
+        shell: bash
+        run: |
+          remote_target="$(git ls-remote origin "refs/heads/$TARGET_BRANCH" | cut -f1)"
+          test "$remote_target" = "$SOURCE_SHA"
+          git checkout --detach "$SOURCE_SHA"
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          echo "Exact source guard passed: $SOURCE_SHA"
+
+      - name: Apply focused player glass pass
+        shell: bash
+        run: |
+          python <<'PY'
+          from pathlib import Path
+
+          def replace_section(text: str, start_marker: str, end_marker: str, replacement: str) -> str:
+              start = text.index(start_marker)
+              end = text.index(end_marker, start)
+              return text[:start] + replacement.rstrip() + "\n\n" + text[end:]
+
+          root = Path('.')
+          library_path = root / 'app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryShell.kt'
+          live_path = root / 'app/src/main/java/app/ownplay/mobile/feature/live/ui/LiveShell.kt'
+          audio_path = root / 'app/src/main/java/app/ownplay/mobile/playback/ui/AudioTrackSelectorPanel.kt'
+          glass_path = root / 'app/src/main/java/app/ownplay/mobile/playback/ui/PlayerGlassChrome.kt'
+
+          library = library_path.read_text()
+          library = library.replace(
+              'import androidx.compose.material3.Slider\n',
+              'import androidx.compose.material3.Slider\nimport androidx.compose.material3.SliderDefaults\n',
+          )
+          library = library.replace(
+              'import app.ownplay.mobile.playback.ui.AudioTrackSelectorPanel\n',
+              'import app.ownplay.mobile.playback.ui.AudioTrackSelectorPanel\n'
+              'import app.ownplay.mobile.playback.ui.PlayerGlassCircleAction\n'
+              'import app.ownplay.mobile.playback.ui.PlayerGlassPillAction\n'
+              'import app.ownplay.mobile.playback.ui.PlayerGlassScrims\n',
+          )
+
+          library_player = r'''@Composable
+          private fun LibraryFullscreenPlayer(
+              playback: ResolvedLibraryPlayback,
+              libraryRepository: LibraryRepository,
+              playbackController: PlaybackController,
+              onClose: () -> Unit,
+              modifier: Modifier = Modifier,
+          ) {
+              val playerState by playbackController.state.collectAsState()
+              val scope = rememberCoroutineScope()
+              val interactionSource = remember { MutableInteractionSource() }
+              var overlayVisible by remember(playback.contentId, playback.offline) { mutableStateOf(true) }
+              var audioSelectorVisible by remember(playback.contentId, playback.offline) { mutableStateOf(false) }
+              var pendingSeekMs by remember(playback.contentId, playback.offline) { mutableStateOf<Long?>(null) }
+
+              suspend fun persistSnapshot(snapshot: PlaybackSnapshot) {
+                  if (snapshot.mediaId != playback.contentId) return
+                  val duration = snapshot.durationMs ?: playback.knownDurationMs ?: return
+                  if (duration <= 0L) return
+                  libraryRepository.saveProgress(
+                      PlaybackProgressUpdate(
+                          sourceId = playback.sourceId,
+                          mediaKind = playback.mediaKind,
+                          contentId = playback.contentId,
+                          positionMs = snapshot.positionMs,
+                          durationMs = duration,
+                          ended = snapshot.phase == PlaybackPhase.ENDED,
+                      ),
+                  )
+              }
+
+              suspend fun persistCurrent() {
+                  persistSnapshot(playbackController.currentSnapshot())
+              }
+
+              fun closePlayer() {
+                  scope.launch {
+                      persistCurrent()
+                      playbackController.stop(clearMedia = true)
+                      onClose()
+                  }
+              }
+
+              BackHandler(onBack = ::closePlayer)
+
+              LaunchedEffect(
+                  playback.contentId,
+                  playback.offline,
+                  overlayVisible,
+                  playerState.isPlaying,
+                  playerState.phase,
+              ) {
+                  if (overlayVisible && LibraryPlayerControlsPolicy.shouldAutoHide(playerState)) {
+                      delay(4_000)
+                      if (LibraryPlayerControlsPolicy.shouldAutoHide(playbackController.currentSnapshot())) {
+                          overlayVisible = false
+                      }
+                  }
+              }
+
+              LaunchedEffect(overlayVisible) {
+                  if (!overlayVisible) audioSelectorVisible = false
+              }
+
+              LaunchedEffect(playback.contentId, playback.offline) {
+                  var persistCountdown = 0
+                  while (true) {
+                      delay(2_000)
+                      val snapshot = playbackController.currentSnapshot()
+                      persistCountdown += 1
+                      if (persistCountdown >= 3) {
+                          persistSnapshot(snapshot)
+                          persistCountdown = 0
+                      }
+                  }
+              }
+
+              LaunchedEffect(playback.contentId, playback.offline, playerState.phase) {
+                  if (playerState.mediaId == playback.contentId && playerState.phase == PlaybackPhase.READY) {
+                      persistSnapshot(playerState)
+                  } else if (playerState.mediaId == playback.contentId && playerState.phase == PlaybackPhase.ENDED) {
+                      persistSnapshot(playerState)
+                  }
+              }
+
+              Box(
+                  modifier = modifier
+                      .fillMaxSize()
+                      .background(Color.Black),
+              ) {
+                  LibraryPlaybackSurface(
+                      playbackController = playbackController,
+                      controllerScope = scope,
+                      modifier = Modifier.fillMaxSize(),
+                  )
+
+                  Box(
+                      modifier = Modifier
+                          .fillMaxSize()
+                          .playerLocalVerticalControls(playbackController, scope)
+                          .clickable(interactionSource = interactionSource, indication = null) {
+                              overlayVisible = !overlayVisible
+                          },
+                  )
+
+                  PlayerLocalControlHudOverlay(
+                      modifier = Modifier.align(Alignment.Center),
+                  )
+
+                  if (overlayVisible) {
+                      PlayerGlassScrims()
+
+                      Row(
+                          modifier = Modifier
+                              .align(Alignment.TopStart)
+                              .fillMaxWidth()
+                              .padding(horizontal = OwnPlaySpacing.Lg, vertical = OwnPlaySpacing.Md),
+                          verticalAlignment = Alignment.CenterVertically,
+                          horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),
+                      ) {
+                          PlayerGlassCircleAction(
+                              label = "‹",
+                              onClick = ::closePlayer,
+                          )
+                          Column(
+                              modifier = Modifier.weight(1f),
+                              verticalArrangement = Arrangement.spacedBy(2.dp),
+                          ) {
+                              Text(
+                                  text = playback.title,
+                                  style = MaterialTheme.typography.titleMedium,
+                                  color = Color.White,
+                                  maxLines = 1,
+                              )
+                              Text(
+                                  text = playback.subtitle
+                                      ?: if (playback.offline) "Offline" else playback.mediaKind.name.lowercase().replaceFirstChar { it.uppercase() },
+                                  style = MaterialTheme.typography.bodySmall,
+                                  color = Color.White.copy(alpha = 0.72f),
+                                  maxLines = 1,
+                              )
+                          }
+                      }
+
+                      Row(
+                          modifier = Modifier.align(Alignment.Center),
+                          horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Lg),
+                          verticalAlignment = Alignment.CenterVertically,
+                      ) {
+                          PlayerGlassCircleAction(
+                              label = "−10",
+                              onClick = {
+                                  scope.launch {
+                                      playbackController.seekTo((playerState.positionMs - 10_000L).coerceAtLeast(0L))
+                                  }
+                              },
+                          )
+                          PlayerGlassCircleAction(
+                              label = if (playerState.playWhenReady) "Ⅱ" else "▶",
+                              emphasized = true,
+                              onClick = {
+                                  scope.launch { playbackController.setPlayWhenReady(!playerState.playWhenReady) }
+                              },
+                          )
+                          PlayerGlassCircleAction(
+                              label = "+10",
+                              onClick = {
+                                  scope.launch {
+                                      val upper = playerState.durationMs ?: playback.knownDurationMs ?: Long.MAX_VALUE
+                                      playbackController.seekTo((playerState.positionMs + 10_000L).coerceAtMost(upper))
+                                  }
+                              },
+                          )
+                      }
+
+                      Column(
+                          modifier = Modifier
+                              .align(Alignment.BottomCenter)
+                              .fillMaxWidth()
+                              .padding(horizontal = OwnPlaySpacing.Xl, vertical = OwnPlaySpacing.Lg),
+                          verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Xs),
+                      ) {
+                          val duration = playerState.durationMs ?: playback.knownDurationMs
+                          if (duration != null && duration > 0L) {
+                              val sliderPosition = (pendingSeekMs ?: playerState.positionMs).coerceIn(0L, duration)
+                              Slider(
+                                  value = sliderPosition.toFloat(),
+                                  onValueChange = { value -> pendingSeekMs = value.roundToLong().coerceIn(0L, duration) },
+                                  onValueChangeFinished = {
+                                      val destination = pendingSeekMs
+                                      pendingSeekMs = null
+                                      if (destination != null) {
+                                          scope.launch { playbackController.seekTo(destination) }
+                                      }
+                                  },
+                                  valueRange = 0f..duration.toFloat().coerceAtLeast(1f),
+                                  colors = SliderDefaults.colors(
+                                      thumbColor = OwnPlayColors.Accent,
+                                      activeTrackColor = OwnPlayColors.Accent,
+                                      inactiveTrackColor = Color.White.copy(alpha = 0.22f),
+                                  ),
+                              )
+                              Row(modifier = Modifier.fillMaxWidth()) {
+                                  Text(
+                                      formatDuration(sliderPosition),
+                                      modifier = Modifier.weight(1f),
+                                      style = MaterialTheme.typography.bodySmall,
+                                      color = Color.White.copy(alpha = 0.78f),
+                                  )
+                                  Text(
+                                      formatDuration(duration),
+                                      style = MaterialTheme.typography.bodySmall,
+                                      color = Color.White.copy(alpha = 0.78f),
+                                  )
+                              }
+                          } else {
+                              Text(
+                                  text = when (playerState.phase) {
+                                      PlaybackPhase.BUFFERING -> "Buffering…"
+                                      PlaybackPhase.ERROR -> "Playback unavailable"
+                                      else -> "Preparing duration…"
+                                  },
+                                  style = MaterialTheme.typography.bodySmall,
+                                  color = Color.White.copy(alpha = 0.78f),
+                              )
+                          }
+
+                          Row(
+                              modifier = Modifier.fillMaxWidth(),
+                              horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm, Alignment.End),
+                              verticalAlignment = Alignment.CenterVertically,
+                          ) {
+                              if (playerState.phase == PlaybackPhase.ERROR) {
+                                  PlayerGlassPillAction(
+                                      text = "Retry",
+                                      onClick = { scope.launch { playbackController.retry() } },
+                                  )
+                              }
+                              if (playerState.audioTracks.isNotEmpty()) {
+                                  PlayerGlassPillAction(
+                                      text = "Audio",
+                                      emphasized = audioSelectorVisible,
+                                      onClick = { audioSelectorVisible = !audioSelectorVisible },
+                                  )
+                              }
+                          }
+                      }
+
+                      if (audioSelectorVisible && playerState.audioTracks.isNotEmpty()) {
+                          AudioTrackSelectorPanel(
+                              tracks = playerState.audioTracks,
+                              onSelect = { selectionId ->
+                                  scope.launch { playbackController.selectAudioTrack(selectionId) }
+                                  audioSelectorVisible = false
+                              },
+                              onDismiss = { audioSelectorVisible = false },
+                              modifier = Modifier
+                                  .align(Alignment.CenterEnd)
+                                  .padding(OwnPlaySpacing.Xl),
+                          )
+                      }
+                  }
+              }
+          }'''
+
+          library = replace_section(
+              library,
+              '@Composable\nprivate fun LibraryFullscreenPlayer(',
+              '@Composable\nprivate fun LibraryPlaybackSurface(',
+              library_player,
+          )
+          library_path.write_text(library)
+
+          live = live_path.read_text()
+          live = live.replace(
+              'import app.ownplay.mobile.playback.ui.AudioTrackSelectorPanel\n',
+              'import app.ownplay.mobile.playback.ui.AudioTrackSelectorPanel\n'
+              'import app.ownplay.mobile.playback.ui.PlayerGlassCircleAction\n'
+              'import app.ownplay.mobile.playback.ui.PlayerGlassPillAction\n'
+              'import app.ownplay.mobile.playback.ui.PlayerGlassScrims\n',
+          )
+
+          live_player = r'''@Composable
+          private fun FullscreenLive(
+              channel: LiveChannel,
+              channelNumber: String,
+              playbackController: PlaybackController,
+              controllerScope: CoroutineScope,
+              playbackSnapshot: PlaybackSnapshot,
+              resolutionError: String?,
+              guide: LiveNowNext,
+              audioCompatibilityMessage: String?,
+              audioTracks: List<PlaybackAudioTrack>,
+              onBackToPreview: () -> Unit,
+              modifier: Modifier = Modifier,
+          ) {
+              var overlayVisible by remember(channel.channelId) { mutableStateOf(true) }
+              var audioSelectorVisible by remember(channel.channelId) { mutableStateOf(false) }
+              val interactionSource = remember { MutableInteractionSource() }
+
+              LaunchedEffect(
+                  overlayVisible,
+                  channel.channelId,
+                  playbackSnapshot.phase,
+                  playbackSnapshot.isPlaying,
+              ) {
+                  if (overlayVisible && LivePlayerControlsPolicy.shouldAutoHide(playbackSnapshot)) {
+                      delay(4_000)
+                      if (LivePlayerControlsPolicy.shouldAutoHide(playbackController.currentSnapshot())) {
+                          overlayVisible = false
+                      }
+                  }
+              }
+
+              LaunchedEffect(overlayVisible) {
+                  if (!overlayVisible) audioSelectorVisible = false
+              }
+
+              Box(
+                  modifier = modifier
+                      .fillMaxSize()
+                      .background(Color.Black),
+              ) {
+                  LivePlaybackSurface(
+                      target = VideoTarget.FULLSCREEN,
+                      playbackController = playbackController,
+                      controllerScope = controllerScope,
+                      modifier = Modifier.fillMaxSize(),
+                  )
+
+                  Box(
+                      modifier = Modifier
+                          .fillMaxSize()
+                          .playerLocalVerticalControls(playbackController, controllerScope)
+                          .clickable(
+                              interactionSource = interactionSource,
+                              indication = null,
+                          ) {
+                              overlayVisible = !overlayVisible
+                          },
+                  )
+
+                  PlayerLocalControlHudOverlay(
+                      modifier = Modifier.align(Alignment.Center),
+                  )
+
+                  if (overlayVisible) {
+                      PlayerGlassScrims()
+
+                      Row(
+                          modifier = Modifier
+                              .align(Alignment.TopStart)
+                              .fillMaxWidth()
+                              .padding(horizontal = OwnPlaySpacing.Lg, vertical = OwnPlaySpacing.Md),
+                          verticalAlignment = Alignment.CenterVertically,
+                          horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),
+                      ) {
+                          PlayerGlassCircleAction(
+                              label = "‹",
+                              onClick = onBackToPreview,
+                          )
+                          Column(
+                              modifier = Modifier.weight(1f),
+                              verticalArrangement = Arrangement.spacedBy(2.dp),
+                          ) {
+                              Text(
+                                  text = channel.name,
+                                  style = MaterialTheme.typography.titleMedium,
+                                  color = Color.White,
+                                  maxLines = 1,
+                              )
+                              Text(
+                                  text = "Channel $channelNumber",
+                                  style = MaterialTheme.typography.bodySmall,
+                                  color = Color.White.copy(alpha = 0.70f),
+                              )
+                          }
+                          LiveBadge()
+                      }
+
+                      Row(
+                          modifier = Modifier
+                              .align(Alignment.BottomCenter)
+                              .fillMaxWidth()
+                              .padding(horizontal = OwnPlaySpacing.Xl, vertical = OwnPlaySpacing.Lg),
+                          verticalAlignment = Alignment.Bottom,
+                          horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),
+                      ) {
+                          Column(
+                              modifier = Modifier.weight(1f),
+                              verticalArrangement = Arrangement.spacedBy(3.dp),
+                          ) {
+                              Text(
+                                  text = when {
+                                      resolutionError != null -> resolutionError
+                                      playbackSnapshot.phase == PlaybackPhase.ERROR -> "Playback unavailable"
+                                      audioCompatibilityMessage != null -> audioCompatibilityMessage
+                                      playbackSnapshot.phase == PlaybackPhase.BUFFERING -> "Buffering live stream…"
+                                      guide.now != null -> "Now ${programTimeRange(guide.now)} • ${guide.now.title}"
+                                      else -> "Live • Guide unavailable"
+                                  },
+                                  style = MaterialTheme.typography.bodyMedium,
+                                  color = Color.White,
+                                  maxLines = 1,
+                              )
+                              guide.next?.let { next ->
+                                  Text(
+                                      text = "Next ${programTimeRange(next)} • ${next.title}",
+                                      style = MaterialTheme.typography.bodySmall,
+                                      color = Color.White.copy(alpha = 0.70f),
+                                      maxLines = 1,
+                                  )
+                              }
+                          }
+                          if (audioTracks.isNotEmpty()) {
+                              PlayerGlassPillAction(
+                                  text = "Audio",
+                                  emphasized = audioSelectorVisible,
+                                  onClick = { audioSelectorVisible = !audioSelectorVisible },
+                              )
+                          }
+                      }
+
+                      if (audioSelectorVisible && audioTracks.isNotEmpty()) {
+                          AudioTrackSelectorPanel(
+                              tracks = audioTracks,
+                              onSelect = { selectionId ->
+                                  controllerScope.launch { playbackController.selectAudioTrack(selectionId) }
+                                  audioSelectorVisible = false
+                              },
+                              onDismiss = { audioSelectorVisible = false },
+                              modifier = Modifier
+                                  .align(Alignment.CenterEnd)
+                                  .padding(OwnPlaySpacing.Xl),
+                          )
+                      }
+                  }
+              }
+          }'''
+
+          live = replace_section(
+              live,
+              '@Composable\nprivate fun FullscreenLive(',
+              '@Composable\nprivate fun LiveBadge(',
+              live_player,
+          )
+          live_path.write_text(live)
+
+          audio_path.write_text(r'''package app.ownplay.mobile.playback.ui
+
+          import androidx.compose.foundation.BorderStroke
+          import androidx.compose.foundation.clickable
+          import androidx.compose.foundation.layout.Arrangement
+          import androidx.compose.foundation.layout.Column
+          import androidx.compose.foundation.layout.Row
+          import androidx.compose.foundation.layout.fillMaxWidth
+          import androidx.compose.foundation.layout.heightIn
+          import androidx.compose.foundation.layout.padding
+          import androidx.compose.foundation.layout.width
+          import androidx.compose.foundation.lazy.LazyColumn
+          import androidx.compose.foundation.lazy.itemsIndexed
+          import androidx.compose.material3.MaterialTheme
+          import androidx.compose.material3.Surface
+          import androidx.compose.material3.Text
+          import androidx.compose.runtime.Composable
+          import androidx.compose.ui.Alignment
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.graphics.Color
+          import androidx.compose.ui.unit.dp
+          import app.ownplay.mobile.design.OwnPlayColors
+          import app.ownplay.mobile.design.OwnPlayShapeTokens
+          import app.ownplay.mobile.design.OwnPlaySpacing
+          import app.ownplay.mobile.playback.domain.AudioTrackPolicy
+          import app.ownplay.mobile.playback.domain.PlaybackAudioTrack
+
+          @Composable
+          fun AudioTrackSelectorPanel(
+              tracks: List<PlaybackAudioTrack>,
+              onSelect: (String?) -> Unit,
+              onDismiss: () -> Unit,
+              modifier: Modifier = Modifier,
+          ) {
+              Surface(
+                  modifier = modifier.width(320.dp),
+                  color = OwnPlayColors.Background.copy(alpha = 0.86f),
+                  shape = OwnPlayShapeTokens.Medium,
+                  border = BorderStroke(1.dp, Color.White.copy(alpha = 0.14f)),
+                  tonalElevation = 0.dp,
+                  shadowElevation = 10.dp,
+              ) {
+                  Column(
+                      modifier = Modifier.padding(OwnPlaySpacing.Md),
+                      verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm),
+                  ) {
+                      Row(
+                          modifier = Modifier.fillMaxWidth(),
+                          horizontalArrangement = Arrangement.SpaceBetween,
+                          verticalAlignment = Alignment.CenterVertically,
+                      ) {
+                          Text(
+                              text = "Audio tracks",
+                              style = MaterialTheme.typography.titleMedium,
+                              color = OwnPlayColors.TextPrimary,
+                          )
+                          Text(
+                              text = "Done",
+                              modifier = Modifier
+                                  .clickable(onClick = onDismiss)
+                                  .padding(horizontal = OwnPlaySpacing.Sm, vertical = OwnPlaySpacing.Xs),
+                              style = MaterialTheme.typography.labelLarge,
+                              color = OwnPlayColors.Accent,
+                          )
+                      }
+
+                      LazyColumn(
+                          modifier = Modifier.heightIn(max = 320.dp),
+                          verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Xs),
+                      ) {
+                          item(key = "auto") {
+                              AudioTrackRow(
+                                  title = "Auto",
+                                  detail = "Use player default selection",
+                                  selected = false,
+                                  supported = true,
+                                  onClick = { onSelect(null) },
+                              )
+                          }
+                          itemsIndexed(
+                              items = tracks,
+                              key = { _, track -> track.selectionId },
+                          ) { index, track ->
+                              AudioTrackRow(
+                                  title = AudioTrackPolicy.primaryLabel(track, index + 1),
+                                  detail = AudioTrackPolicy.detailLabel(track),
+                                  selected = track.selected,
+                                  supported = track.supported,
+                                  onClick = { onSelect(track.selectionId) },
+                              )
+                          }
+                      }
+                  }
+              }
+          }
+
+          @Composable
+          private fun AudioTrackRow(
+              title: String,
+              detail: String,
+              selected: Boolean,
+              supported: Boolean,
+              onClick: () -> Unit,
+          ) {
+              Surface(
+                  modifier = Modifier
+                      .fillMaxWidth()
+                      .clickable(enabled = supported, onClick = onClick),
+                  color = if (selected) {
+                      OwnPlayColors.Accent.copy(alpha = 0.18f)
+                  } else {
+                      Color.White.copy(alpha = 0.04f)
+                  },
+                  shape = OwnPlayShapeTokens.Small,
+                  border = BorderStroke(
+                      width = 1.dp,
+                      color = if (selected) {
+                          OwnPlayColors.Accent.copy(alpha = 0.58f)
+                      } else {
+                          Color.White.copy(alpha = 0.08f)
+                      },
+                  ),
+                  tonalElevation = 0.dp,
+              ) {
+                  Row(
+                      modifier = Modifier.padding(horizontal = OwnPlaySpacing.Md, vertical = OwnPlaySpacing.Sm),
+                      horizontalArrangement = Arrangement.SpaceBetween,
+                      verticalAlignment = Alignment.CenterVertically,
+                  ) {
+                      Column(
+                          modifier = Modifier.weight(1f),
+                          verticalArrangement = Arrangement.spacedBy(2.dp),
+                      ) {
+                          Text(
+                              text = title,
+                              style = MaterialTheme.typography.bodyLarge,
+                              color = if (supported) OwnPlayColors.TextPrimary else OwnPlayColors.TextSecondary,
+                          )
+                          Text(
+                              text = detail,
+                              style = MaterialTheme.typography.bodySmall,
+                              color = OwnPlayColors.TextSecondary,
+                          )
+                      }
+                      if (selected) {
+                          Text(
+                              text = "Selected",
+                              style = MaterialTheme.typography.labelSmall,
+                              color = OwnPlayColors.Accent,
+                          )
+                      }
+                  }
+              }
+          }
+          '''.replace('          ', ''))
+
+          glass_path.write_text(r'''package app.ownplay.mobile.playback.ui
+
+          import androidx.compose.foundation.BorderStroke
+          import androidx.compose.foundation.background
+          import androidx.compose.foundation.layout.Box
+          import androidx.compose.foundation.layout.fillMaxSize
+          import androidx.compose.foundation.layout.fillMaxWidth
+          import androidx.compose.foundation.layout.height
+          import androidx.compose.foundation.layout.padding
+          import androidx.compose.foundation.layout.size
+          import androidx.compose.foundation.shape.CircleShape
+          import androidx.compose.material3.MaterialTheme
+          import androidx.compose.material3.Surface
+          import androidx.compose.material3.Text
+          import androidx.compose.runtime.Composable
+          import androidx.compose.ui.Alignment
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.graphics.Brush
+          import androidx.compose.ui.graphics.Color
+          import androidx.compose.ui.text.font.FontWeight
+          import androidx.compose.ui.unit.dp
+          import app.ownplay.mobile.design.OwnPlayColors
+          import app.ownplay.mobile.design.OwnPlayShapeTokens
+          import app.ownplay.mobile.design.OwnPlaySpacing
+
+          @Composable
+          fun PlayerGlassScrims(modifier: Modifier = Modifier) {
+              Box(modifier = modifier.fillMaxSize()) {
+                  Box(
+                      modifier = Modifier
+                          .align(Alignment.TopCenter)
+                          .fillMaxWidth()
+                          .height(136.dp)
+                          .background(
+                              Brush.verticalGradient(
+                                  colors = listOf(
+                                      Color.Black.copy(alpha = 0.72f),
+                                      Color.Transparent,
+                                  ),
+                              ),
+                          ),
+                  )
+                  Box(
+                      modifier = Modifier
+                          .align(Alignment.BottomCenter)
+                          .fillMaxWidth()
+                          .height(260.dp)
+                          .background(
+                              Brush.verticalGradient(
+                                  colors = listOf(
+                                      Color.Transparent,
+                                      Color.Black.copy(alpha = 0.82f),
+                                  ),
+                              ),
+                          ),
+                  )
+              }
+          }
+
+          @Composable
+          fun PlayerGlassCircleAction(
+              label: String,
+              onClick: () -> Unit,
+              modifier: Modifier = Modifier,
+              emphasized: Boolean = false,
+          ) {
+              val size = if (emphasized) 68.dp else 54.dp
+              Surface(
+                  onClick = onClick,
+                  modifier = modifier.size(size),
+                  shape = CircleShape,
+                  color = if (emphasized) {
+                      OwnPlayColors.AccentStrong.copy(alpha = 0.90f)
+                  } else {
+                      OwnPlayColors.Background.copy(alpha = 0.56f)
+                  },
+                  border = BorderStroke(
+                      width = 1.dp,
+                      color = if (emphasized) {
+                          Color.White.copy(alpha = 0.20f)
+                      } else {
+                          Color.White.copy(alpha = 0.14f)
+                      },
+                  ),
+                  tonalElevation = 0.dp,
+              ) {
+                  Box(contentAlignment = Alignment.Center) {
+                      Text(
+                          text = label,
+                          style = if (emphasized) MaterialTheme.typography.titleLarge else MaterialTheme.typography.labelLarge,
+                          color = Color.White,
+                          fontWeight = FontWeight.SemiBold,
+                      )
+                  }
+              }
+          }
+
+          @Composable
+          fun PlayerGlassPillAction(
+              text: String,
+              onClick: () -> Unit,
+              modifier: Modifier = Modifier,
+              emphasized: Boolean = false,
+          ) {
+              Surface(
+                  onClick = onClick,
+                  modifier = modifier,
+                  shape = OwnPlayShapeTokens.Action,
+                  color = if (emphasized) {
+                      OwnPlayColors.Accent.copy(alpha = 0.22f)
+                  } else {
+                      OwnPlayColors.Background.copy(alpha = 0.52f)
+                  },
+                  border = BorderStroke(
+                      width = 1.dp,
+                      color = if (emphasized) {
+                          OwnPlayColors.Accent.copy(alpha = 0.64f)
+                      } else {
+                          Color.White.copy(alpha = 0.12f)
+                      },
+                  ),
+                  tonalElevation = 0.dp,
+              ) {
+                  Text(
+                      text = text,
+                      modifier = Modifier.padding(
+                          horizontal = OwnPlaySpacing.Md,
+                          vertical = OwnPlaySpacing.Sm,
+                      ),
+                      style = MaterialTheme.typography.labelLarge,
+                      color = if (emphasized) OwnPlayColors.Accent else Color.White,
+                      fontWeight = FontWeight.Medium,
+                  )
+              }
+          }
+          '''.replace('          ', ''))
+          PY
+
+          changed="$(git diff --name-only | sort)"
+          expected="$(printf '%s\n' \
+            app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryShell.kt \
+            app/src/main/java/app/ownplay/mobile/feature/live/ui/LiveShell.kt \
+            app/src/main/java/app/ownplay/mobile/playback/ui/AudioTrackSelectorPanel.kt \
+            app/src/main/java/app/ownplay/mobile/playback/ui/PlayerGlassChrome.kt | sort)"
+          test "$changed" = "$expected"
+          git diff --check
+          git diff --stat
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK 36
+        shell: bash
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Set up Gradle 9.6.0
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.6.0'
+
+      - name: Validate source without APK generation
+        shell: bash
+        run: bash tools/validate-source-no-apk.sh
+
+      - name: Commit and fast-forward target branch
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryShell.kt \
+            app/src/main/java/app/ownplay/mobile/feature/live/ui/LiveShell.kt \
+            app/src/main/java/app/ownplay/mobile/playback/ui/AudioTrackSelectorPanel.kt \
+            app/src/main/java/app/ownplay/mobile/playback/ui/PlayerGlassChrome.kt
+          git commit -m "Polish fullscreen player with cinematic glass chrome"
+          candidate_sha="$(git rev-parse HEAD)"
+          test "$(git rev-parse HEAD^)" = "$SOURCE_SHA"
+          remote_target="$(git ls-remote origin "refs/heads/$TARGET_BRANCH" | cut -f1)"
+          test "$remote_target" = "$SOURCE_SHA"
+          git push origin "$candidate_sha:refs/heads/$TARGET_BRANCH"
+          echo "Candidate committed and target fast-forwarded: $candidate_sha"
