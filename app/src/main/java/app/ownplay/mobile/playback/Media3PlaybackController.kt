@@ -12,11 +12,14 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.decoder.ffmpeg.FfmpegLibrary
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import app.ownplay.mobile.playback.domain.AudioTrackPolicy
+import app.ownplay.mobile.playback.domain.PlaybackAudioTrack
 import app.ownplay.mobile.playback.domain.PlaybackLoadRequest
 import app.ownplay.mobile.playback.domain.PlaybackMedia
 import app.ownplay.mobile.playback.domain.PlaybackPhase
@@ -89,6 +92,10 @@ class Media3PlaybackController(
     override suspend fun load(request: PlaybackLoadRequest) {
         mutateOnPlayerThread {
             currentMedia = request.media
+            player.trackSelectionParameters = player.trackSelectionParameters
+                .buildUpon()
+                .clearOverridesOfType(C.TRACK_TYPE_AUDIO)
+                .build()
             val mediaItemBuilder = MediaItem.Builder()
                 .setMediaId(request.media.id)
                 .setUri(request.media.uri)
@@ -189,6 +196,33 @@ class Media3PlaybackController(
     override suspend fun setVolume(volume: Float) {
         mutateOnPlayerThread {
             player.volume = PlayerLocalControlPolicy.clampVolume(volume)
+            refreshSnapshot()
+        }
+    }
+
+    override suspend fun selectAudioTrack(selectionId: String?) {
+        mutateOnPlayerThread {
+            val builder = player.trackSelectionParameters.buildUpon()
+            if (selectionId == null) {
+                player.trackSelectionParameters = builder
+                    .clearOverridesOfType(C.TRACK_TYPE_AUDIO)
+                    .build()
+                refreshSnapshot()
+                return@mutateOnPlayerThread
+            }
+
+            val key = AudioTrackPolicy.parseSelectionId(selectionId) ?: return@mutateOnPlayerThread
+            val audioGroups = player.currentTracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }
+            val group = audioGroups.getOrNull(key.groupIndex) ?: return@mutateOnPlayerThread
+            if (key.trackIndex !in 0 until group.length || !group.isTrackSupported(key.trackIndex)) {
+                return@mutateOnPlayerThread
+            }
+
+            player.trackSelectionParameters = builder
+                .setOverrideForType(
+                    TrackSelectionOverride(group.mediaTrackGroup, key.trackIndex),
+                )
+                .build()
             refreshSnapshot()
         }
     }
@@ -324,6 +358,7 @@ class Media3PlaybackController(
             positionMs = player.currentPosition.coerceAtLeast(0L),
             durationMs = player.duration.takeUnless { it == C.TIME_UNSET || it < 0L },
             activeTarget = ownership.activeTarget,
+            audioTracks = audio.tracks,
             audioTrackPresent = audio.present,
             audioTrackSupported = audio.supported,
             audioTrackSelected = audio.selected,
@@ -339,6 +374,7 @@ class Media3PlaybackController(
         val present: Boolean?,
         val supported: Boolean?,
         val selected: Boolean?,
+        val tracks: List<PlaybackAudioTrack> = emptyList(),
         val mimeType: String? = null,
         val codecs: String? = null,
         val channelCount: Int? = null,
@@ -353,12 +389,26 @@ class Media3PlaybackController(
         var selectedFormat: Format? = null
         var supported = false
         var selected = false
-        groups.forEach { group ->
+        val tracks = mutableListOf<PlaybackAudioTrack>()
+        groups.forEachIndexed { groupIndex, group ->
             for (trackIndex in 0 until group.length) {
                 val format = group.getTrackFormat(trackIndex)
+                val trackSupported = group.isTrackSupported(trackIndex)
+                val trackSelected = group.isTrackSelected(trackIndex)
+                tracks += PlaybackAudioTrack(
+                    selectionId = AudioTrackPolicy.selectionId(groupIndex, trackIndex),
+                    label = format.label,
+                    language = format.language,
+                    mimeType = format.sampleMimeType,
+                    codecs = format.codecs,
+                    channelCount = format.channelCount.takeIf { it > 0 },
+                    sampleRate = format.sampleRate.takeIf { it > 0 },
+                    selected = trackSelected,
+                    supported = trackSupported,
+                )
                 if (firstFormat == null) firstFormat = format
-                if (group.isTrackSupported(trackIndex)) supported = true
-                if (group.isTrackSelected(trackIndex)) {
+                if (trackSupported) supported = true
+                if (trackSelected) {
                     selected = true
                     if (selectedFormat == null) selectedFormat = format
                 }
@@ -369,6 +419,7 @@ class Media3PlaybackController(
             present = true,
             supported = supported,
             selected = selected,
+            tracks = tracks,
             mimeType = format?.sampleMimeType,
             codecs = format?.codecs,
             channelCount = format?.channelCount?.takeIf { it > 0 },

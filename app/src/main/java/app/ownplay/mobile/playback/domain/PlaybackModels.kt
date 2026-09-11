@@ -75,6 +75,22 @@ enum class PlaybackPhase {
     RELEASED,
 }
 
+data class PlaybackAudioTrack(
+    val selectionId: String,
+    val label: String? = null,
+    val language: String? = null,
+    val mimeType: String? = null,
+    val codecs: String? = null,
+    val channelCount: Int? = null,
+    val sampleRate: Int? = null,
+    val selected: Boolean = false,
+    val supported: Boolean = true,
+) {
+    init {
+        require(selectionId.isNotBlank()) { "Audio track selection id must not be blank." }
+    }
+}
+
 data class PlaybackSnapshot(
     val mediaId: String? = null,
     val title: String? = null,
@@ -86,6 +102,7 @@ data class PlaybackSnapshot(
     val positionMs: Long = 0L,
     val durationMs: Long? = null,
     val activeTarget: VideoTarget = VideoTarget.NONE,
+    val audioTracks: List<PlaybackAudioTrack> = emptyList(),
     val audioTrackPresent: Boolean? = null,
     val audioTrackSupported: Boolean? = null,
     val audioTrackSelected: Boolean? = null,

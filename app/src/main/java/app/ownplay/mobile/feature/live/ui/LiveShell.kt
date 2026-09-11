@@ -73,11 +73,13 @@ import app.ownplay.mobile.feature.live.domain.LivePresentationState
 import app.ownplay.mobile.feature.live.domain.LiveRepository
 import app.ownplay.mobile.playback.PlaybackController
 import app.ownplay.mobile.playback.domain.AudioFormatLabelPolicy
+import app.ownplay.mobile.playback.domain.PlaybackAudioTrack
 import app.ownplay.mobile.playback.domain.PlaybackKind
 import app.ownplay.mobile.playback.domain.PlaybackLoadRequest
 import app.ownplay.mobile.playback.domain.PlaybackMedia
 import app.ownplay.mobile.playback.domain.PlaybackPhase
 import app.ownplay.mobile.playback.domain.VideoTarget
+import app.ownplay.mobile.playback.ui.AudioTrackSelectorPanel
 import app.ownplay.mobile.playback.ui.PlayerLocalControlHudOverlay
 import app.ownplay.mobile.playback.ui.playerLocalVerticalControls
 import java.io.ByteArrayOutputStream
@@ -264,6 +266,7 @@ fun LiveShell(
             resolutionError = resolutionError,
             guide = selectedGuide,
             audioCompatibilityMessage = audioCompatibilityMessage,
+            audioTracks = playback.audioTracks,
             modifier = modifier,
         )
     } else {
@@ -719,9 +722,11 @@ private fun FullscreenLive(
     resolutionError: String?,
     guide: LiveNowNext,
     audioCompatibilityMessage: String?,
+    audioTracks: List<PlaybackAudioTrack>,
     modifier: Modifier = Modifier,
 ) {
     var overlayVisible by remember(channel.channelId) { mutableStateOf(true) }
+    var audioSelectorVisible by remember(channel.channelId) { mutableStateOf(false) }
     val interactionSource = remember { MutableInteractionSource() }
 
     LaunchedEffect(overlayVisible, channel.channelId) {
@@ -729,6 +734,10 @@ private fun FullscreenLive(
             delay(4_000)
             overlayVisible = false
         }
+    }
+
+    LaunchedEffect(overlayVisible) {
+        if (!overlayVisible) audioSelectorVisible = false
     }
 
     Box(
@@ -819,12 +828,36 @@ private fun FullscreenLive(
                             )
                         }
                     }
+                    if (audioTracks.isNotEmpty()) {
+                        Text(
+                            text = "AUDIO",
+                            modifier = Modifier
+                                .clickable { audioSelectorVisible = !audioSelectorVisible }
+                                .padding(OwnPlaySpacing.Sm),
+                            style = MaterialTheme.typography.labelLarge,
+                            color = OwnPlayColors.Accent,
+                        )
+                    }
                     Text(
                         text = "BACK TO PREVIEW",
                         style = MaterialTheme.typography.labelLarge,
                         color = OwnPlayColors.Accent,
                     )
                 }
+            }
+
+            if (audioSelectorVisible && audioTracks.isNotEmpty()) {
+                AudioTrackSelectorPanel(
+                    tracks = audioTracks,
+                    onSelect = { selectionId ->
+                        controllerScope.launch { playbackController.selectAudioTrack(selectionId) }
+                        audioSelectorVisible = false
+                    },
+                    onDismiss = { audioSelectorVisible = false },
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .padding(OwnPlaySpacing.Xl),
+                )
             }
         }
     }

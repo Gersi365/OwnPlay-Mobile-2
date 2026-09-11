@@ -79,6 +79,7 @@ import app.ownplay.mobile.playback.domain.PlaybackMedia
 import app.ownplay.mobile.playback.domain.PlaybackPhase
 import app.ownplay.mobile.playback.domain.PlaybackSnapshot
 import app.ownplay.mobile.playback.domain.VideoTarget
+import app.ownplay.mobile.playback.ui.AudioTrackSelectorPanel
 import app.ownplay.mobile.playback.ui.PlayerLocalControlHudOverlay
 import app.ownplay.mobile.playback.ui.playerLocalVerticalControls
 import kotlin.math.roundToLong
@@ -973,6 +974,7 @@ private fun LibraryFullscreenPlayer(
     val scope = rememberCoroutineScope()
     val interactionSource = remember { MutableInteractionSource() }
     var overlayVisible by remember(playback.contentId, playback.offline) { mutableStateOf(true) }
+    var audioSelectorVisible by remember(playback.contentId, playback.offline) { mutableStateOf(false) }
     var pendingSeekMs by remember(playback.contentId, playback.offline) { mutableStateOf<Long?>(null) }
 
     suspend fun persistSnapshot(snapshot: PlaybackSnapshot) {
@@ -1018,6 +1020,10 @@ private fun LibraryFullscreenPlayer(
                 overlayVisible = false
             }
         }
+    }
+
+    LaunchedEffect(overlayVisible) {
+        if (!overlayVisible) audioSelectorVisible = false
     }
 
     LaunchedEffect(playback.contentId, playback.offline) {
@@ -1173,6 +1179,13 @@ private fun LibraryFullscreenPlayer(
                                 modifier = Modifier.weight(0.8f),
                             )
                         }
+                        if (playerState.audioTracks.isNotEmpty()) {
+                            OwnPlaySecondaryButton(
+                                text = "Audio",
+                                onClick = { audioSelectorVisible = !audioSelectorVisible },
+                                modifier = Modifier.weight(0.8f),
+                            )
+                        }
                     }
                     Text(
                         text = "BACK TO LIBRARY",
@@ -1184,6 +1197,20 @@ private fun LibraryFullscreenPlayer(
                         color = OwnPlayColors.Accent,
                     )
                 }
+            }
+
+            if (audioSelectorVisible && playerState.audioTracks.isNotEmpty()) {
+                AudioTrackSelectorPanel(
+                    tracks = playerState.audioTracks,
+                    onSelect = { selectionId ->
+                        scope.launch { playbackController.selectAudioTrack(selectionId) }
+                        audioSelectorVisible = false
+                    },
+                    onDismiss = { audioSelectorVisible = false },
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .padding(OwnPlaySpacing.Xl),
+                )
             }
         }
     }
