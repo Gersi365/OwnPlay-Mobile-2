@@ -1,0 +1,54 @@
+name: Validate 58b0138 source no APK
+
+on:
+  push:
+    branches:
+      - qa-fix-v11-library-live-ui
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      EXPECTED_SHA: 58b01385254948a1c21dafcae391846a6222a744
+    steps:
+      - name: Checkout exact final source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_SHA }}
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Verify exact final source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          test -z "$(git status --porcelain)"
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+      - name: Install Android SDK 36
+        shell: bash
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+      - name: Set up Gradle 9.6.0
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.6.0'
+          cache-read-only: true
+      - name: Validate source without APK generation
+        shell: bash
+        run: bash tools/validate-source-no-apk.sh
+      - name: Verify no build artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          test ! -e app/build/outputs/apk
+          test ! -e app/build/outputs/bundle
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
