@@ -104,11 +104,11 @@ fun LiveManagementScreen(
                 }
             },
             onResetOrder = {
-                val reset = orderedCategories.sortedWith(compareBy({ it.providerOrder }, { it.name.lowercase() }))
-                orderedCategories = reset
                 val sourceId = catalog.activeSourceId
+                val categoryKeys = orderedCategories.map { it.categoryKey }
+                orderedCategories = orderedCategories.sortedWith(compareBy({ it.providerOrder }, { it.name.lowercase() }))
                 if (sourceId != null) scope.launch {
-                    orderMutex.withLock { liveRepository.setCategoryOrder(sourceId, reset.map { it.categoryKey }) }
+                    orderMutex.withLock { liveRepository.resetCategoryOrder(sourceId, categoryKeys) }
                 }
             },
             modifier = modifier,
@@ -132,9 +132,9 @@ fun LiveManagementScreen(
                 }
             },
             onResetOrder = {
-                val reset = orderedChannels.sortedWith(compareBy({ it.providerOrder }, { it.name.lowercase() }))
-                orderedChannels = reset
-                scope.launch { orderMutex.withLock { liveRepository.setChannelOrder(reset.map { it.channelId }) } }
+                val channelIds = orderedChannels.map { it.channelId }
+                orderedChannels = orderedChannels.sortedWith(compareBy({ it.providerOrder }, { it.name.lowercase() }))
+                scope.launch { orderMutex.withLock { liveRepository.resetChannelOrder(channelIds) } }
             },
             modifier = modifier,
         )
