@@ -1,0 +1,99 @@
+OwnPlay Mobile 2 — Stage 12 Post-v7 Reconciliation
+
+Status
+- Stage: 12 — Stabilization
+- Source branch: stage-12-stabilization
+- Reconciliation base: QA v7 source c5ead94829c906348ddb3fa15ed898ee7f7818bd
+- Reconciled source HEAD before this evidence commit: a9bcb8f3972688d75f2a319e3f56f95d692c06ee
+- Draft PR: #13
+- This document reconciles the source delta after QA v7 and does not claim physical-device acceptance.
+
+Why this companion evidence exists
+- The historical Stage 12 audit remains chronological evidence of earlier physical-QA rounds.
+- Statements in earlier sections that Room was version 1 apply to those earlier source revisions only.
+- Current Stage 12 source is Room version 2 through explicit MIGRATION_1_2; no destructive fallback is used.
+- This companion file avoids rewriting prior audit history while recording the current post-v7 delta and acceptance boundary.
+
+QA v7 boundary
+- Latest stored QA v7 source: c5ead94829c906348ddb3fa15ed898ee7f7818bd.
+- QA v7 versionCode: 7.
+- Stable QA signing continuity from v6 to v7 is recorded in Drive metadata.
+- QA v7 includes the pinned Media3 FFmpeg audio decoder fallback.
+- QA v7 metadata records physicalQaStatus=NOT_YET_VERIFIED.
+
+Post-v7 source delta
+1. 9b111874e5eeef398a750808cb2b9b271ec49447 — Fix provider EPG and back hierarchy.
+   - Filters provider utility labels exposed as Live streams/channels while preserving raw provider rows.
+   - Decodes Xtream short-EPG titles when Base64/HTML encoded.
+   - Android Back returns Settings child pages to Settings main.
+   - Root Back opens an explicit OwnPlay exit confirmation.
+   - Source-only validation Run #63 / 34527034293: PASS.
+
+2. 032b78eb41cf7adb7ba73bc1b6a63abbcd3b9870 — Add Live personalization and functional settings.
+   - Adds source-stable Live category personalization keyed by sourceId + kind + categoryKey.
+   - Reuses channel personalization for hide/show and manual ordering while preserving existing local fields.
+   - Adds Settings management UI for Live categories/channels and download actions.
+   - Wires Show channel logos and Resume playback preferences to real behavior.
+   - Adds internal Help and Privacy pages.
+   - Moves Room additively from version 1 to version 2 with explicit MIGRATION_1_2 and committed schema 2.json.
+   - Existing backup format remains v1; category-personalization export is intentionally not added because that would be a breaking backup-format change.
+   - Source-only validation Run #64 / 34564951770: PASS.
+
+3. da5bb3757243ae81e52d904b374f4e99954a384d — Fix fullscreen control auto-hide semantics.
+   - Library fullscreen controls auto-hide only while playback is READY and actively playing.
+   - Paused, buffering, error, ended, idle, and released states keep controls visible.
+   - Focused LibraryPlayerControlsPolicy tests cover the state rule.
+   - Source-only validation Run #65 / 34566499267: PASS.
+
+4. a9bcb8f3972688d75f2a319e3f56f95d692c06ee — Add audio track selection controls.
+   - Playback snapshot now exposes enumerated audio tracks with label/language/format/channel/sample-rate/support/selected state.
+   - Media3 TrackSelectionOverride is used for explicit manual audio selection.
+   - Audio override is cleared when loading new media.
+   - Audio selector UI is exposed in Live fullscreen and Library Movie/Series/Offline fullscreen.
+   - Focused AudioTrackPolicy tests cover selection IDs and display labels.
+   - Source-only validation Run #66 / 34567961161: PASS.
+
+Exact pre-evidence HEAD validation
+- Exact validated SHA: a9bcb8f3972688d75f2a319e3f56f95d692c06ee.
+- Android source validation Run #66 / 34567961161: PASS.
+- Workflow checked out the exact expected SHA.
+- compileDebugKotlin: PASS.
+- testDebugUnitTest: PASS.
+- lintDebug: PASS.
+- BUILD SUCCESSFUL.
+- Generated Room schemas match committed HEAD and the schema tree is clean.
+- Explicit source-only artifact guard: PASS; no APK/AAB produced.
+- Three non-blocking Kotlin compiler warnings remain as cleanup debt: one redundant Elvis operator in DownloadRepositoryImpl and two unnecessary safe calls in LibraryShell.
+
+Current physical-QA boundary
+A later explicitly authorized QA candidate containing the final reconciled Stage 12 source must be installed as an update over QA v7 without uninstall and verify at minimum:
+- stable-signer update continuity and preservation of app/source configuration;
+- Room v1 -> v2 migration without crash or data loss;
+- provider refresh preserving category/channel personalization;
+- category/channel hide/show and manual ordering;
+- Show channel logos and functional Settings/download actions;
+- provider EPG decoding/display and utility-label filtering on the real provider;
+- Android Back hierarchy and exit confirmation;
+- fullscreen control auto-hide behavior for playing/paused/buffering/error states;
+- FFmpeg fallback regression on the previously silent/unsupported channels;
+- manual audio-track discovery/selection on real multi-audio content;
+- Live Preview -> same-channel fullscreen continuity without a second playback load;
+- channel switching without duplicate/ghost audio;
+- PiP video+audio and clean return;
+- rotation and background/foreground playback ownership;
+- accessibility, performance, and visual-reference acceptance.
+
+Evidence-closure rule
+- This evidence commit changes audit text only; it does not modify functional source behavior.
+- Because the evidence commit creates a new source HEAD, exact-final-HEAD source-only CI must PASS before Stage 12 source evidence closure is claimed.
+- That final validation must again verify compileDebugKotlin, testDebugUnitTest, lintDebug, committed Room schema equality/clean schema tree, and the no-APK/AAB guard.
+
+Restricted-action record
+- No APK/AAB generated by this reconciliation work.
+- No merge performed.
+- PR #13 remains Draft and unmerged.
+- No ready-for-review transition performed.
+- No release, publication, or deployment performed.
+- No production signing change performed.
+- No reset, rebase, force-push, or history rewrite performed.
+- No destructive database migration, user-data deletion, auth cutover, or backup-format break performed.
