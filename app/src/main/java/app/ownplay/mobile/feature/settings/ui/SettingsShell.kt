@@ -43,6 +43,7 @@ import app.ownplay.mobile.design.OwnPlayTopBar
 import app.ownplay.mobile.downloads.domain.DownloadRepository
 import app.ownplay.mobile.feature.live.domain.LiveRepository
 import app.ownplay.mobile.feature.settings.domain.BackupRepository
+import app.ownplay.mobile.feature.settings.domain.ProviderRefreshInterval
 import app.ownplay.mobile.feature.settings.domain.SettingsSnapshot
 import app.ownplay.mobile.sources.domain.SourceRepository
 import kotlinx.coroutines.launch
@@ -129,7 +130,7 @@ fun SettingsShell(
             paragraphs = listOf(
                 "Add and refresh providers from Settings › Sources. Live and Library use the active source.",
                 "In Live, tap a channel once for inline Preview and tap the selected channel again for fullscreen. Back returns fullscreen to Preview, then Preview to browsing.",
-                "Use Settings › Manage Live channels to hide or reorder categories and individual channels. Long-press the drag handle and move vertically.",
+                "Use Settings › Manage Live channels to hide or reorder categories and individual channels. Hold the visible drag grip, then move vertically.",
                 "Backup & restore is versioned and deliberately excludes provider credentials; reconnect credentials after restoring when required.",
             ),
             onBack = { pageName = SettingsPage.MAIN.name },
@@ -163,6 +164,11 @@ private fun MainSettings(
     val settingsFlow = remember(settingsPreferences) { settingsPreferences.settings }
     val settings by settingsFlow.collectAsState(initial = SettingsSnapshot())
     val scope = rememberCoroutineScope()
+    var intervalChooserVisible by rememberSaveable { mutableStateOf(false) }
+
+    BackHandler(enabled = intervalChooserVisible) {
+        intervalChooserVisible = false
+    }
 
     Column(
         modifier = modifier.fillMaxSize().verticalScroll(rememberScrollState()),
@@ -203,7 +209,7 @@ private fun MainSettings(
                 marker = "●",
                 rows = listOf(
                     SettingRowModel("Sources", "Add, edit, select, remove, and refresh providers", SettingTrailing.Chevron, onOpenSources),
-                    SettingRowModel("Manage Live channels", "Hide/show and drag categories or individual channels", SettingTrailing.Chevron, onManageLive),
+                    SettingRowModel("Manage Live channels", "Search, hide/show, and reorder categories or channels", SettingTrailing.Chevron, onManageLive),
                     SettingRowModel(
                         "Auto-refresh providers",
                         "Refresh configured sources when a network is available",
@@ -213,7 +219,7 @@ private fun MainSettings(
                         "Update interval",
                         settings.providerRefreshInterval.summary,
                         SettingTrailing.Chevron,
-                    ) { scope.launch { settingsPreferences.setProviderRefreshInterval(settings.providerRefreshInterval.next()) } },
+                    ) { intervalChooserVisible = !intervalChooserVisible },
                     SettingRowModel(
                         "Show channel logos",
                         "Load provider artwork in Live rows; disable to use text-only rows",
@@ -221,6 +227,16 @@ private fun MainSettings(
                     ) { scope.launch { settingsPreferences.setShowChannelLogos(!settings.showChannelLogos) } },
                 ),
             )
+
+            if (intervalChooserVisible) {
+                ProviderRefreshIntervalChooser(
+                    selected = settings.providerRefreshInterval,
+                    onSelect = { interval ->
+                        scope.launch { settingsPreferences.setProviderRefreshInterval(interval) }
+                        intervalChooserVisible = false
+                    },
+                )
+            }
 
             SettingsSection(
                 title = "Downloads",
@@ -266,6 +282,51 @@ private fun MainSettings(
                 ),
             )
             Spacer(modifier = Modifier.height(OwnPlaySpacing.Xl))
+        }
+    }
+}
+
+@Composable
+private fun ProviderRefreshIntervalChooser(
+    selected: ProviderRefreshInterval,
+    onSelect: (ProviderRefreshInterval) -> Unit,
+) {
+    OwnPlayPanel(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(OwnPlaySpacing.Md),
+            verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Xs),
+        ) {
+            Text(
+                "Provider refresh interval",
+                style = MaterialTheme.typography.titleMedium,
+                color = OwnPlayColors.TextPrimary,
+            )
+            Text(
+                "Choose when OwnPlay should refresh configured providers automatically.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = OwnPlayColors.TextSecondary,
+            )
+            ProviderRefreshInterval.values().forEach { interval ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(role = Role.RadioButton) { onSelect(interval) }
+                        .padding(vertical = OwnPlaySpacing.Sm),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = if (interval == selected) "●" else "○",
+                        modifier = Modifier.width(32.dp),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = if (interval == selected) OwnPlayColors.Accent else OwnPlayColors.TextSecondary,
+                    )
+                    Text(
+                        interval.summary,
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = OwnPlayColors.TextPrimary,
+                    )
+                }
+            }
         }
     }
 }
