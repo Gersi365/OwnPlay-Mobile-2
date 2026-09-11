@@ -1,0 +1,96 @@
+name: Fix QA v12 Live category attribution
+
+on:
+  push:
+    branches:
+      - qa-fix-v12-live-category-attribution-runner
+
+permissions:
+  contents: write
+
+jobs:
+  patch-validate-publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      SOURCE_SHA: 58b01385254948a1c21dafcae391846a6222a744
+      CANDIDATE_BRANCH: qa-candidate-58b013-live-category-attribution
+
+    steps:
+      - name: Checkout helper branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Preserve patch script and checkout exact source
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp .github/scripts/apply-live-category-attribution-fix.py "$RUNNER_TEMP/apply-fix.py"
+          git checkout --detach "$SOURCE_SHA"
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          test -z "$(git status --porcelain)"
+          echo "Exact source before patch: $(git rev-parse HEAD)"
+
+      - name: Apply guarded source correction
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 "$RUNNER_TEMP/apply-fix.py"
+          git diff --check
+          expected="$(cat <<'EOF'
+          app/src/main/java/app/ownplay/mobile/sources/data/SourceCatalogLoader.kt
+          app/src/main/java/app/ownplay/mobile/sources/data/xtream/OkHttpXtreamClient.kt
+          app/src/main/java/app/ownplay/mobile/sources/data/xtream/XtreamClient.kt
+          app/src/main/java/app/ownplay/mobile/sources/data/xtream/XtreamLiveCategoryAttribution.kt
+          app/src/test/java/app/ownplay/mobile/sources/data/xtream/XtreamLiveCategoryAttributionTest.kt
+          EOF
+          )"
+          actual="$(git status --short | sed -E 's/^.. //' | sort)"
+          test "$actual" = "$(printf '%s\n' "$expected" | sort)"
+          git diff --stat
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK 36
+        shell: bash
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Set up Gradle 9.6.0
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.6.0'
+          cache-read-only: true
+
+      - name: Validate source without APK generation
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash tools/validate-source-no-apk.sh
+          test -z "$(find . -type f \( -name '*.apk' -o -name '*.aab' \) -print -quit)"
+          git diff --check
+
+      - name: Commit validated candidate and push without force
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "Gersi365"
+          git config user.email "Gersi365@outlook.com"
+          git add \
+            app/src/main/java/app/ownplay/mobile/sources/data/SourceCatalogLoader.kt \
+            app/src/main/java/app/ownplay/mobile/sources/data/xtream/OkHttpXtreamClient.kt \
+            app/src/main/java/app/ownplay/mobile/sources/data/xtream/XtreamClient.kt \
+            app/src/main/java/app/ownplay/mobile/sources/data/xtream/XtreamLiveCategoryAttribution.kt \
+            app/src/test/java/app/ownplay/mobile/sources/data/xtream/XtreamLiveCategoryAttributionTest.kt
+          test -z "$(git status --porcelain | grep -v '^M  \|^A  ' || true)"
+          git commit -m "Recover Xtream Live category attribution"
+          test "$(git rev-parse HEAD^)" = "$SOURCE_SHA"
+          git push origin "HEAD:refs/heads/$CANDIDATE_BRANCH"
+          echo "Validated candidate SHA: $(git rev-parse HEAD)"
