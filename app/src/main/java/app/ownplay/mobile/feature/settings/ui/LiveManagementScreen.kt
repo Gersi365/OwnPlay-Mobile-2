@@ -24,6 +24,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -31,14 +32,17 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import app.ownplay.mobile.design.OwnPlayColors
 import app.ownplay.mobile.design.OwnPlayPanel
 import app.ownplay.mobile.design.OwnPlaySpacing
@@ -54,6 +58,22 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
 private const val UNCATEGORIZED_SCOPE = "__ownplay_uncategorized__"
+
+private class ReorderVisualState {
+    var dragging by mutableStateOf(false)
+    var offsetY by mutableFloatStateOf(0f)
+    var itemHeightPx by mutableFloatStateOf(0f)
+}
+
+@Composable
+private fun rememberReorderVisualState(key: String): ReorderVisualState =
+    remember(key) { ReorderVisualState() }
+
+private fun Modifier.reorderVisual(state: ReorderVisualState): Modifier =
+    this
+        .onSizeChanged { state.itemHeightPx = it.height.toFloat() }
+        .zIndex(if (state.dragging) 1f else 0f)
+        .graphicsLayer { translationY = state.offsetY }
 
 @Composable
 fun LiveManagementScreen(
@@ -101,6 +121,9 @@ fun LiveManagementScreen(
                     if (sourceId != null) scope.launch {
                         orderMutex.withLock { liveRepository.setCategoryOrder(sourceId, movedIds) }
                     }
+                    true
+                } else {
+                    false
                 }
             },
             onResetOrder = {
@@ -129,6 +152,9 @@ fun LiveManagementScreen(
                     val byId = orderedChannels.associateBy { it.channelId }
                     orderedChannels = movedIds.mapNotNull(byId::get)
                     scope.launch { orderMutex.withLock { liveRepository.setChannelOrder(movedIds) } }
+                    true
+                } else {
+                    false
                 }
             },
             onResetOrder = {
@@ -148,7 +174,7 @@ private fun CategoryManagement(
     onBack: () -> Unit,
     onOpenCategory: (String) -> Unit,
     onToggleCategory: (ManageableLiveCategory) -> Unit,
-    onMoveCategory: (String, Int) -> Unit,
+    onMoveCategory: (String, Int) -> Boolean,
     onResetOrder: () -> Unit,
     modifier: Modifier,
 ) {
@@ -219,7 +245,12 @@ private fun CategoryManagement(
             }
 
             itemsIndexed(filteredCategories, key = { _, item -> item.categoryKey }) { _, category ->
-                OwnPlayPanel(modifier = Modifier.fillMaxWidth()) {
+                val dragState = rememberReorderVisualState(category.categoryKey)
+                OwnPlayPanel(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .reorderVisual(dragState),
+                ) {
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(OwnPlaySpacing.Md),
                         verticalAlignment = Alignment.CenterVertically,
@@ -238,6 +269,7 @@ private fun CategoryManagement(
                         DragHandle(
                             contentDescription = "Reorder ${category.name}",
                             enabled = reorderEnabled,
+                            state = dragState,
                         ) { direction -> onMoveCategory(category.categoryKey, direction) }
                     }
                 }
@@ -252,7 +284,7 @@ private fun ChannelManagement(
     channels: List<ManageableLiveChannel>,
     onBack: () -> Unit,
     onToggleChannel: (ManageableLiveChannel) -> Unit,
-    onMoveChannel: (String, Int) -> Unit,
+    onMoveChannel: (String, Int) -> Boolean,
     onResetOrder: () -> Unit,
     modifier: Modifier,
 ) {
@@ -300,7 +332,12 @@ private fun ChannelManagement(
 
             itemsIndexed(filteredChannels, key = { _, item -> item.channelId }) { _, channel ->
                 val absoluteIndex = channels.indexOfFirst { it.channelId == channel.channelId }.coerceAtLeast(0)
-                OwnPlayPanel(modifier = Modifier.fillMaxWidth()) {
+                val dragState = rememberReorderVisualState(channel.channelId)
+                OwnPlayPanel(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .reorderVisual(dragState),
+                ) {
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(OwnPlaySpacing.Md),
                         verticalAlignment = Alignment.CenterVertically,
@@ -325,6 +362,7 @@ private fun ChannelManagement(
                         DragHandle(
                             contentDescription = "Reorder ${channel.name}",
                             enabled = reorderEnabled,
+                            state = dragState,
                         ) { direction -> onMoveChannel(channel.channelId, direction) }
                     }
                 }
@@ -359,7 +397,7 @@ private fun ManagementTools(
         ) {
             Text(
                 text = if (reorderEnabled) {
-                    "Hide/Show is immediate. Hold the grip to start reordering."
+                    "Hide/Show is immediate. Hold the grip to drag an item into place."
                 } else {
                     "Search is active. Clear it to reorder; Hide/Show still works."
                 },
@@ -391,39 +429,46 @@ private fun ManagementHeader(title: String, subtitle: String, onBack: () -> Unit
 private fun DragHandle(
     contentDescription: String,
     enabled: Boolean,
-    onMove: (Int) -> Unit,
+    state: ReorderVisualState,
+    onMove: (Int) -> Boolean,
 ) {
-    val thresholdPx = with(LocalDensity.current) { 36.dp.toPx() }
+    val itemGapPx = with(LocalDensity.current) { OwnPlaySpacing.Sm.toPx() }
     val haptic = LocalHapticFeedback.current
-    var dragging by remember(contentDescription) { mutableStateOf(false) }
     val dragModifier = if (enabled) {
-        Modifier.pointerInput(contentDescription, thresholdPx) {
-            var accumulated = 0f
+        Modifier.pointerInput(contentDescription, enabled) {
             detectDragGesturesAfterLongPress(
                 onDragStart = {
-                    accumulated = 0f
-                    dragging = true
+                    state.offsetY = 0f
+                    state.dragging = true
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                 },
                 onDragCancel = {
-                    accumulated = 0f
-                    dragging = false
+                    state.offsetY = 0f
+                    state.dragging = false
                 },
                 onDragEnd = {
-                    accumulated = 0f
-                    dragging = false
+                    state.offsetY = 0f
+                    state.dragging = false
                 },
                 onDrag = { change, dragAmount ->
                     change.consume()
-                    accumulated += dragAmount.y
-                    when {
-                        accumulated >= thresholdPx -> {
-                            onMove(1)
-                            accumulated = 0f
+                    state.offsetY += dragAmount.y
+                    val moveDistance = (state.itemHeightPx + itemGapPx).coerceAtLeast(1f)
+
+                    while (state.offsetY >= moveDistance) {
+                        if (onMove(1)) {
+                            state.offsetY -= moveDistance
+                        } else {
+                            state.offsetY = moveDistance * 0.35f
+                            break
                         }
-                        accumulated <= -thresholdPx -> {
-                            onMove(-1)
-                            accumulated = 0f
+                    }
+                    while (state.offsetY <= -moveDistance) {
+                        if (onMove(-1)) {
+                            state.offsetY += moveDistance
+                        } else {
+                            state.offsetY = -moveDistance * 0.35f
+                            break
                         }
                     }
                 },
@@ -437,7 +482,7 @@ private fun DragHandle(
         modifier = Modifier
             .size(48.dp)
             .background(
-                color = if (dragging) OwnPlayColors.AccentSoft else OwnPlayColors.SurfaceElevated,
+                color = if (state.dragging) OwnPlayColors.AccentSoft else OwnPlayColors.SurfaceElevated,
                 shape = RoundedCornerShape(8.dp),
             )
             .semantics { this.contentDescription = contentDescription }
@@ -448,7 +493,7 @@ private fun DragHandle(
             text = "⋮⋮",
             style = MaterialTheme.typography.titleLarge,
             color = when {
-                dragging -> OwnPlayColors.Accent
+                state.dragging -> OwnPlayColors.Accent
                 enabled -> OwnPlayColors.TextPrimary
                 else -> OwnPlayColors.TextSecondary
             },
