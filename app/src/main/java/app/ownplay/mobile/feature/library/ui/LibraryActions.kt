@@ -25,7 +25,9 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import app.ownplay.mobile.design.OwnPlayColors
 import app.ownplay.mobile.design.OwnPlayShapeTokens
 
@@ -129,6 +131,7 @@ internal fun LibraryIconAction(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     emphasized: Boolean = false,
+    visualSize: Dp = 40.dp,
 ) {
     Box(
         modifier = modifier
@@ -140,8 +143,8 @@ internal fun LibraryIconAction(
     ) {
         Surface(
             modifier = Modifier
-                .width(40.dp)
-                .height(40.dp),
+                .width(visualSize)
+                .height(visualSize),
             shape = OwnPlayShapeTokens.Action,
             color = if (emphasized) OwnPlayColors.AccentStrong else Color.Black.copy(alpha = 0.52f),
             border = if (emphasized) null else BorderStroke(1.dp, Color.White.copy(alpha = 0.12f)),
@@ -174,7 +177,7 @@ internal fun LibraryShelfHeader(
         Text(
             text = title,
             modifier = Modifier.weight(1f),
-            style = MaterialTheme.typography.titleLarge,
+            style = MaterialTheme.typography.titleLarge.copy(fontSize = 20.sp, lineHeight = 24.sp),
             color = OwnPlayColors.TextPrimary,
             fontWeight = FontWeight.SemiBold,
         )
@@ -182,7 +185,7 @@ internal fun LibraryShelfHeader(
             Text(
                 text = it,
                 style = MaterialTheme.typography.labelMedium,
-                color = OwnPlayColors.TextMuted,
+                color = OwnPlayColors.TextMuted.copy(alpha = 0.78f),
                 maxLines = 1,
             )
         }
@@ -198,7 +201,7 @@ internal fun LibraryFilterTab(
 ) {
     Box(
         modifier = modifier
-            .height(44.dp)
+            .height(48.dp)
             .clickable(role = Role.Tab, onClick = onClick)
             .semantics { this.selected = selected },
         contentAlignment = Alignment.Center,
@@ -209,16 +212,16 @@ internal fun LibraryFilterTab(
         ) {
             Text(
                 text = label,
-                modifier = Modifier.padding(horizontal = 8.dp),
+                modifier = Modifier.padding(horizontal = 6.dp),
                 style = MaterialTheme.typography.labelLarge,
                 color = if (selected) OwnPlayColors.Accent else OwnPlayColors.TextMuted,
                 fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
                 maxLines = 1,
             )
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(3.dp))
             Box(
                 modifier = Modifier
-                    .width(if (selected) 18.dp else 1.dp)
+                    .width(if (selected) 20.dp else 1.dp)
                     .height(2.dp)
                     .background(
                         color = if (selected) OwnPlayColors.Accent else Color.Transparent,
