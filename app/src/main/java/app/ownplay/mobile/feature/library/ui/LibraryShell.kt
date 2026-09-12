@@ -958,11 +958,11 @@ private fun MovieDetail(
             onBack = onBack,
         )
         Column(
-            modifier = Modifier.padding(horizontal = OwnPlaySpacing.Lg, vertical = OwnPlaySpacing.Lg),
+            modifier = Modifier.padding(horizontal = OwnPlaySpacing.Lg, vertical = OwnPlaySpacing.Md),
             verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),
         ) {
             if (errorMessage != null) {
-                OwnPlayStatePanel(title = "Action unavailable", message = errorMessage)
+                LibraryShelfState(title = "Action unavailable", message = errorMessage)
             }
             if (movie.resumePositionMs != null) {
                 PlaybackChoiceButtons(
@@ -974,12 +974,12 @@ private fun MovieDetail(
                 LibraryPrimaryAction(
                     text = "Play",
                     onClick = onBeginning,
-                    modifier = Modifier.fillMaxWidth(0.44f),
+                    modifier = Modifier.fillMaxWidth(0.52f),
                     glyph = LibraryActionGlyph.PLAY,
                 )
             }
             DownloadControls(item = downloadItem, onAction = onDownloadAction, compact = true)
-            Spacer(modifier = Modifier.height(OwnPlaySpacing.Xl))
+            Spacer(modifier = Modifier.height(OwnPlaySpacing.Lg))
         }
     }
 }
@@ -1012,7 +1012,7 @@ private fun SeriesDetail(
             onBack = onBack,
         )
         Column(
-            modifier = Modifier.padding(horizontal = OwnPlaySpacing.Lg, vertical = OwnPlaySpacing.Lg),
+            modifier = Modifier.padding(horizontal = OwnPlaySpacing.Lg, vertical = OwnPlaySpacing.Md),
             verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),
         ) {
             series.description?.takeIf { it.isNotBlank() }?.let { description ->
@@ -1020,28 +1020,33 @@ private fun SeriesDetail(
                     text = description,
                     style = MaterialTheme.typography.bodyMedium,
                     color = OwnPlayColors.TextSecondary,
+                    maxLines = 4,
                 )
             }
             if (warning != null) {
-                OwnPlayStatePanel(title = "Using cached episodes", message = warning)
+                LibraryShelfState(title = "Using cached episodes", message = warning)
             }
             if (errorMessage != null) {
-                OwnPlayStatePanel(title = "Action unavailable", message = errorMessage)
+                LibraryShelfState(title = "Action unavailable", message = errorMessage)
             }
-            LibraryShelfHeader(title = "Episodes")
+            LibraryShelfHeader(
+                title = "Episodes",
+                actionLabel = detail?.episodes?.size?.takeIf { it > 0 }?.let { "${it} episodes" },
+            )
             when {
-                detail == null && errorMessage == null -> OwnPlayStatePanel(
+                detail == null && errorMessage == null -> LibraryShelfState(
                     title = "Loading episodes",
                     message = "Refreshing episode metadata for ${series.name}.",
+                    loading = true,
                 )
 
-                detail?.episodes.isNullOrEmpty() -> OwnPlayStatePanel(
+                detail?.episodes.isNullOrEmpty() -> LibraryShelfState(
                     title = "No episodes available",
                     message = "The source did not return playable episodes for this series.",
                 )
 
-                else -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    detail?.episodes.orEmpty().forEach { episode ->
+                else -> Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    detail.episodes.forEach { episode ->
                         val downloadItem = downloadForEpisode(episode)
                         EpisodeRow(
                             episode = episode,
@@ -1054,7 +1059,7 @@ private fun SeriesDetail(
                     }
                 }
             }
-            Spacer(modifier = Modifier.height(OwnPlaySpacing.Xl))
+            Spacer(modifier = Modifier.height(OwnPlaySpacing.Lg))
         }
     }
 }
@@ -1070,7 +1075,7 @@ private fun LibraryHero(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .aspectRatio(1.55f)
+            .aspectRatio(1.72f)
             .background(OwnPlayColors.SurfaceElevated),
         contentAlignment = Alignment.BottomStart,
     ) {
@@ -1095,6 +1100,7 @@ private fun LibraryHero(
             glyph = LibraryActionGlyph.BACK,
             contentDescription = "Back to Library",
             onClick = onBack,
+            visualSize = 36.dp,
             modifier = Modifier
                 .align(Alignment.TopStart)
                 .padding(OwnPlaySpacing.Md),
@@ -1197,79 +1203,93 @@ private fun EpisodeRow(
 
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        color = OwnPlayColors.Surface.copy(alpha = 0.40f),
+        color = Color.Transparent,
         shape = OwnPlayShapeTokens.Medium,
         tonalElevation = 0.dp,
     ) {
         Column(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+  modifier = Modifier.padding(vertical = 8.dp),
+  verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                Column(modifier = Modifier.width(54.dp)) {
-                    Text(
-                        text = "S${episode.seasonNumber}",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = OwnPlayColors.TextMuted,
-                    )
-                    Text(
-                        text = "E${episode.episodeNumber}",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = OwnPlayColors.Accent,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                }
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = episode.title,
-                        style = MaterialTheme.typography.titleSmall,
-                        color = OwnPlayColors.TextPrimary,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 2,
-                    )
-                    episode.durationMs?.let { duration ->
-                        Text(
-                            text = formatDuration(duration),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = OwnPlayColors.TextMuted,
-                        )
-                    }
-                }
-                LibraryIconAction(
-                    glyph = LibraryActionGlyph.PLAY,
-                    contentDescription = "$primaryLabel ${episode.title}",
-                    emphasized = true,
-                    onClick = primaryAction,
-                )
-            }
+  Row(
+      modifier = Modifier.fillMaxWidth(),
+      verticalAlignment = Alignment.CenterVertically,
+      horizontalArrangement = Arrangement.spacedBy(10.dp),
+  ) {
+      Box(
+          modifier = Modifier
+              .width(2.dp)
+              .height(36.dp)
+              .background(
+                  color = if (hasProgress) {
+                      OwnPlayColors.Accent.copy(alpha = 0.72f)
+                  } else {
+                      OwnPlayColors.Divider.copy(alpha = 0.78f)
+                  },
+                  shape = OwnPlayShapeTokens.Small,
+              ),
+      )
+      Column(
+          modifier = Modifier.weight(1f),
+          verticalArrangement = Arrangement.spacedBy(2.dp),
+      ) {
+          Row(
+              horizontalArrangement = Arrangement.spacedBy(8.dp),
+              verticalAlignment = Alignment.CenterVertically,
+          ) {
+              Text(
+                  text = "S${episode.seasonNumber} • E${episode.episodeNumber}",
+                  style = MaterialTheme.typography.labelMedium,
+                  color = OwnPlayColors.Accent.copy(alpha = 0.90f),
+                  fontWeight = FontWeight.SemiBold,
+              )
+              episode.durationMs?.let { duration ->
+                  Text(
+                      text = formatDuration(duration),
+                      style = MaterialTheme.typography.bodySmall,
+                      color = OwnPlayColors.TextMuted,
+                  )
+              }
+          }
+          Text(
+              text = episode.title,
+              style = MaterialTheme.typography.titleSmall,
+              color = OwnPlayColors.TextPrimary,
+              fontWeight = FontWeight.SemiBold,
+              maxLines = 2,
+          )
+      }
+      LibraryIconAction(
+          glyph = LibraryActionGlyph.PLAY,
+          contentDescription = "$primaryLabel ${episode.title}",
+          emphasized = true,
+          visualSize = 36.dp,
+          onClick = primaryAction,
+      )
+  }
 
-            if (hasProgress) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Xs),
-                ) {
-                    LibrarySecondaryAction(
-                        text = if (primaryIsResume) "Start Over" else "Resume",
-                        onClick = if (primaryIsResume) onBeginning else onResume,
-                        modifier = Modifier.weight(0.55f),
-                        glyph = if (primaryIsResume) LibraryActionGlyph.RESTART else LibraryActionGlyph.PLAY,
-                    )
-                    Box(modifier = Modifier.weight(1f)) {
-                        DownloadControls(item = downloadItem, onAction = onDownloadAction, compact = true)
-                    }
-                }
-            } else {
-                DownloadControls(item = downloadItem, onAction = onDownloadAction, compact = true)
-            }
+  if (hasProgress) {
+      Row(
+          modifier = Modifier.fillMaxWidth(),
+          verticalAlignment = Alignment.CenterVertically,
+          horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Xs),
+      ) {
+          LibrarySecondaryAction(
+              text = if (primaryIsResume) "Start Over" else "Resume",
+              onClick = if (primaryIsResume) onBeginning else onResume,
+              modifier = Modifier.weight(0.62f),
+              glyph = if (primaryIsResume) LibraryActionGlyph.RESTART else LibraryActionGlyph.PLAY,
+          )
+          Box(modifier = Modifier.weight(1f)) {
+              DownloadControls(item = downloadItem, onAction = onDownloadAction, compact = true)
+          }
+      }
+  } else {
+      DownloadControls(item = downloadItem, onAction = onDownloadAction, compact = true)
+  }
         }
     }
 }
-
 @Composable
 private fun PlaybackChoiceButtons(
     preferResume: Boolean,
