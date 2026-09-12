@@ -153,7 +153,6 @@ class OwnPlayServices private constructor(
     val downloadRepository: DownloadRepository by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         DownloadRepositoryImpl(
             context = applicationContext,
-            sourceRepository = sourceRepository,
             downloadDao = database.downloadDao(),
             libraryDao = database.libraryDao(),
             streamResolver = DownloadStreamResolver(

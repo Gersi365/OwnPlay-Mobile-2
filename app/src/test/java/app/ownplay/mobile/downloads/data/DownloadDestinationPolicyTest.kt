@@ -10,6 +10,7 @@ class DownloadDestinationPolicyTest {
     fun movieUsesPublicOwnPlayHierarchy() {
         val destination = DownloadDestinationPolicy.movie(
             title = "The Room Below - 2026",
+            identityKey = "source-a:movie-42",
             extension = "mkv",
         )
 
@@ -28,6 +29,7 @@ class DownloadDestinationPolicyTest {
             seasonNumber = 1,
             episodeNumber = 3,
             episodeTitle = "Never Trust an Ambitious Nurse",
+            identityKey = "source-a:episode-3",
             extension = ".mp4",
         )
 
@@ -46,6 +48,7 @@ class DownloadDestinationPolicyTest {
     fun pathComponentsCannotEscapeOwnPlayHierarchy() {
         val destination = DownloadDestinationPolicy.movie(
             title = " ../Bad\\Name:Test? ",
+            identityKey = "source-a:movie-bad",
             extension = "MP4",
         )
 
@@ -55,6 +58,28 @@ class DownloadDestinationPolicyTest {
         assertFalse(destination.displayName.contains(":"))
         assertFalse(destination.displayName.contains("?"))
         assertEquals("mp4", destination.displayName.substringAfterLast('.'))
+    }
+
+    @Test
+    fun collisionNameUsesStableOpaqueSuffixOnlyWhenNeeded() {
+        val destination = DownloadDestinationPolicy.movie(
+            title = "Same Title",
+            identityKey = "provider-2:movie-99",
+            extension = "mkv",
+        )
+
+        val firstCollision = DownloadDestinationPolicy.collisionDisplayName(destination, 1)
+        val secondCollision = DownloadDestinationPolicy.collisionDisplayName(destination, 2)
+
+        assertTrue(destination.collisionSuffix.matches(Regex("[0-9a-f]{8}")))
+        assertEquals(
+            "Same Title - ${destination.collisionSuffix}.mkv",
+            firstCollision,
+        )
+        assertEquals(
+            "Same Title - ${destination.collisionSuffix}-2.mkv",
+            secondCollision,
+        )
     }
 
     @Test

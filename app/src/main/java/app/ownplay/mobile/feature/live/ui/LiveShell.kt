@@ -1,6 +1,5 @@
 package app.ownplay.mobile.feature.live.ui
 
-import android.graphics.BitmapFactory
 import android.view.OrientationEventListener
 import android.view.SurfaceView
 import androidx.activity.compose.BackHandler
@@ -44,13 +43,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import app.ownplay.mobile.design.OwnPlayColors
+import app.ownplay.mobile.design.OwnPlayRemoteImageLoader
+import app.ownplay.mobile.design.RemoteImageProfile
 import app.ownplay.mobile.design.OwnPlayFilterChip
 import app.ownplay.mobile.design.OwnPlaySearchField
 import app.ownplay.mobile.design.OwnPlaySectionHeader
@@ -86,17 +86,12 @@ import app.ownplay.mobile.playback.ui.PlayerGlassPillAction
 import app.ownplay.mobile.playback.ui.PlayerGlassScrims
 import app.ownplay.mobile.playback.ui.PlayerLocalControlHudOverlay
 import app.ownplay.mobile.playback.ui.playerLocalVerticalControls
-import java.io.ByteArrayOutputStream
-import java.net.HttpURLConnection
-import java.net.URL
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 @Composable
 fun LiveShell(
@@ -791,7 +786,7 @@ private fun ChannelRow(
 @Composable
 private fun ChannelLogoIdentity(channel: LiveChannel, selected: Boolean) {
     val bitmap by produceState<ImageBitmap?>(initialValue = null, key1 = channel.logoUrl) {
-        value = channel.logoUrl?.takeIf { it.isNotBlank() }?.let { loadChannelLogo(it) }
+        value = OwnPlayRemoteImageLoader.load(channel.logoUrl, RemoteImageProfile.LOGO)
     }
     Box(
         modifier = Modifier
@@ -817,36 +812,6 @@ private fun ChannelLogoIdentity(channel: LiveChannel, selected: Boolean) {
         }
     }
 }
-
-private suspend fun loadChannelLogo(locator: String) = withContext(Dispatchers.IO) {
-    runCatching {
-        val connection = URL(locator).openConnection() as? HttpURLConnection ?: return@runCatching null
-        connection.connectTimeout = 4_000
-        connection.readTimeout = 5_000
-        connection.instanceFollowRedirects = true
-        try {
-            if (connection.responseCode !in 200..299) return@runCatching null
-            val output = ByteArrayOutputStream()
-            connection.inputStream.use { input ->
-                val buffer = ByteArray(8_192)
-                var total = 0
-                while (true) {
-                    val count = input.read(buffer)
-                    if (count <= 0) break
-                    total += count
-                    if (total > MAX_CHANNEL_LOGO_BYTES) return@runCatching null
-                    output.write(buffer, 0, count)
-                }
-            }
-            val bytes = output.toByteArray()
-            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
-        } finally {
-            connection.disconnect()
-        }
-    }.getOrNull()
-}
-
-private const val MAX_CHANNEL_LOGO_BYTES = 2 * 1024 * 1024
 
 @Composable
 private fun FullscreenLive(

@@ -25,7 +25,6 @@ import app.ownplay.mobile.feature.library.domain.LibraryStartMode
 import app.ownplay.mobile.feature.library.domain.LibraryStartPolicy
 import app.ownplay.mobile.feature.library.domain.ResolvedLibraryPlayback
 import app.ownplay.mobile.playback.domain.PlaybackStreamFormat
-import app.ownplay.mobile.sources.domain.SourceRepository
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
@@ -33,12 +32,9 @@ import java.util.Locale
 import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.flatMapLatest
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -47,7 +43,6 @@ import okhttp3.Request
 
 internal class DownloadRepositoryImpl(
     context: Context,
-    private val sourceRepository: SourceRepository,
     private val downloadDao: DownloadDao,
     private val libraryDao: LibraryDao,
     private val streamResolver: DownloadStreamResolver,
@@ -59,30 +54,31 @@ internal class DownloadRepositoryImpl(
     private val publicFileStore = PublicDownloadFileStore(context.applicationContext)
     private val transferMutex = Mutex()
 
-    @OptIn(ExperimentalCoroutinesApi::class)
     override fun observeDownloads(): Flow<List<DownloadItem>> =
-        sourceRepository.observeActiveSource().flatMapLatest { source ->
-            if (source == null) {
-                flowOf(emptyList())
-            } else {
-                combine(
-                    downloadDao.observeForSource(source.sourceId),
-                    libraryDao.observeIncompleteProgress(source.sourceId),
-                ) { downloads, progress ->
-                    val progressByKey = progress.associateBy { row ->
-                        ProgressKey(row.mediaKind.uppercase(Locale.US), row.contentId)
-                    }
-                    DownloadOrderingPolicy.ordered(
-                        downloads.mapNotNull { row ->
-                            row.toDomainOrNull(
-                                progress = progressByKey[
-                                    ProgressKey(row.mediaKind.uppercase(Locale.US), row.contentId)
-                                ],
-                            )
-                        },
-                    )
-                }
+        combine(
+            downloadDao.observeAll(),
+            libraryDao.observeAllIncompleteProgress(),
+        ) { downloads, progress ->
+            val progressByKey = progress.associateBy { row ->
+                ProgressKey(
+                    sourceId = row.sourceId,
+                    mediaKind = row.mediaKind.uppercase(Locale.US),
+                    contentId = row.contentId,
+                )
             }
+            DownloadOrderingPolicy.ordered(
+                downloads.mapNotNull { row ->
+                    row.toDomainOrNull(
+                        progress = progressByKey[
+                            ProgressKey(
+                                sourceId = row.sourceId,
+                                mediaKind = row.mediaKind.uppercase(Locale.US),
+                                contentId = row.contentId,
+                            )
+                        ],
+                    )
+                },
+            )
         }
 
     override suspend fun requestDownload(
@@ -496,6 +492,7 @@ internal class DownloadRepositoryImpl(
                 if (movie.sourceId != row.sourceId) return null
                 DownloadDestinationPolicy.movie(
                     title = movie.name,
+                    identityKey = "${row.sourceId}:${row.contentId}",
                     extension = movie.extension.takeUnless { it.isNullOrBlank() }
                         ?: DownloadDestinationPolicy.extensionFromUri(source.uri),
                 )
@@ -509,6 +506,7 @@ internal class DownloadRepositoryImpl(
                     seasonNumber = episode.seasonNumber,
                     episodeNumber = episode.episodeNumber,
                     episodeTitle = episode.title,
+                    identityKey = "${row.sourceId}:${row.contentId}",
                     extension = episode.extension.takeUnless { it.isNullOrBlank() }
                         ?: DownloadDestinationPolicy.extensionFromUri(source.uri),
                 )
@@ -553,7 +551,11 @@ internal class DownloadRepositoryImpl(
     private fun playbackFailure(code: String, message: String): LibraryPlaybackResolution.Failure =
         LibraryPlaybackResolution.Failure(code = code, safeMessage = message)
 
-    private data class ProgressKey(val mediaKind: String, val contentId: String)
+    private data class ProgressKey(
+        val sourceId: String,
+        val mediaKind: String,
+        val contentId: String,
+    )
 
     private sealed interface TransferResult {
         data class Complete(
