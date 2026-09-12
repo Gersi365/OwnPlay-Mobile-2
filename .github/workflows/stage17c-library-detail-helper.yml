@@ -1,0 +1,288 @@
+name: Stage 17C Library detail polish helper
+
+on:
+  push:
+    branches:
+      - stage-17c-library-detail-helper
+
+permissions:
+  contents: write
+
+jobs:
+  patch-validate-push:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout exact Stage 17B baseline
+        uses: actions/checkout@v4
+        with:
+          ref: 48b9f8b60c7d61962232463f8826eaa74cc663c6
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Verify exact baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "48b9f8b60c7d61962232463f8826eaa74cc663c6"
+          test -z "$(git status --porcelain)"
+
+      - name: Apply deterministic Library detail polish
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryShell.kt')
+          text = path.read_text()
+
+          def patch_section(source, start_marker, end_marker, replacements):
+              start = source.index(start_marker)
+              end = source.index(end_marker, start)
+              block = source[start:end]
+              for old, new in replacements:
+                  count = block.count(old)
+                  if count != 1:
+                      raise SystemExit(f'Expected one match in {start_marker!r}, found {count}: {old!r}')
+                  block = block.replace(old, new, 1)
+              return source[:start] + block + source[end:]
+
+          text = patch_section(
+              text,
+              '@Composable\nprivate fun MovieDetail(',
+              '\n@Composable\nprivate fun SeriesDetail(',
+              [
+                  (
+                      'modifier = Modifier.padding(horizontal = OwnPlaySpacing.Lg, vertical = OwnPlaySpacing.Lg),',
+                      'modifier = Modifier.padding(horizontal = OwnPlaySpacing.Lg, vertical = OwnPlaySpacing.Md),',
+                  ),
+                  (
+                      'OwnPlayStatePanel(title = "Action unavailable", message = errorMessage)',
+                      'LibraryShelfState(title = "Action unavailable", message = errorMessage)',
+                  ),
+                  (
+                      'modifier = Modifier.fillMaxWidth(0.44f),',
+                      'modifier = Modifier.fillMaxWidth(0.52f),',
+                  ),
+                  (
+                      'Spacer(modifier = Modifier.height(OwnPlaySpacing.Xl))',
+                      'Spacer(modifier = Modifier.height(OwnPlaySpacing.Lg))',
+                  ),
+              ],
+          )
+
+          text = patch_section(
+              text,
+              '@Composable\nprivate fun SeriesDetail(',
+              '\n@Composable\nprivate fun LibraryHero(',
+              [
+                  (
+                      'modifier = Modifier.padding(horizontal = OwnPlaySpacing.Lg, vertical = OwnPlaySpacing.Lg),',
+                      'modifier = Modifier.padding(horizontal = OwnPlaySpacing.Lg, vertical = OwnPlaySpacing.Md),',
+                  ),
+                  (
+                      'style = MaterialTheme.typography.bodyMedium,\n                    color = OwnPlayColors.TextSecondary,',
+                      'style = MaterialTheme.typography.bodyMedium,\n                    color = OwnPlayColors.TextSecondary,\n                    maxLines = 4,',
+                  ),
+                  (
+                      'OwnPlayStatePanel(title = "Using cached episodes", message = warning)',
+                      'LibraryShelfState(title = "Using cached episodes", message = warning)',
+                  ),
+                  (
+                      'OwnPlayStatePanel(title = "Action unavailable", message = errorMessage)',
+                      'LibraryShelfState(title = "Action unavailable", message = errorMessage)',
+                  ),
+                  (
+                      'LibraryShelfHeader(title = "Episodes")',
+                      'LibraryShelfHeader(\n                title = "Episodes",\n                actionLabel = detail?.episodes?.size?.takeIf { it > 0 }?.let { "${it} episodes" },\n            )',
+                  ),
+                  (
+                      'detail == null && errorMessage == null -> OwnPlayStatePanel(\n                    title = "Loading episodes",\n                    message = "Refreshing episode metadata for ${series.name}.",\n                )',
+                      'detail == null && errorMessage == null -> LibraryShelfState(\n                    title = "Loading episodes",\n                    message = "Refreshing episode metadata for ${series.name}.",\n                    loading = true,\n                )',
+                  ),
+                  (
+                      'detail?.episodes.isNullOrEmpty() -> OwnPlayStatePanel(\n                    title = "No episodes available",\n                    message = "The source did not return playable episodes for this series.",\n                )',
+                      'detail?.episodes.isNullOrEmpty() -> LibraryShelfState(\n                    title = "No episodes available",\n                    message = "The source did not return playable episodes for this series.",\n                )',
+                  ),
+                  (
+                      'else -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {',
+                      'else -> Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {',
+                  ),
+                  (
+                      'detail?.episodes.orEmpty().forEach { episode ->',
+                      'detail.episodes.forEach { episode ->',
+                  ),
+                  (
+                      'Spacer(modifier = Modifier.height(OwnPlaySpacing.Xl))',
+                      'Spacer(modifier = Modifier.height(OwnPlaySpacing.Lg))',
+                  ),
+              ],
+          )
+
+          text = patch_section(
+              text,
+              '@Composable\nprivate fun LibraryHero(',
+              '\n@Composable\nprivate fun RemoteArtwork(',
+              [
+                  (
+                      '.aspectRatio(1.55f)',
+                      '.aspectRatio(1.72f)',
+                  ),
+                  (
+                      'onClick = onBack,\n            modifier = Modifier',
+                      'onClick = onBack,\n            visualSize = 36.dp,\n            modifier = Modifier',
+                  ),
+              ],
+          )
+
+          episode_start = text.index('@Composable\nprivate fun EpisodeRow(')
+          episode_end = text.index('\n@Composable\nprivate fun PlaybackChoiceButtons(', episode_start)
+          new_episode = '''@Composable
+          private fun EpisodeRow(
+              episode: LibraryEpisode,
+              downloadItem: DownloadItem?,
+              preferResume: Boolean,
+              onResume: () -> Unit,
+              onBeginning: () -> Unit,
+              onDownloadAction: (DownloadAction) -> Unit,
+          ) {
+              val hasProgress = episode.resumePositionMs != null
+              val primaryIsResume = hasProgress && preferResume
+              val primaryLabel = if (primaryIsResume) "Resume" else "Play"
+              val primaryAction = if (primaryIsResume) onResume else onBeginning
+
+              Surface(
+                  modifier = Modifier.fillMaxWidth(),
+                  color = Color.Transparent,
+                  shape = OwnPlayShapeTokens.Medium,
+                  tonalElevation = 0.dp,
+              ) {
+                  Column(
+                      modifier = Modifier.padding(vertical = 8.dp),
+                      verticalArrangement = Arrangement.spacedBy(6.dp),
+                  ) {
+                      Row(
+                          modifier = Modifier.fillMaxWidth(),
+                          verticalAlignment = Alignment.CenterVertically,
+                          horizontalArrangement = Arrangement.spacedBy(10.dp),
+                      ) {
+                          Box(
+                              modifier = Modifier
+                                  .width(2.dp)
+                                  .height(36.dp)
+                                  .background(
+                                      color = if (hasProgress) {
+                                          OwnPlayColors.Accent.copy(alpha = 0.72f)
+                                      } else {
+                                          OwnPlayColors.Divider.copy(alpha = 0.78f)
+                                      },
+                                      shape = OwnPlayShapeTokens.Small,
+                                  ),
+                          )
+                          Column(
+                              modifier = Modifier.weight(1f),
+                              verticalArrangement = Arrangement.spacedBy(2.dp),
+                          ) {
+                              Row(
+                                  horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                  verticalAlignment = Alignment.CenterVertically,
+                              ) {
+                                  Text(
+                                      text = "S${episode.seasonNumber} • E${episode.episodeNumber}",
+                                      style = MaterialTheme.typography.labelMedium,
+                                      color = OwnPlayColors.Accent.copy(alpha = 0.90f),
+                                      fontWeight = FontWeight.SemiBold,
+                                  )
+                                  episode.durationMs?.let { duration ->
+                                      Text(
+                                          text = formatDuration(duration),
+                                          style = MaterialTheme.typography.bodySmall,
+                                          color = OwnPlayColors.TextMuted,
+                                      )
+                                  }
+                              }
+                              Text(
+                                  text = episode.title,
+                                  style = MaterialTheme.typography.titleSmall,
+                                  color = OwnPlayColors.TextPrimary,
+                                  fontWeight = FontWeight.SemiBold,
+                                  maxLines = 2,
+                              )
+                          }
+                          LibraryIconAction(
+                              glyph = LibraryActionGlyph.PLAY,
+                              contentDescription = "$primaryLabel ${episode.title}",
+                              emphasized = true,
+                              visualSize = 36.dp,
+                              onClick = primaryAction,
+                          )
+                      }
+
+                      if (hasProgress) {
+                          Row(
+                              modifier = Modifier.fillMaxWidth(),
+                              verticalAlignment = Alignment.CenterVertically,
+                              horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Xs),
+                          ) {
+                              LibrarySecondaryAction(
+                                  text = if (primaryIsResume) "Start Over" else "Resume",
+                                  onClick = if (primaryIsResume) onBeginning else onResume,
+                                  modifier = Modifier.weight(0.62f),
+                                  glyph = if (primaryIsResume) LibraryActionGlyph.RESTART else LibraryActionGlyph.PLAY,
+                              )
+                              Box(modifier = Modifier.weight(1f)) {
+                                  DownloadControls(item = downloadItem, onAction = onDownloadAction, compact = true)
+                              }
+                          }
+                      } else {
+                          DownloadControls(item = downloadItem, onAction = onDownloadAction, compact = true)
+                      }
+                  }
+              }
+          }
+          '''
+          new_episode = '\n'.join(line[10:] if line.startswith('          ') else line for line in new_episode.splitlines())
+          text = text[:episode_start] + new_episode.rstrip() + text[episode_end:]
+
+          path.write_text(text)
+          PY
+
+          git diff --check
+          changed="$(git diff --name-only)"
+          test "$changed" = "app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryShell.kt"
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK 36
+        shell: bash
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Set up Gradle 9.6.0
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.6.0'
+
+      - name: Validate source without APK generation
+        shell: bash
+        run: bash tools/validate-source-no-apk.sh
+
+      - name: Guard scope and push Stage 17C source commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -z "$(find . -type f \( -name '*.apk' -o -name '*.aab' \) -print -quit)"
+          changed="$(git diff --name-only)"
+          test "$changed" = "app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryShell.kt"
+          git config user.name "Gersi365"
+          git config user.email "Gersi365@outlook.com"
+          git add app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryShell.kt
+          git commit -m "Polish Library detail hierarchy"
+          test "$(git rev-parse HEAD^)" = "48b9f8b60c7d61962232463f8826eaa74cc663c6"
+          git push origin HEAD:refs/heads/stage-17c-library-detail-polish
