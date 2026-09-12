@@ -15,7 +15,8 @@ This document records the initial OwnPlay Mobile 2 repository bootstrap baseline
 - Android Gradle Plugin: 9.4.0
 - Gradle: 9.6.0
 - Kotlin: 2.4.20
-- Compose BOM: 2026.08.00
+- Compose BOM: 2026.04.01
+- Activity Compose: 1.11.0
 
 ## Bootstrap scope
 
@@ -23,11 +24,13 @@ This stage establishes only the Android project, Kotlin/Compose compilation path
 
 The approved OwnPlay design system, navigation shell, media features, persistence, networking, playback, and downloads remain separate later stages.
 
-## SDK baseline correction
+## SDK and Compose baseline corrections
 
-The initial Stage 0 draft attempted API level 37 because AGP 9.4 supports that maximum API level. Real GitHub Actions validation proved that the configured stable SDK repository did not expose `platforms;android-37`; the installation failed before Gradle execution.
+The initial Stage 0 draft attempted API level 37 because AGP 9.4 supports that maximum API level. Real GitHub Actions validation proved that the configured stable SDK repository did not expose `platforms;android-37`; installation failed before Gradle execution.
 
-The repository therefore uses Android 16 / API level 36 as the current stable compile and target SDK baseline. This matches the stable Android SDK platform and the current Google Play target API requirement while keeping the correction limited to the verified tooling issue.
+The repository therefore uses Android 16 / API level 36 as the current stable compile and target SDK baseline.
+
+A subsequent CI run proved that Compose BOM `2026.08.00` resolves core Compose artifacts at 1.12.0, whose AAR metadata requires compile SDK 37 or later. The baseline was therefore pinned to the stable April 2026 Compose release (`2026.04.01`, core Compose 1.11) and Activity Compose 1.11.0, both aligned with the API 36 build baseline.
 
 ## Gradle wrapper status
 

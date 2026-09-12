@@ -21,7 +21,8 @@ Do not copy, port, reconstruct, mechanically adapt, or use implementation materi
 The initial repository bootstrap uses:
 
 - Kotlin 2.4.20
-- Jetpack Compose
+- Jetpack Compose, pinned through BOM `2026.04.01`
+- Activity Compose 1.11.0
 - Material 3 as Android UI infrastructure, with an OwnPlay design system to be implemented above Material defaults
 - Android Gradle Plugin 9.4.0
 - Gradle 9.6.0 in CI
@@ -29,9 +30,8 @@ The initial repository bootstrap uses:
 - `minSdk 26`
 - `compileSdk 36`
 - `targetSdk 36`
-- Compose BOM `2026.08.00`
 
-Android 16 / API level 36 is the current stable Stage 0 SDK baseline. API level 37 remains within AGP 9.4's supported maximum, but real CI validation showed that `platforms;android-37` was not available from the configured stable SDK repository, so it is not used as the build baseline.
+Android 16 / API level 36 is the current stable Stage 0 SDK baseline. API level 37 remains within AGP 9.4's supported maximum, but real CI validation showed that `platforms;android-37` was not available from the configured stable SDK repository. Compose BOM `2026.08.00` was also rejected by AAR metadata because its Compose 1.12 artifacts require compile SDK 37+, so the bootstrap uses the stable Compose 1.11 line compatible with the API 36 baseline.
 
 Later product stages add Media3 / ExoPlayer, Room, DataStore, WorkManager, OkHttp, coroutines, Flow, source integrations, playback, downloads, and persistence according to the approved project contracts.
 
@@ -39,7 +39,7 @@ Later product stages add Media3 / ExoPlayer, Room, DataStore, WorkManager, OkHtt
 
 Routine engineering is source-only / NO APK.
 
-The repository validation workflow compiles Kotlin, runs unit tests, runs Android lint, compiles Android-test sources, and fails if an APK is produced.
+The repository validation workflow compiles Kotlin, runs unit tests, runs Android lint, compiles Android-test sources, and always verifies that no APK file was produced, including when an earlier validation step fails.
 
 CI pins Gradle 9.6.0 directly. The standard Gradle wrapper binary remains a Stage 0 tooling item and is not synthesized or copied from an unverified source.
 
