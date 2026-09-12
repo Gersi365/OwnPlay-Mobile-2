@@ -42,7 +42,7 @@ jobs:
       - name: Guard Stage 22 source scope
         shell: bash
         run: |
-          mapfile -t changed < <(git diff --name-only | sort)
+          mapfile -t changed < <({ git diff --name-only; git ls-files --others --exclude-standard; } | sort -u)
           printf '%s\n' "${changed[@]}"
           expected=(
             app/src/main/java/app/ownplay/mobile/feature/library/data/LibraryPlaybackLocator.kt
