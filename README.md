@@ -18,35 +18,55 @@ Do not copy, port, reconstruct, mechanically adapt, or use implementation materi
 
 ## Engineering baseline
 
-The approved implementation baseline is:
+The initial repository bootstrap uses:
 
-- Kotlin
+- Kotlin 2.4.20
 - Jetpack Compose
-- Material 3 as Android UI infrastructure, with an OwnPlay design system above Material defaults
-- Android Media3 / ExoPlayer for playback
-- Room for structured persistence
-- DataStore for preferences
-- WorkManager for background work
-- OkHttp for networking
-- Kotlin coroutines and Flow
+- Material 3 as Android UI infrastructure, with an OwnPlay design system to be implemented above Material defaults
+- Android Gradle Plugin 9.4.0
+- Gradle 9.6.0 in CI
+- JDK 17
 - `minSdk 26`
+- `compileSdk 37`
+- `targetSdk 37`
+- Compose BOM `2026.08.00`
 
-Exact dependency and compile/target SDK versions are resolved during repository bootstrap and validated against the project build.
+Later product stages add Media3 / ExoPlayer, Room, DataStore, WorkManager, OkHttp, coroutines, Flow, source integrations, playback, downloads, and persistence according to the approved project contracts.
+
+## Bootstrap validation
+
+Routine engineering is source-only / NO APK.
+
+The repository validation workflow compiles Kotlin, runs unit tests, runs Android lint, compiles Android-test sources, and fails if an APK is produced.
+
+CI pins Gradle 9.6.0 directly. The standard Gradle wrapper binary remains a Stage 0 tooling item and is not synthesized or copied from an unverified source.
 
 ## Visual direction
 
-OwnPlay is dark, cinematic, media-first, artwork-led, low-noise, and touch-friendly. The user-approved project images are the primary visual source of truth. The implementation must not silently fall back to generic Material or legacy IPTV utility layouts.
+OwnPlay is dark, cinematic, media-first, artwork-led, low-noise, and touch-friendly. The user-approved project images are the primary visual source of truth. The current bootstrap activity is only a compilation/runtime baseline and is not a visually accepted screen.
 
 ## Engineering guardrails
 
-- One playback controller/player and one active video target.
+- One playback controller/player and one active video target when playback is introduced.
 - Provider refresh must preserve supported local personalization.
 - Credentials must not be persisted in plaintext Room data or emitted to logs/backups.
 - Room starts at schema version 1 for this new application.
-- Routine engineering is source-only / NO APK.
 - QA APK generation, merge, release, deployment, signing changes, destructive migrations, history rewrites, and other restricted operations require explicit user approval.
 - Source validation is valid only for the exact final Git HEAD being reported.
 
 ## Repository structure
 
-The Android project and validation workflow are added in the repository bootstrap stage. Feature code is organized around the OwnPlay product domains rather than inherited legacy package structures.
+```text
+.
+├── .github/workflows/android-validation-no-apk.yml
+├── app/
+│   ├── build.gradle.kts
+│   └── src/
+│       ├── main/
+│       └── test/
+├── docs/BUILD_BASELINE.md
+├── build.gradle.kts
+├── gradle.properties
+├── settings.gradle.kts
+└── README.md
+```
