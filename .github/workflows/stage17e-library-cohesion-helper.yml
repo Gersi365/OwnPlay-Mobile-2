@@ -1,0 +1,97 @@
+name: Stage 17E Library cohesion helper
+
+on:
+  push:
+    branches:
+      - stage17e-library-cohesion-helper
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    env:
+      BASE_SHA: ff0d9f5dadaf566abe9b0756f157edad25ba8205
+      TARGET_BRANCH: stage-17e-library-cohesion-polish
+    steps:
+      - name: Checkout helper fragments
+        uses: actions/checkout@v4
+        with:
+          ref: stage17e-library-cohesion-helper
+          fetch-depth: 1
+
+      - name: Reconstruct patch helper
+        shell: bash
+        run: |
+          cat .github/helpers/stage17e_patch_b64_*.txt | tr -d '\n' | base64 -d > /tmp/stage17e_patch.py
+          python3 -m py_compile /tmp/stage17e_patch.py
+
+      - name: Checkout exact Stage 17D base
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.BASE_SHA }}
+          fetch-depth: 0
+          clean: true
+
+      - name: Verify exact base
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "$BASE_SHA"
+          test -z "$(git status --porcelain)"
+
+      - name: Apply bounded Library cohesion patch
+        shell: bash
+        run: python3 /tmp/stage17e_patch.py
+
+      - name: Verify bounded source diff
+        shell: bash
+        run: |
+          git diff --check
+          actual="$(git diff --name-only | sort)"
+          expected="$(printf '%s\n' \
+            app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryActions.kt \
+            app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryShell.kt | sort)"
+          test "$actual" = "$expected"
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK 36
+        shell: bash
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Set up Gradle 9.6.0
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.6.0'
+          cache-read-only: true
+
+      - name: Validate source without APK generation
+        shell: bash
+        run: bash tools/validate-source-no-apk.sh
+
+      - name: Verify no APK or AAB
+        shell: bash
+        run: |
+          test -z "$(find . -type f \( -name '*.apk' -o -name '*.aab' \) -print -quit)"
+
+      - name: Commit and push Stage 17E source
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config user.name "Gersi365"
+          git config user.email "Gersi365@outlook.com"
+          git add \
+            app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryActions.kt \
+            app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryShell.kt
+          git commit -m "Polish final Library cohesion"
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/Gersi365/OwnPlay-Mobile-2.git"
+          git push origin "HEAD:refs/heads/$TARGET_BRANCH"
