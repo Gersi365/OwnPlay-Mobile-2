@@ -175,6 +175,12 @@ class LibraryRepositoryImpl(
                 providerStreamId = movie.providerStreamId,
                 extension = movie.extension,
             )
+            val fallbackUri = LibraryPlaybackLocator.movieFallbackUri(
+                baseUrl = source.baseLocator,
+                credential = credential,
+                providerStreamId = movie.providerStreamId,
+                extension = movie.extension,
+            ).takeUnless { it == uri }
             LibraryPlaybackResolution.Success(
                 ResolvedLibraryPlayback(
                     sourceId = movie.sourceId,
@@ -184,6 +190,8 @@ class LibraryRepositoryImpl(
                     subtitle = "Movie",
                     uri = uri,
                     streamFormat = LibraryPlaybackLocator.streamFormatFor(uri),
+                    fallbackUri = fallbackUri,
+                    fallbackStreamFormat = fallbackUri?.let(LibraryPlaybackLocator::streamFormatFor),
                     start = LibraryStartPolicy.resolve(startMode, progress?.positionMs),
                     knownDurationMs = progress?.durationMs,
                 ),
@@ -225,6 +233,12 @@ class LibraryRepositoryImpl(
                 providerEpisodeId = episode.providerEpisodeId,
                 extension = episode.extension,
             )
+            val fallbackUri = LibraryPlaybackLocator.episodeFallbackUri(
+                baseUrl = source.baseLocator,
+                credential = credential,
+                providerEpisodeId = episode.providerEpisodeId,
+                extension = episode.extension,
+            ).takeUnless { it == uri }
             LibraryPlaybackResolution.Success(
                 ResolvedLibraryPlayback(
                     sourceId = episode.sourceId,
@@ -234,6 +248,8 @@ class LibraryRepositoryImpl(
                     subtitle = "${episode.seriesName} • S${episode.seasonNumber} E${episode.episodeNumber}",
                     uri = uri,
                     streamFormat = LibraryPlaybackLocator.streamFormatFor(uri),
+                    fallbackUri = fallbackUri,
+                    fallbackStreamFormat = fallbackUri?.let(LibraryPlaybackLocator::streamFormatFor),
                     start = LibraryStartPolicy.resolve(startMode, resumePosition),
                     knownDurationMs = knownDuration,
                 ),

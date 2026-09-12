@@ -113,6 +113,7 @@ fun LibraryShell(
     val downloadsFlow = remember(downloadRepository) { downloadRepository.observeDownloads() }
     val catalog by catalogFlow.collectAsState(initial = null)
     val downloads by downloadsFlow.collectAsState(initial = emptyList())
+    val playbackState by playbackController.state.collectAsState()
     val downloadsByContent = remember(downloads) {
         downloads.associateBy { item ->
             DownloadContentKey(item.sourceId, item.mediaKind, item.contentId)
@@ -127,6 +128,8 @@ fun LibraryShell(
     var detailError by remember { mutableStateOf<String?>(null) }
     var resolutionError by remember { mutableStateOf<String?>(null) }
     var activePlayback by remember { mutableStateOf<ResolvedLibraryPlayback?>(null) }
+    var fallbackLoadRequest by remember { mutableStateOf<PlaybackLoadRequest?>(null) }
+    var fallbackEligible by remember { mutableStateOf(false) }
 
     val selectedMovie = catalog?.movies?.firstOrNull { it.movieId == selectedMovieId }
     val selectedSeries = catalog?.series?.firstOrNull { it.seriesId == selectedSeriesId }
@@ -137,13 +140,19 @@ fun LibraryShell(
     fun acceptResolution(resolved: LibraryPlaybackResolution) {
         when (resolved) {
             is LibraryPlaybackResolution.Success -> {
+                fallbackLoadRequest = resolved.value.toFallbackLoadRequest()
+                fallbackEligible = fallbackLoadRequest != null
                 scope.launch {
                     playbackController.load(resolved.value.toLoadRequest())
                     activePlayback = resolved.value
                 }
             }
 
-            is LibraryPlaybackResolution.Failure -> resolutionError = resolved.safeMessage
+            is LibraryPlaybackResolution.Failure -> {
+                fallbackLoadRequest = null
+                fallbackEligible = false
+                resolutionError = resolved.safeMessage
+            }
         }
     }
 
@@ -242,6 +251,27 @@ fun LibraryShell(
         onFullscreenChanged(activePlayback != null)
     }
 
+    LaunchedEffect(
+        activePlayback?.contentId,
+        playbackState.mediaId,
+        playbackState.phase,
+        fallbackEligible,
+        fallbackLoadRequest,
+    ) {
+        val active = activePlayback ?: return@LaunchedEffect
+        if (playbackState.mediaId != active.contentId) return@LaunchedEffect
+        if (playbackState.phase == PlaybackPhase.READY) {
+            fallbackEligible = false
+            return@LaunchedEffect
+        }
+        if (playbackState.phase == PlaybackPhase.ERROR && fallbackEligible) {
+            val fallback = fallbackLoadRequest ?: return@LaunchedEffect
+            fallbackEligible = false
+            fallbackLoadRequest = null
+            playbackController.load(fallback)
+        }
+    }
+
     DisposableEffect(Unit) {
         onDispose { onFullscreenChanged(false) }
     }
@@ -264,6 +294,8 @@ fun LibraryShell(
             playbackController = playbackController,
             onClose = {
                 activePlayback = null
+                fallbackLoadRequest = null
+                fallbackEligible = false
                 resolutionError = null
             },
             modifier = modifier,
@@ -1782,6 +1814,24 @@ private fun ResolvedLibraryPlayback.toLoadRequest(): PlaybackLoadRequest = Playb
     ),
     start = start,
 )
+
+private fun ResolvedLibraryPlayback.toFallbackLoadRequest(): PlaybackLoadRequest? {
+    val alternateUri = fallbackUri ?: return null
+    return PlaybackLoadRequest(
+        media = PlaybackMedia(
+            id = contentId,
+            uri = alternateUri,
+            title = title,
+            kind = when {
+                offline -> PlaybackKind.OFFLINE
+                mediaKind == LibraryMediaKind.MOVIE -> PlaybackKind.MOVIE
+                else -> PlaybackKind.EPISODE
+            },
+            streamFormat = fallbackStreamFormat ?: streamFormat,
+        ),
+        start = start,
+    )
+}
 
 private fun compactLibraryCount(count: Int): String = when {
     count >= 1_000_000 -> {
