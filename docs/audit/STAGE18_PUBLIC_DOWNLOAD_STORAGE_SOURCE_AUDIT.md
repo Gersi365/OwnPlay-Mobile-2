@@ -1,6 +1,6 @@
 # Stage 18 — Public Download Storage Source Audit
 
-Status: SOURCE_IMPLEMENTATION_PENDING_VALIDATION
+Status: SOURCE_IMPLEMENTATION_COMPLETE
 
 Authorized requirement: downloaded media must be visible under the device public Download folder in `OwnPlay Downloads`, with deterministic hierarchy. If the folder hierarchy does not exist, OwnPlay creates it.
 
@@ -9,7 +9,7 @@ Source base: `9c3439ae82d6313df7227e327ee490cef4b64d18` (Stage 17E).
 ## Implemented hierarchy
 
 - Movies: `Download/OwnPlay Downloads/Movies/<Movie Title>/<Movie Title>.<ext>`
-- Series episodes: `Download/OwnPlay Downloads/Series/<Series Title>/Season NN/SNNE NN - <Episode Title>.<ext>` where the concrete filename form is `S01E03 - Episode Title.ext`.
+- Series episodes: `Download/OwnPlay Downloads/Series/<Series Title>/Season NN/SxxExx - <Episode Title>.<ext>`; for example, `S01E03 - Episode Title.ext`.
 
 Path components are sanitized, whitespace is normalized, traversal/path separators are removed, and extension handling is deterministic.
 
