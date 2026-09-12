@@ -52,6 +52,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import app.ownplay.mobile.design.OwnPlayColors
 import app.ownplay.mobile.design.OwnPlayFilterChip
+import app.ownplay.mobile.design.OwnPlaySearchField
 import app.ownplay.mobile.design.OwnPlaySectionHeader
 import app.ownplay.mobile.design.OwnPlayShapeTokens
 import app.ownplay.mobile.design.OwnPlaySpacing
@@ -116,6 +117,8 @@ fun LiveShell(
     var fallbackLoadRequest by remember { mutableStateOf<PlaybackLoadRequest?>(null) }
     var waitingForInitialChannels by remember(catalog?.activeSourceId) { mutableStateOf(false) }
     var orientationFullscreenArmed by remember { mutableStateOf(true) }
+    var searchVisible by remember(catalog?.activeSourceId) { mutableStateOf(false) }
+    var searchQuery by remember(catalog?.activeSourceId) { mutableStateOf("") }
 
     fun applyEffect(effect: LiveEffect) {
         when (effect) {
@@ -179,9 +182,17 @@ fun LiveShell(
     val categories = LiveBrowsePolicy.visibleCategories(rawCategories)
     var selectedCategoryKey by remember(catalog?.activeSourceId) { mutableStateOf<String?>(null) }
     val activeCategoryKey = LiveBrowsePolicy.activeCategoryKey(categories, selectedCategoryKey)
-    val visibleChannels = activeCategoryKey?.let { key ->
+    val normalizedSearchQuery = searchQuery.trim()
+    val searchActive = normalizedSearchQuery.isNotEmpty()
+    val categoryChannels = activeCategoryKey?.let { key ->
         channels.filter { channel -> channel.categoryKey == key }
     } ?: channels
+    val visibleChannels = if (searchActive) {
+        channels.filter { channel -> channel.name.contains(normalizedSearchQuery, ignoreCase = true) }
+    } else {
+        categoryChannels
+    }
+    val showCategories = categories.isNotEmpty() && !searchActive
     val selectedChannel = channels.firstOrNull { it.channelId == presentationState.selectedChannelId }
     val selectedGuide = rememberLiveGuide(liveRepository, selectedChannel?.channelId)
     val audioCompatibilityMessage = when {
@@ -309,6 +320,14 @@ fun LiveShell(
             categories = categories,
             liveRepository = liveRepository,
             selectedCategoryKey = activeCategoryKey,
+            searchVisible = searchVisible,
+            searchQuery = searchQuery,
+            showCategories = showCategories,
+            onSearchToggle = {
+                searchVisible = !searchVisible
+                if (!searchVisible) searchQuery = ""
+            },
+            onSearchQueryChange = { searchQuery = it },
             onCategorySelected = { categoryKey ->
                 selectedCategoryKey = categoryKey
                 if (
@@ -341,6 +360,11 @@ private fun LiveBrowseAndPreview(
     categories: List<LiveCategory>,
     liveRepository: LiveRepository,
     selectedCategoryKey: String?,
+    searchVisible: Boolean,
+    searchQuery: String,
+    showCategories: Boolean,
+    onSearchToggle: () -> Unit,
+    onSearchQueryChange: (String) -> Unit,
     onCategorySelected: (String?) -> Unit,
     selectedChannel: LiveChannel?,
     playbackController: PlaybackController,
@@ -359,7 +383,7 @@ private fun LiveBrowseAndPreview(
         val selectedIndex = channels.indexOfFirst { it.channelId == selectedId }
         if (selectedIndex < 0) return@LaunchedEffect
 
-        val fixedItemsBeforeChannels = 2 + if (categories.isNotEmpty()) 1 else 0
+        val fixedItemsBeforeChannels = 2 + if (showCategories) 1 else 0
         val previewItemIndex = fixedItemsBeforeChannels + selectedIndex
         repeat(4) {
             if (listState.layoutInfo.totalItemsCount > previewItemIndex) {
@@ -374,18 +398,41 @@ private fun LiveBrowseAndPreview(
         modifier = modifier.fillMaxSize(),
         state = listState,
     ) {
-        item { OwnPlayTopBar(showTagline = false) }
+        item {
+            OwnPlayTopBar(
+                showTagline = false,
+                onSearchClick = onSearchToggle,
+            )
+        }
 
         item {
-            Box(modifier = Modifier.padding(horizontal = OwnPlaySpacing.Lg)) {
+            Column(
+                modifier = Modifier.padding(horizontal = OwnPlaySpacing.Lg),
+                verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Xs),
+            ) {
                 OwnPlaySectionHeader(
                     title = "Live",
-                    actionLabel = catalog?.channels?.size?.takeIf { it > 0 }?.let { "$it channels" },
+                    actionLabel = if (searchQuery.isNotBlank()) {
+                        "${channels.size} matches"
+                    } else {
+                        catalog?.channels?.size?.takeIf { it > 0 }?.let { "$it channels" }
+                    },
                 )
+                if (searchVisible) {
+                    OwnPlaySearchField(
+                        query = searchQuery,
+                        onQueryChange = onSearchQueryChange,
+                        onClose = {
+                            onSearchQueryChange("")
+                            onSearchToggle()
+                        },
+                        placeholder = "Search channels",
+                    )
+                }
             }
         }
 
-        if (categories.isNotEmpty()) {
+        if (showCategories) {
             item {
                 LiveCategoryStrip(
                     categories = categories,
@@ -435,8 +482,12 @@ private fun LiveBrowseAndPreview(
             channels.isEmpty() -> item {
                 Box(modifier = Modifier.padding(horizontal = OwnPlaySpacing.Lg, vertical = OwnPlaySpacing.Sm)) {
                     OwnPlayStatePanel(
-                        title = "No channels in this category",
-                        message = "Choose another provider category.",
+                        title = if (searchQuery.isNotBlank()) "No channel matches" else "No channels in this category",
+                        message = if (searchQuery.isNotBlank()) {
+                            "Try another channel name or close search to browse categories."
+                        } else {
+                            "Choose another provider category."
+                        },
                     )
                 }
             }

@@ -3,6 +3,7 @@ package app.ownplay.mobile.design
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,11 +19,15 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -61,6 +66,8 @@ fun OwnPlayWordmark(
 fun OwnPlayTopBar(
     modifier: Modifier = Modifier,
     showTagline: Boolean = true,
+    onSearchClick: (() -> Unit)? = null,
+    onMenuClick: (() -> Unit)? = null,
 ) {
     Row(
         modifier = modifier
@@ -72,9 +79,21 @@ fun OwnPlayTopBar(
             modifier = Modifier.weight(1f),
             showTagline = showTagline,
         )
-        TopActionGlyph(kind = TopActionKind.Search)
-        Spacer(modifier = Modifier.width(OwnPlaySpacing.Xs))
-        TopActionGlyph(kind = TopActionKind.Menu)
+        onSearchClick?.let { action ->
+            TopActionGlyph(
+                kind = TopActionKind.Search,
+                contentDescription = "Search",
+                onClick = action,
+            )
+        }
+        onMenuClick?.let { action ->
+            Spacer(modifier = Modifier.width(OwnPlaySpacing.Xs))
+            TopActionGlyph(
+                kind = TopActionKind.Menu,
+                contentDescription = "More options",
+                onClick = action,
+            )
+        }
     }
 }
 
@@ -126,7 +145,7 @@ fun OwnPlayPrimaryButton(
 ) {
     Surface(
         onClick = onClick,
-        modifier = modifier.heightIn(min = 44.dp),
+        modifier = modifier.heightIn(min = 48.dp),
         shape = OwnPlayShapeTokens.Action,
         color = OwnPlayColors.AccentStrong,
         tonalElevation = 0.dp,
@@ -153,7 +172,7 @@ fun OwnPlaySecondaryButton(
 ) {
     Surface(
         onClick = onClick,
-        modifier = modifier.heightIn(min = 44.dp),
+        modifier = modifier.heightIn(min = 48.dp),
         shape = OwnPlayShapeTokens.Action,
         color = OwnPlayColors.SurfaceElevated,
         border = BorderStroke(1.dp, OwnPlayColors.Divider.copy(alpha = 0.82f)),
@@ -182,7 +201,7 @@ fun OwnPlayFilterChip(
 ) {
     Surface(
         onClick = onClick,
-        modifier = modifier.heightIn(min = 44.dp),
+        modifier = modifier.heightIn(min = 48.dp),
         shape = OwnPlayShapeTokens.Small,
         color = if (selected) OwnPlayColors.Accent.copy(alpha = 0.10f) else Color.Transparent,
         tonalElevation = 0.dp,
@@ -297,14 +316,29 @@ private enum class TopActionKind {
 }
 
 @Composable
-private fun TopActionGlyph(kind: TopActionKind) {
+private fun TopActionGlyph(
+    kind: TopActionKind,
+    contentDescription: String,
+    onClick: () -> Unit,
+) {
+    val interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
     Box(
         modifier = Modifier
-            .size(40.dp)
-            .clearAndSetSemantics { },
+            .size(48.dp)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                role = Role.Button,
+                onClick = onClick,
+            )
+            .semantics { this.contentDescription = contentDescription },
         contentAlignment = Alignment.Center,
     ) {
-        Canvas(modifier = Modifier.size(22.dp)) {
+        Canvas(
+            modifier = Modifier
+                .size(22.dp)
+                .clearAndSetSemantics { },
+        ) {
             val strokeWidth = 1.8.dp.toPx()
             when (kind) {
                 TopActionKind.Search -> {
