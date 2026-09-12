@@ -51,7 +51,10 @@ jobs:
           app/src/test/java/app/ownplay/mobile/downloads/data/DownloadDestinationPolicyTest.kt
           docs/audit/STAGE20_PERFORMANCE_DOWNLOAD_ROBUSTNESS_SOURCE_AUDIT.md
           EOF
-          git diff --name-only "$BASE_SHA" | sort > /tmp/actual-files
+          {
+            git diff --name-only "$BASE_SHA"
+            git ls-files --others --exclude-standard
+          } | sort -u > /tmp/actual-files
           sort /tmp/expected-files -o /tmp/expected-files
           diff -u /tmp/expected-files /tmp/actual-files
 
