@@ -6,11 +6,13 @@ internal data class DownloadDestination(
     val relativeDirectory: String,
     val displayName: String,
     val mimeType: String,
+    val collisionSuffix: String,
 )
 
 internal object DownloadDestinationPolicy {
     fun movie(
         title: String,
+        identityKey: String,
         extension: String?,
     ): DownloadDestination {
         val safeTitle = safeComponent(title)
@@ -19,6 +21,7 @@ internal object DownloadDestinationPolicy {
             relativeDirectory = "$ROOT_DIRECTORY/Movies/$safeTitle",
             displayName = "$safeTitle.$safeExtension",
             mimeType = mimeTypeFor(safeExtension),
+            collisionSuffix = stableSuffix(identityKey),
         )
     }
 
@@ -27,6 +30,7 @@ internal object DownloadDestinationPolicy {
         seasonNumber: Int,
         episodeNumber: Int,
         episodeTitle: String,
+        identityKey: String,
         extension: String?,
     ): DownloadDestination {
         val safeSeriesTitle = safeComponent(seriesTitle)
@@ -38,7 +42,31 @@ internal object DownloadDestinationPolicy {
             relativeDirectory = "$ROOT_DIRECTORY/Series/$safeSeriesTitle/$seasonLabel",
             displayName = "$episodeLabel - $safeEpisodeTitle.$safeExtension",
             mimeType = mimeTypeFor(safeExtension),
+            collisionSuffix = stableSuffix(identityKey),
         )
+    }
+
+    fun collisionDisplayName(
+        destination: DownloadDestination,
+        ordinal: Int,
+    ): String {
+        require(ordinal >= 1)
+        val extension = destination.displayName.substringAfterLast('.', missingDelimiterValue = "")
+        val stem = if (extension.isBlank()) {
+            destination.displayName
+        } else {
+            destination.displayName.removeSuffix(".$extension")
+        }
+        val suffix = if (ordinal == 1) {
+            destination.collisionSuffix
+        } else {
+            "${destination.collisionSuffix}-$ordinal"
+        }
+        return if (extension.isBlank()) {
+            "$stem - $suffix"
+        } else {
+            "$stem - $suffix.$extension"
+        }
     }
 
     fun extensionFromUri(uri: String): String? {
@@ -50,6 +78,11 @@ internal object DownloadDestinationPolicy {
                 candidate.length <= MAX_EXTENSION_LENGTH &&
                 candidate.all { character -> character.isLetterOrDigit() }
         }
+    }
+
+    private fun stableSuffix(identityKey: String): String {
+        val hash = identityKey.hashCode().toUInt().toString(16).padStart(8, '0')
+        return hash.takeLast(COLLISION_SUFFIX_LENGTH)
     }
 
     private fun safeComponent(value: String): String {
@@ -101,4 +134,5 @@ internal object DownloadDestinationPolicy {
     private const val FALLBACK_EXTENSION = "media"
     private const val MAX_COMPONENT_LENGTH = 96
     private const val MAX_EXTENSION_LENGTH = 8
+    private const val COLLISION_SUFFIX_LENGTH = 8
 }

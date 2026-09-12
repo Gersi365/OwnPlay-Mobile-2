@@ -332,6 +332,16 @@ interface LibraryDao {
 
     @Query(
         """
+        SELECT * FROM playback_progress
+        WHERE completed = 0
+          AND positionMs > 0
+        ORDER BY updatedAt DESC, sourceId ASC, mediaKind ASC, contentId ASC
+        """,
+    )
+    fun observeAllIncompleteProgress(): Flow<List<PlaybackProgressEntity>>
+
+    @Query(
+        """
         SELECT * FROM downloads
         WHERE sourceId = :sourceId
           AND state = 'COMPLETED'
@@ -433,6 +443,14 @@ interface LibraryDao {
 
 @Dao
 interface DownloadDao {
+    @Query(
+        """
+        SELECT * FROM downloads
+        ORDER BY createdAt DESC, downloadId ASC
+        """,
+    )
+    fun observeAll(): Flow<List<DownloadEntity>>
+
     @Query(
         """
         SELECT * FROM downloads

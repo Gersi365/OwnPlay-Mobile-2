@@ -1,6 +1,5 @@
 package app.ownplay.mobile.feature.library.ui
 
-import android.graphics.BitmapFactory
 import android.view.SurfaceView
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
@@ -46,7 +45,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -54,6 +52,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import app.ownplay.mobile.design.OwnPlayColors
+import app.ownplay.mobile.design.OwnPlayRemoteImageLoader
+import app.ownplay.mobile.design.RemoteImageProfile
 import app.ownplay.mobile.design.OwnPlaySearchField
 import app.ownplay.mobile.design.OwnPlayShapeTokens
 import app.ownplay.mobile.design.OwnPlaySpacing
@@ -94,14 +94,9 @@ import app.ownplay.mobile.playback.ui.PlayerGlassScrims
 import app.ownplay.mobile.playback.ui.PlayerGlassSeekBar
 import app.ownplay.mobile.playback.ui.PlayerLocalControlHudOverlay
 import app.ownplay.mobile.playback.ui.playerLocalVerticalControls
-import java.io.ByteArrayOutputStream
-import java.net.HttpURLConnection
-import java.net.URL
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 @Composable
 fun LibraryShell(
@@ -1278,7 +1273,7 @@ private fun RemoteArtwork(
     contentScale: ContentScale = ContentScale.Crop,
 ) {
     val bitmap by produceState<ImageBitmap?>(initialValue = null, key1 = locator) {
-        value = locator?.takeIf { it.isNotBlank() }?.let { loadLibraryArtwork(it) }
+        value = OwnPlayRemoteImageLoader.load(locator, RemoteImageProfile.ARTWORK)
     }
     if (bitmap != null) {
         Image(
@@ -1291,36 +1286,6 @@ private fun RemoteArtwork(
         Box(modifier = modifier.background(OwnPlayColors.SurfaceElevated))
     }
 }
-
-private suspend fun loadLibraryArtwork(locator: String) = withContext(Dispatchers.IO) {
-    runCatching {
-        val connection = URL(locator).openConnection() as? HttpURLConnection ?: return@runCatching null
-        connection.connectTimeout = 4_000
-        connection.readTimeout = 5_000
-        connection.instanceFollowRedirects = true
-        try {
-            if (connection.responseCode !in 200..299) return@runCatching null
-            val output = ByteArrayOutputStream()
-            connection.inputStream.use { input ->
-                val buffer = ByteArray(8_192)
-                var total = 0
-                while (true) {
-                    val count = input.read(buffer)
-                    if (count <= 0) break
-                    total += count
-                    if (total > MAX_LIBRARY_ARTWORK_BYTES) return@runCatching null
-                    output.write(buffer, 0, count)
-                }
-            }
-            val bytes = output.toByteArray()
-            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
-        } finally {
-            connection.disconnect()
-        }
-    }.getOrNull()
-}
-
-private const val MAX_LIBRARY_ARTWORK_BYTES = 4 * 1024 * 1024
 
 @Composable
 private fun SeasonStrip(

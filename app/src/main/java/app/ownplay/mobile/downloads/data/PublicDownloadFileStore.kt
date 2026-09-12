@@ -7,6 +7,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
+import android.provider.BaseColumns
 import android.provider.MediaStore
 import androidx.annotation.RequiresApi
 import androidx.core.content.ContextCompat
@@ -109,8 +110,9 @@ internal class PublicDownloadFileStore(context: Context) {
             append(destination.relativeDirectory)
             append('/')
         }
+        val displayName = firstAvailableScopedDisplayName(relativePath, destination)
         val values = ContentValues().apply {
-            put(MediaStore.MediaColumns.DISPLAY_NAME, destination.displayName)
+            put(MediaStore.MediaColumns.DISPLAY_NAME, displayName)
             put(MediaStore.MediaColumns.MIME_TYPE, destination.mimeType)
             put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath)
             put(MediaStore.MediaColumns.IS_PENDING, 1)
@@ -160,8 +162,8 @@ internal class PublicDownloadFileStore(context: Context) {
         if (!destinationDirectory.exists() && !destinationDirectory.mkdirs()) {
             throw IOException("Unable to create OwnPlay Downloads hierarchy")
         }
-        val finalFile = File(destinationDirectory, destination.displayName)
-        val temporaryFile = File(destinationDirectory, ".${destination.displayName}.ownplay-part")
+        val finalFile = firstAvailableLegacyFile(destinationDirectory, destination)
+        val temporaryFile = File(destinationDirectory, ".${finalFile.name}.ownplay-part")
 
         if (temporaryFile.exists() && !temporaryFile.delete()) {
             throw IOException("Unable to replace legacy download staging file")
@@ -171,13 +173,9 @@ internal class PublicDownloadFileStore(context: Context) {
             temporaryFile.delete()
             throw IOException("Legacy public Download integrity verification failed")
         }
-        if (finalFile.exists() && !finalFile.delete()) {
-            temporaryFile.delete()
-            throw IOException("Unable to replace legacy public Download item")
-        }
         if (!temporaryFile.renameTo(finalFile)) {
             try {
-                temporaryFile.copyTo(finalFile, overwrite = true)
+                temporaryFile.copyTo(finalFile, overwrite = false)
                 if (!temporaryFile.delete()) {
                     finalFile.delete()
                     throw IOException("Unable to finalize legacy public Download item")
@@ -194,9 +192,58 @@ internal class PublicDownloadFileStore(context: Context) {
         return Uri.fromFile(finalFile).toString()
     }
 
+    @RequiresApi(Build.VERSION_CODES.Q)
+    private fun firstAvailableScopedDisplayName(
+        relativePath: String,
+        destination: DownloadDestination,
+    ): String {
+        for (ordinal in 0 until MAX_COLLISION_ATTEMPTS) {
+            val candidate = if (ordinal == 0) {
+                destination.displayName
+            } else {
+                DownloadDestinationPolicy.collisionDisplayName(destination, ordinal)
+            }
+            if (!scopedItemExists(relativePath, candidate)) {
+                return candidate
+            }
+        }
+        throw IOException("Unable to allocate a unique OwnPlay Download name")
+    }
+
+    @RequiresApi(Build.VERSION_CODES.Q)
+    private fun scopedItemExists(
+        relativePath: String,
+        displayName: String,
+    ): Boolean {
+        return contentResolver.query(
+            MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+            arrayOf(BaseColumns._ID),
+            "${MediaStore.MediaColumns.RELATIVE_PATH} = ? AND ${MediaStore.MediaColumns.DISPLAY_NAME} = ?",
+            arrayOf(relativePath, displayName),
+            null,
+        )?.use { cursor -> cursor.moveToFirst() } ?: false
+    }
+
+    private fun firstAvailableLegacyFile(
+        directory: File,
+        destination: DownloadDestination,
+    ): File {
+        for (ordinal in 0 until MAX_COLLISION_ATTEMPTS) {
+            val displayName = if (ordinal == 0) {
+                destination.displayName
+            } else {
+                DownloadDestinationPolicy.collisionDisplayName(destination, ordinal)
+            }
+            val candidate = File(directory, displayName)
+            if (!candidate.exists()) return candidate
+        }
+        throw IOException("Unable to allocate a unique OwnPlay Download name")
+    }
+
     private companion object {
         const val CONTENT_SCHEME = "content://"
         const val FILE_SCHEME = "file://"
         const val COPY_BUFFER_SIZE = 64 * 1024
+        const val MAX_COLLISION_ATTEMPTS = 1_000
     }
 }
