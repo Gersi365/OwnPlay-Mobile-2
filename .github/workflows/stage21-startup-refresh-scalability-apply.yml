@@ -1,0 +1,90 @@
+name: Stage 21 startup refresh scalability apply
+
+on:
+  push:
+    branches:
+      - stage-21-startup-refresh-scalability-helper
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      EXPECTED_BASE: ca365683fe2a167ca435533e14a45bb6800f35be
+      TARGET_BRANCH: stage-21-startup-refresh-scalability
+
+    steps:
+      - name: Checkout helper commit
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply deterministic Stage 21 patch to exact target base
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp tools/apply-stage21-startup-refresh-scalability.py /tmp/apply-stage21.py
+          git fetch origin "$TARGET_BRANCH"
+          actual_base="$(git rev-parse "origin/$TARGET_BRANCH")"
+          test "$actual_base" = "$EXPECTED_BASE"
+          git checkout -B "$TARGET_BRANCH" "origin/$TARGET_BRANCH"
+          python3 /tmp/apply-stage21.py
+          git diff --check
+
+          actual_paths="$(git diff --name-only | sort)"
+          expected_paths="$(printf '%s\n' \
+            app/src/main/java/app/ownplay/mobile/feature/library/data/LibraryRepositoryImpl.kt \
+            app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryShell.kt \
+            app/src/main/java/app/ownplay/mobile/feature/live/ui/LiveShell.kt \
+            app/src/main/java/app/ownplay/mobile/sources/data/SourceCatalogLoader.kt \
+            docs/audit/STAGE21_STARTUP_REFRESH_SCALABILITY_SOURCE_AUDIT.md | sort)"
+          test "$actual_paths" = "$expected_paths"
+
+          git config user.name "Gersi365"
+          git config user.email "Gersi365@outlook.com"
+          git add \
+            app/src/main/java/app/ownplay/mobile/feature/library/data/LibraryRepositoryImpl.kt \
+            app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryShell.kt \
+            app/src/main/java/app/ownplay/mobile/feature/live/ui/LiveShell.kt \
+            app/src/main/java/app/ownplay/mobile/sources/data/SourceCatalogLoader.kt \
+            docs/audit/STAGE21_STARTUP_REFRESH_SCALABILITY_SOURCE_AUDIT.md
+          git commit -m "Improve startup refresh and catalog scalability"
+          echo "TARGET_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK 36
+        shell: bash
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Set up Gradle 9.6.0
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.6.0'
+
+      - name: Validate exact local Stage 21 commit without APK generation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          bash tools/validate-source-no-apk.sh
+          if find app/build -type f \( -name '*.apk' -o -name '*.aab' \) -print -quit 2>/dev/null | grep -q .; then
+            echo "Unexpected APK/AAB produced" >&2
+            exit 1
+          fi
+
+      - name: Push validated target commit forward-only
+        shell: bash
+        run: |
+          set -euo pipefail
+          git push origin "HEAD:$TARGET_BRANCH"
