@@ -1,0 +1,761 @@
+name: Stage 17B Library hierarchy polish helper v2
+
+on:
+  push:
+    branches:
+      - stage-17b-library-hierarchy-polish-helper
+    paths:
+      - .github/workflows/stage17b-library-hierarchy-polish-helper-v2.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply-validate-push:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      SOURCE_SHA: 3b9024e9df7a6d92f9595b72cd1d52f7fe32995d
+      TARGET_BRANCH: stage-17b-library-hierarchy-polish
+
+    steps:
+      - name: Checkout exact Stage 17A source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          fetch-depth: 1
+
+      - name: Verify exact baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          test -z "$(git status --porcelain)"
+
+      - name: Apply deterministic Library hierarchy polish
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          from textwrap import dedent
+          import subprocess
+
+          actions = Path("app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryActions.kt")
+          shell = Path("app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryShell.kt")
+
+          def replace_exact(path, old, new, expected=1):
+              text = path.read_text()
+              count = text.count(old)
+              if count != expected:
+                  raise SystemExit(f"{path}: expected {expected}, found {count}: {old!r}")
+              path.write_text(text.replace(old, new))
+
+          replace_exact(
+              actions,
+              'import androidx.compose.foundation.BorderStroke\n',
+              'import androidx.compose.animation.animateColorAsState\nimport androidx.compose.foundation.BorderStroke\n',
+          )
+          replace_exact(
+              actions,
+              'import androidx.compose.foundation.clickable\n',
+              'import androidx.compose.foundation.clickable\nimport androidx.compose.foundation.interaction.MutableInteractionSource\nimport androidx.compose.foundation.interaction.collectIsPressedAsState\n',
+          )
+          replace_exact(
+              actions,
+              'import androidx.compose.runtime.Composable\n',
+              'import androidx.compose.runtime.Composable\nimport androidx.compose.runtime.getValue\nimport androidx.compose.runtime.remember\n',
+          )
+
+          old_action_button = dedent('''\
+          @Composable
+          private fun LibraryActionButton(
+              text: String,
+              onClick: () -> Unit,
+              modifier: Modifier,
+              primary: Boolean,
+              glyph: LibraryActionGlyph?,
+          ) {
+              val contentColor = if (primary) Color.White else OwnPlayColors.TextSecondary
+              Box(
+                  modifier = modifier
+                      .height(48.dp)
+                      .clickable(role = Role.Button, onClick = onClick)
+                      .semantics(mergeDescendants = true) {},
+                  contentAlignment = Alignment.Center,
+              ) {
+                  Surface(
+                      modifier = Modifier
+                          .fillMaxWidth()
+                          .height(40.dp),
+                      shape = OwnPlayShapeTokens.Small,
+                      color = if (primary) OwnPlayColors.AccentStrong else Color.Transparent,
+                      border = null,
+                      tonalElevation = 0.dp,
+                  ) {
+                      Row(
+                          modifier = Modifier
+                              .fillMaxWidth()
+                              .height(40.dp)
+                              .padding(horizontal = if (primary) 14.dp else 8.dp),
+                          horizontalArrangement = Arrangement.Center,
+                          verticalAlignment = Alignment.CenterVertically,
+                      ) {
+                          glyph?.let {
+                              Text(
+                                  text = it.symbol,
+                                  modifier = Modifier.clearAndSetSemantics {},
+                                  style = MaterialTheme.typography.labelMedium,
+                                  color = contentColor,
+                                  fontWeight = FontWeight.Bold,
+                              )
+                              Spacer(modifier = Modifier.width(7.dp))
+                          }
+                          Text(
+                              text = text,
+                              style = MaterialTheme.typography.labelLarge,
+                              color = contentColor,
+                              fontWeight = if (primary) FontWeight.SemiBold else FontWeight.Medium,
+                              maxLines = 1,
+                          )
+                      }
+                  }
+              }
+          }
+          ''')
+          new_action_button = dedent('''\
+          @Composable
+          private fun LibraryActionButton(
+              text: String,
+              onClick: () -> Unit,
+              modifier: Modifier,
+              primary: Boolean,
+              glyph: LibraryActionGlyph?,
+          ) {
+              val interactionSource = remember { MutableInteractionSource() }
+              val isPressed by interactionSource.collectIsPressedAsState()
+              val contentColor = if (primary) Color.White else OwnPlayColors.TextSecondary
+              val containerColor by animateColorAsState(
+                  targetValue = when {
+                      primary && isPressed -> OwnPlayColors.Accent
+                      primary -> OwnPlayColors.AccentStrong
+                      isPressed -> OwnPlayColors.SurfaceElevated.copy(alpha = 0.72f)
+                      else -> Color.Transparent
+                  },
+                  label = "libraryActionContainer",
+              )
+              Box(
+                  modifier = modifier
+                      .height(48.dp)
+                      .clickable(
+                          interactionSource = interactionSource,
+                          indication = null,
+                          role = Role.Button,
+                          onClick = onClick,
+                      )
+                      .semantics(mergeDescendants = true) {},
+                  contentAlignment = Alignment.Center,
+              ) {
+                  Surface(
+                      modifier = Modifier
+                          .fillMaxWidth()
+                          .height(40.dp),
+                      shape = OwnPlayShapeTokens.Small,
+                      color = containerColor,
+                      border = null,
+                      tonalElevation = 0.dp,
+                  ) {
+                      Row(
+                          modifier = Modifier
+                              .fillMaxWidth()
+                              .height(40.dp)
+                              .padding(horizontal = if (primary) 14.dp else 8.dp),
+                          horizontalArrangement = Arrangement.Center,
+                          verticalAlignment = Alignment.CenterVertically,
+                      ) {
+                          glyph?.let {
+                              Text(
+                                  text = it.symbol,
+                                  modifier = Modifier.clearAndSetSemantics {},
+                                  style = MaterialTheme.typography.labelMedium,
+                                  color = contentColor,
+                                  fontWeight = FontWeight.Bold,
+                              )
+                              Spacer(modifier = Modifier.width(7.dp))
+                          }
+                          Text(
+                              text = text,
+                              style = MaterialTheme.typography.labelLarge,
+                              color = contentColor,
+                              fontWeight = if (primary) FontWeight.SemiBold else FontWeight.Medium,
+                              maxLines = 1,
+                          )
+                      }
+                  }
+              }
+          }
+          ''')
+          replace_exact(actions, old_action_button, new_action_button)
+
+          old_icon_action = dedent('''\
+          @Composable
+          internal fun LibraryIconAction(
+              glyph: LibraryActionGlyph,
+              contentDescription: String,
+              onClick: () -> Unit,
+              modifier: Modifier = Modifier,
+              emphasized: Boolean = false,
+              visualSize: Dp = 40.dp,
+          ) {
+              Box(
+                  modifier = modifier
+                      .width(48.dp)
+                      .height(48.dp)
+                      .clickable(role = Role.Button, onClick = onClick)
+                      .semantics { this.contentDescription = contentDescription },
+                  contentAlignment = Alignment.Center,
+              ) {
+                  Surface(
+                      modifier = Modifier
+                          .width(visualSize)
+                          .height(visualSize),
+                      shape = OwnPlayShapeTokens.Action,
+                      color = if (emphasized) OwnPlayColors.AccentStrong else Color.Black.copy(alpha = 0.52f),
+                      border = if (emphasized) null else BorderStroke(1.dp, Color.White.copy(alpha = 0.12f)),
+                      tonalElevation = 0.dp,
+                  ) {
+                      Box(contentAlignment = Alignment.Center) {
+                          Text(
+                              text = glyph.symbol,
+                              modifier = Modifier.clearAndSetSemantics {},
+                              style = MaterialTheme.typography.titleSmall,
+                              color = Color.White,
+                              fontWeight = FontWeight.Bold,
+                          )
+                      }
+                  }
+              }
+          }
+          ''')
+          new_icon_action = dedent('''\
+          @Composable
+          internal fun LibraryIconAction(
+              glyph: LibraryActionGlyph,
+              contentDescription: String,
+              onClick: () -> Unit,
+              modifier: Modifier = Modifier,
+              emphasized: Boolean = false,
+              visualSize: Dp = 40.dp,
+          ) {
+              val interactionSource = remember { MutableInteractionSource() }
+              val isPressed by interactionSource.collectIsPressedAsState()
+              val containerColor by animateColorAsState(
+                  targetValue = when {
+                      emphasized && isPressed -> OwnPlayColors.Accent
+                      emphasized -> OwnPlayColors.AccentStrong
+                      isPressed -> Color.Black.copy(alpha = 0.68f)
+                      else -> Color.Black.copy(alpha = 0.52f)
+                  },
+                  label = "libraryIconContainer",
+              )
+              Box(
+                  modifier = modifier
+                      .width(48.dp)
+                      .height(48.dp)
+                      .clickable(
+                          interactionSource = interactionSource,
+                          indication = null,
+                          role = Role.Button,
+                          onClick = onClick,
+                      )
+                      .semantics { this.contentDescription = contentDescription },
+                  contentAlignment = Alignment.Center,
+              ) {
+                  Surface(
+                      modifier = Modifier
+                          .width(visualSize)
+                          .height(visualSize),
+                      shape = OwnPlayShapeTokens.Action,
+                      color = containerColor,
+                      border = if (emphasized) null else BorderStroke(1.dp, Color.White.copy(alpha = 0.12f)),
+                      tonalElevation = 0.dp,
+                  ) {
+                      Box(contentAlignment = Alignment.Center) {
+                          Text(
+                              text = glyph.symbol,
+                              modifier = Modifier.clearAndSetSemantics {},
+                              style = MaterialTheme.typography.titleSmall,
+                              color = Color.White,
+                              fontWeight = FontWeight.Bold,
+                          )
+                      }
+                  }
+              }
+          }
+          ''')
+          replace_exact(actions, old_icon_action, new_icon_action)
+
+          old_header = dedent('''\
+          @Composable
+          internal fun LibraryShelfHeader(
+              title: String,
+              actionLabel: String? = null,
+              modifier: Modifier = Modifier,
+          ) {
+              Row(
+                  modifier = modifier.fillMaxWidth(),
+                  verticalAlignment = Alignment.Bottom,
+                  horizontalArrangement = Arrangement.spacedBy(OwnPlayShapeHeaderSpacing),
+              ) {
+                  Text(
+                      text = title,
+                      modifier = Modifier.weight(1f),
+                      style = MaterialTheme.typography.titleLarge.copy(fontSize = 20.sp, lineHeight = 24.sp),
+                      color = OwnPlayColors.TextPrimary,
+                      fontWeight = FontWeight.SemiBold,
+                  )
+                  actionLabel?.let {
+                      Text(
+                          text = it,
+                          style = MaterialTheme.typography.labelMedium,
+                          color = OwnPlayColors.TextMuted.copy(alpha = 0.78f),
+                          maxLines = 1,
+                      )
+                  }
+              }
+          }
+          ''')
+          new_header = dedent('''\
+          @Composable
+          internal fun LibraryShelfHeader(
+              title: String,
+              actionLabel: String? = null,
+              modifier: Modifier = Modifier,
+              prominent: Boolean = false,
+          ) {
+              Row(
+                  modifier = modifier.fillMaxWidth(),
+                  verticalAlignment = Alignment.Bottom,
+                  horizontalArrangement = Arrangement.spacedBy(OwnPlayShapeHeaderSpacing),
+              ) {
+                  Text(
+                      text = title,
+                      modifier = Modifier.weight(1f),
+                      style = MaterialTheme.typography.titleLarge.copy(
+                          fontSize = if (prominent) 21.sp else 18.sp,
+                          lineHeight = if (prominent) 25.sp else 22.sp,
+                      ),
+                      color = OwnPlayColors.TextPrimary,
+                      fontWeight = FontWeight.SemiBold,
+                  )
+                  actionLabel?.let {
+                      Text(
+                          text = it,
+                          style = MaterialTheme.typography.labelSmall,
+                          color = OwnPlayColors.TextMuted.copy(alpha = 0.72f),
+                          maxLines = 1,
+                      )
+                  }
+              }
+          }
+
+          @Composable
+          internal fun LibraryShelfState(
+              title: String,
+              message: String,
+              modifier: Modifier = Modifier,
+              loading: Boolean = false,
+          ) {
+              Row(
+                  modifier = modifier
+                      .fillMaxWidth()
+                      .padding(vertical = 6.dp),
+                  horizontalArrangement = Arrangement.spacedBy(10.dp),
+                  verticalAlignment = Alignment.CenterVertically,
+              ) {
+                  Box(
+                      modifier = Modifier
+                          .width(2.dp)
+                          .height(34.dp)
+                          .background(
+                              color = if (loading) {
+                                  OwnPlayColors.Accent.copy(alpha = 0.64f)
+                              } else {
+                                  OwnPlayColors.Divider.copy(alpha = 0.82f)
+                              },
+                              shape = OwnPlayShapeTokens.Small,
+                          ),
+                  )
+                  Column(
+                      modifier = Modifier.weight(1f),
+                      verticalArrangement = Arrangement.spacedBy(2.dp),
+                  ) {
+                      Text(
+                          text = title,
+                          style = MaterialTheme.typography.labelLarge,
+                          color = OwnPlayColors.TextSecondary,
+                          fontWeight = FontWeight.SemiBold,
+                      )
+                      Text(
+                          text = message,
+                          style = MaterialTheme.typography.bodySmall,
+                          color = OwnPlayColors.TextMuted,
+                      )
+                  }
+              }
+          }
+          ''')
+          replace_exact(actions, old_header, new_header)
+
+          old_filter = dedent('''\
+          @Composable
+          internal fun LibraryFilterTab(
+              label: String,
+              selected: Boolean,
+              onClick: () -> Unit,
+              modifier: Modifier = Modifier,
+          ) {
+              Box(
+                  modifier = modifier
+                      .height(48.dp)
+                      .clickable(role = Role.Tab, onClick = onClick)
+                      .semantics { this.selected = selected },
+                  contentAlignment = Alignment.Center,
+              ) {
+                  Column(
+                      horizontalAlignment = Alignment.CenterHorizontally,
+                      verticalArrangement = Arrangement.Center,
+                  ) {
+                      Text(
+                          text = label,
+                          modifier = Modifier.padding(horizontal = 6.dp),
+                          style = MaterialTheme.typography.labelLarge,
+                          color = if (selected) OwnPlayColors.Accent else OwnPlayColors.TextMuted,
+                          fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                          maxLines = 1,
+                      )
+                      Spacer(modifier = Modifier.height(3.dp))
+                      Box(
+                          modifier = Modifier
+                              .width(if (selected) 20.dp else 1.dp)
+                              .height(2.dp)
+                              .background(
+                                  color = if (selected) OwnPlayColors.Accent else Color.Transparent,
+                                  shape = OwnPlayShapeTokens.Small,
+                              ),
+                      )
+                  }
+              }
+          }
+          ''')
+          new_filter = dedent('''\
+          @Composable
+          internal fun LibraryFilterTab(
+              label: String,
+              selected: Boolean,
+              onClick: () -> Unit,
+              modifier: Modifier = Modifier,
+          ) {
+              val interactionSource = remember { MutableInteractionSource() }
+              val isPressed by interactionSource.collectIsPressedAsState()
+              Box(
+                  modifier = modifier
+                      .height(48.dp)
+                      .clickable(
+                          interactionSource = interactionSource,
+                          indication = null,
+                          role = Role.Tab,
+                          onClick = onClick,
+                      )
+                      .semantics { this.selected = selected },
+                  contentAlignment = Alignment.Center,
+              ) {
+                  Column(
+                      horizontalAlignment = Alignment.CenterHorizontally,
+                      verticalArrangement = Arrangement.Center,
+                  ) {
+                      Text(
+                          text = label,
+                          modifier = Modifier.padding(horizontal = 6.dp),
+                          style = MaterialTheme.typography.labelLarge,
+                          color = when {
+                              selected -> OwnPlayColors.TextPrimary
+                              isPressed -> OwnPlayColors.TextSecondary
+                              else -> OwnPlayColors.TextMuted
+                          },
+                          fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                          maxLines = 1,
+                      )
+                      Spacer(modifier = Modifier.height(3.dp))
+                      Box(
+                          modifier = Modifier
+                              .width(if (selected) 22.dp else 1.dp)
+                              .height(2.dp)
+                              .background(
+                                  color = if (selected) OwnPlayColors.Accent else Color.Transparent,
+                                  shape = OwnPlayShapeTokens.Small,
+                              ),
+                      )
+                  }
+              }
+          }
+          ''')
+          replace_exact(actions, old_filter, new_filter)
+
+          replace_exact(
+              shell,
+              'import androidx.compose.foundation.interaction.MutableInteractionSource\n',
+              'import androidx.compose.foundation.interaction.MutableInteractionSource\nimport androidx.compose.foundation.interaction.collectIsPressedAsState\n',
+          )
+          replace_exact(
+              shell,
+              '        Column(\n            modifier = Modifier.padding(horizontal = OwnPlaySpacing.Lg),\n            verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),\n        ) {',
+              '        Column(\n            modifier = Modifier.padding(horizontal = OwnPlaySpacing.Lg),\n            verticalArrangement = Arrangement.spacedBy(8.dp),\n        ) {',
+          )
+          replace_exact(
+              shell,
+              '            LibraryShelfHeader(\n                title = "Continue Watching",\n                actionLabel = catalog?.continueWatching?.size?.takeIf { it > 0 }?.let { "$it in progress" },\n            )',
+              '            LibraryShelfHeader(\n                title = "Continue Watching",\n                actionLabel = catalog?.continueWatching?.size?.takeIf { it > 0 }?.let { "$it in progress" },\n                prominent = true,\n            )',
+          )
+
+          state_heads = [
+              ('            catalog == null -> OwnPlayStatePanel(', '            catalog == null -> LibraryShelfState('),
+              ('            catalog.activeSourceId == null -> OwnPlayStatePanel(', '            catalog.activeSourceId == null -> LibraryShelfState('),
+              ('            catalog.continueWatching.isEmpty() -> OwnPlayStatePanel(', '            catalog.continueWatching.isEmpty() -> LibraryShelfState('),
+              ('            catalog != null && catalog.activeSourceId != null && catalog.movies.isEmpty() -> OwnPlayStatePanel(', '            catalog != null && catalog.activeSourceId != null && catalog.movies.isEmpty() -> LibraryShelfState('),
+              ('            catalog != null && catalog.movies.isNotEmpty() -> OwnPlayStatePanel(', '            catalog != null && catalog.movies.isNotEmpty() -> LibraryShelfState('),
+              ('            catalog != null && catalog.activeSourceId != null && catalog.series.isEmpty() -> OwnPlayStatePanel(', '            catalog != null && catalog.activeSourceId != null && catalog.series.isEmpty() -> LibraryShelfState('),
+              ('            catalog != null && catalog.series.isNotEmpty() -> OwnPlayStatePanel(', '            catalog != null && catalog.series.isNotEmpty() -> LibraryShelfState('),
+          ]
+          for old, new in state_heads:
+              replace_exact(shell, old, new)
+          replace_exact(
+              shell,
+              '                OwnPlayStatePanel(\n                    title = "No completed downloads",',
+              '                LibraryShelfState(\n                    title = "No completed downloads",',
+          )
+          replace_exact(
+              shell,
+              '                message = "Reading the active source and saved progress.",\n            )',
+              '                message = "Reading the active source and saved progress.",\n                loading = true,\n            )',
+          )
+
+          replace_exact(
+              shell,
+              '    val remainingMs = (item.durationMs - item.positionMs).coerceAtLeast(0L)\n\n    Surface(',
+              '    val remainingMs = (item.durationMs - item.positionMs).coerceAtLeast(0L)\n    val interactionSource = remember { MutableInteractionSource() }\n    val isPressed by interactionSource.collectIsPressedAsState()\n\n    Surface(',
+          )
+          replace_exact(
+              shell,
+              '.width(cardWidth)\n            .clickable(onClick = onResume),',
+              '.width(cardWidth)\n            .clickable(\n                interactionSource = interactionSource,\n                indication = null,\n                onClick = onResume,\n            ),',
+          )
+          replace_exact(
+              shell,
+              '            LibraryIconAction(\n                glyph = LibraryActionGlyph.RESTART,\n                contentDescription = "Start ${item.title} over",',
+              '            if (isPressed) {\n                Box(\n                    modifier = Modifier\n                        .fillMaxSize()\n                        .background(Color.Black.copy(alpha = 0.12f)),\n                )\n            }\n\n            LibraryIconAction(\n                glyph = LibraryActionGlyph.RESTART,\n                contentDescription = "Start ${item.title} over",',
+          )
+
+          old_poster = dedent('''\
+          @Composable
+          private fun PosterCard(
+              title: String,
+              artworkUrl: String?,
+              eyebrow: String,
+              cardWidth: Dp,
+              onClick: () -> Unit,
+          ) {
+              Box(
+                  modifier = Modifier
+                      .width(cardWidth)
+                      .aspectRatio(0.68f)
+                      .clip(OwnPlayShapeTokens.Medium)
+                      .background(OwnPlayColors.SurfaceElevated)
+                      .clickable(onClick = onClick),
+                  contentAlignment = Alignment.Center,
+              ) {
+                  if (artworkUrl.isNullOrBlank()) {
+                      Text(
+                          text = title,
+                          modifier = Modifier.padding(OwnPlaySpacing.Md),
+                          style = MaterialTheme.typography.labelLarge,
+                          color = OwnPlayColors.TextSecondary,
+                          fontWeight = FontWeight.SemiBold,
+                          maxLines = 3,
+                      )
+                  } else {
+                      RemoteArtwork(
+                          locator = artworkUrl,
+                          contentDescription = "$title poster",
+                          modifier = Modifier.fillMaxSize(),
+                          contentScale = ContentScale.Crop,
+                      )
+                  }
+                  Box(
+                      modifier = Modifier
+                          .fillMaxSize()
+                          .background(
+                              Brush.verticalGradient(
+                                  0f to Color.Transparent,
+                                  0.52f to Color.Transparent,
+                                  1f to Color.Black.copy(alpha = 0.94f),
+                              ),
+                          ),
+                  )
+                  Column(
+                      modifier = Modifier
+                          .align(Alignment.BottomStart)
+                          .padding(horizontal = 10.dp, vertical = 9.dp),
+                      verticalArrangement = Arrangement.spacedBy(2.dp),
+                  ) {
+                      Text(
+                          text = eyebrow,
+                          style = MaterialTheme.typography.labelSmall,
+                          color = OwnPlayColors.Accent.copy(alpha = 0.88f),
+                          fontWeight = FontWeight.Medium,
+                          maxLines = 1,
+                      )
+                      Text(
+                          text = title,
+                          style = MaterialTheme.typography.labelLarge,
+                          color = Color.White,
+                          fontWeight = FontWeight.SemiBold,
+                          maxLines = 2,
+                      )
+                  }
+              }
+          }
+          ''')
+          new_poster = dedent('''\
+          @Composable
+          private fun PosterCard(
+              title: String,
+              artworkUrl: String?,
+              eyebrow: String,
+              cardWidth: Dp,
+              onClick: () -> Unit,
+          ) {
+              val interactionSource = remember { MutableInteractionSource() }
+              val isPressed by interactionSource.collectIsPressedAsState()
+              Box(
+                  modifier = Modifier
+                      .width(cardWidth)
+                      .aspectRatio(0.68f)
+                      .clip(OwnPlayShapeTokens.Medium)
+                      .background(OwnPlayColors.SurfaceElevated)
+                      .clickable(
+                          interactionSource = interactionSource,
+                          indication = null,
+                          onClick = onClick,
+                      ),
+                  contentAlignment = Alignment.Center,
+              ) {
+                  if (artworkUrl.isNullOrBlank()) {
+                      Text(
+                          text = title,
+                          modifier = Modifier.padding(OwnPlaySpacing.Md),
+                          style = MaterialTheme.typography.labelLarge,
+                          color = OwnPlayColors.TextSecondary,
+                          fontWeight = FontWeight.SemiBold,
+                          maxLines = 3,
+                      )
+                  } else {
+                      RemoteArtwork(
+                          locator = artworkUrl,
+                          contentDescription = "$title poster",
+                          modifier = Modifier.fillMaxSize(),
+                          contentScale = ContentScale.Crop,
+                      )
+                  }
+                  Box(
+                      modifier = Modifier
+                          .fillMaxSize()
+                          .background(
+                              Brush.verticalGradient(
+                                  0f to Color.Transparent,
+                                  0.52f to Color.Transparent,
+                                  1f to Color.Black.copy(alpha = 0.94f),
+                              ),
+                          ),
+                  )
+                  if (isPressed) {
+                      Box(
+                          modifier = Modifier
+                              .fillMaxSize()
+                              .background(Color.Black.copy(alpha = 0.12f)),
+                      )
+                  }
+                  Column(
+                      modifier = Modifier
+                          .align(Alignment.BottomStart)
+                          .padding(horizontal = 10.dp, vertical = 9.dp),
+                      verticalArrangement = Arrangement.spacedBy(2.dp),
+                  ) {
+                      Text(
+                          text = eyebrow,
+                          style = MaterialTheme.typography.labelSmall,
+                          color = OwnPlayColors.Accent.copy(alpha = 0.88f),
+                          fontWeight = FontWeight.Medium,
+                          maxLines = 1,
+                      )
+                      Text(
+                          text = title,
+                          style = MaterialTheme.typography.labelLarge,
+                          color = Color.White,
+                          fontWeight = FontWeight.SemiBold,
+                          maxLines = 2,
+                      )
+                  }
+              }
+          }
+          ''')
+          replace_exact(shell, old_poster, new_poster)
+
+          actual = set(subprocess.check_output(['git', 'diff', '--name-only'], text=True).splitlines())
+          expected = {str(actions), str(shell)}
+          if actual != expected:
+              raise SystemExit(f"Unexpected changed files: {actual}; expected {expected}")
+          PY
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK 36
+        shell: bash
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Set up Gradle 9.6.0
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "9.6.0"
+          cache-read-only: true
+
+      - name: Validate source only
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle --no-daemon :app:compileDebugKotlin :app:compileDebugUnitTestKotlin :app:testDebugUnitTest :app:lintDebug
+          test -z "$(find . -type f \( -name '*.apk' -o -name '*.aab' \) -print -quit)"
+          changed="$(git diff --name-only | sort)"
+          expected="$(printf '%s\n' \
+            app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryActions.kt \
+            app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryShell.kt | sort)"
+          test "$changed" = "$expected"
+
+      - name: Commit validated Library hierarchy polish to target branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "Gersi365"
+          git config user.email "Gersi365@outlook.com"
+          git add \
+            app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryActions.kt \
+            app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryShell.kt
+          git commit -m "Polish Library hierarchy and interaction states"
+          git push origin HEAD:refs/heads/$TARGET_BRANCH
