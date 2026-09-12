@@ -1,0 +1,36 @@
+OwnPlay Player Glass Accessibility — source correction evidence
+
+Audit base HEAD: 9d326106b0696785bbe02cd53dad1132f484ed3c
+Branch: stage-12-stabilization
+
+Verified gap
+- PlayerGlassCircleAction exposed symbolic visual labels directly to accessibility services.
+- Current circle-action call sites are limited to Library Back, Rewind 10 seconds, Play/Pause, Forward 10 seconds, and Live Back.
+- The visual symbols are compact and intentional, but symbols such as ‹, Ⅱ, ▶, −10, and +10 are not sufficiently explicit accessibility labels on their own.
+
+Correction
+- Centralize deterministic accessibility labels inside PlayerGlassCircleAction.
+- Map ‹ -> Back.
+- Map −10 -> Rewind 10 seconds.
+- Map Ⅱ -> Pause.
+- Map ▶ -> Play.
+- Map +10 -> Forward 10 seconds.
+- Preserve a fallback to the visible label for any future unrecognized circle-action label.
+- Suppress the decorative visible symbol from duplicate semantics while preserving the existing Surface click action.
+
+Scope boundaries
+- PlayerGlassChrome presentation primitive only.
+- No Library or Live playback behavior changes.
+- No geometry, sizing, spacing, color, typography, animation, orientation, PiP, provider, networking, download, Room schema, migration, dependency, signing, release, or deployment change.
+- No APK/AAB generation authorized by this source correction.
+
+Validation boundary
+- Exact final source HEAD must pass the existing Android source validation workflow: exact checkout, Kotlin compile, unit tests, lint, Room schema guard, and explicit no-APK/AAB guard.
+- Source/CI PASS does not establish physical TalkBack, visual, playback, or device acceptance.
+
+Physical QA boundary
+- TalkBack/physical accessibility remains NOT_YET_VERIFIED.
+- The next physical candidate must confirm meaningful announcements for Back, Rewind 10 seconds, Play/Pause, and Forward 10 seconds without changing the approved cinematic glass presentation.
+
+Restricted actions
+- No merge, ready-for-review transition, release/publication/deployment, APK/AAB generation, signing change, force push, reset, rebase, history rewrite, destructive database operation, or user-data deletion is part of this correction.

@@ -17,6 +17,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import app.ownplay.mobile.design.OwnPlayColors
@@ -57,6 +60,15 @@ Brush.verticalGradient(
     }
 }
 
+private fun playerGlassAccessibilityLabel(label: String): String = when (label) {
+    "‹" -> "Back"
+    "−10" -> "Rewind 10 seconds"
+    "Ⅱ" -> "Pause"
+    "▶" -> "Play"
+    "+10" -> "Forward 10 seconds"
+    else -> label
+}
+
 @Composable
 fun PlayerGlassCircleAction(
     label: String,
@@ -67,7 +79,11 @@ fun PlayerGlassCircleAction(
     val size = if (emphasized) 68.dp else 54.dp
     Surface(
         onClick = onClick,
-        modifier = modifier.size(size),
+        modifier = modifier
+            .size(size)
+            .semantics {
+                contentDescription = playerGlassAccessibilityLabel(label)
+            },
         shape = CircleShape,
         color = if (emphasized) {
   OwnPlayColors.AccentStrong.copy(alpha = 0.90f)
@@ -87,6 +103,7 @@ fun PlayerGlassCircleAction(
         Box(contentAlignment = Alignment.Center) {
   Text(
       text = label,
+      modifier = Modifier.clearAndSetSemantics { },
       style = if (emphasized) MaterialTheme.typography.titleLarge else MaterialTheme.typography.labelLarge,
       color = Color.White,
       fontWeight = FontWeight.SemiBold,
