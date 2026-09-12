@@ -1,0 +1,106 @@
+name: Stage 17B Library hierarchy polish helper v3
+
+on:
+  push:
+    branches:
+      - stage-17b-library-hierarchy-polish-helper
+    paths:
+      - .github/workflows/stage17b-library-hierarchy-polish-helper-v3.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply-validate-push:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      SOURCE_SHA: 3b9024e9df7a6d92f9595b72cd1d52f7fe32995d
+      TARGET_BRANCH: stage-17b-library-hierarchy-polish
+      HELPER_BRANCH: stage-17b-library-hierarchy-polish-helper
+      V2_WORKFLOW: .github/workflows/stage17b-library-hierarchy-polish-helper-v2.yml
+
+    steps:
+      - name: Checkout exact Stage 17A source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          fetch-depth: 1
+
+      - name: Verify exact baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          test -z "$(git status --porcelain)"
+
+      - name: Apply corrected deterministic Stage 17B patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --depth=1 origin "$HELPER_BRANCH"
+          git show FETCH_HEAD:"$V2_WORKFLOW" > /tmp/stage17b-v2.yml
+          python3 - <<'PY'
+          from pathlib import Path
+          from textwrap import dedent
+
+          workflow = Path('/tmp/stage17b-v2.yml').read_text()
+          start_marker = "          python3 - <<'PY'\n"
+          end_marker = "\n          PY\n"
+          start = workflow.index(start_marker) + len(start_marker)
+          end = workflow.index(end_marker, start)
+          script = dedent(workflow[start:end])
+
+          wrong_old = "'                message = \"Reading the active source and saved progress.\",\\n            )'"
+          fixed_old = "'                    message = \"Reading the active source and saved progress.\",\\n                )'"
+          wrong_new = "'                message = \"Reading the active source and saved progress.\",\\n                loading = true,\\n            )'"
+          fixed_new = "'                    message = \"Reading the active source and saved progress.\",\\n                    loading = true,\\n                )'"
+
+          if script.count(wrong_old) != 1 or script.count(wrong_new) != 1:
+              raise SystemExit('Unexpected Stage 17B v2 loading-state patch signature')
+          script = script.replace(wrong_old, fixed_old).replace(wrong_new, fixed_new)
+          exec(compile(script, '<stage17b-v3-patch>', 'exec'), {'__name__': '__main__'})
+          PY
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK 36
+        shell: bash
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Set up Gradle 9.6.0
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "9.6.0"
+          cache-read-only: true
+
+      - name: Validate source only
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle --no-daemon :app:compileDebugKotlin :app:compileDebugUnitTestKotlin :app:testDebugUnitTest :app:lintDebug
+          test -z "$(find . -type f \( -name '*.apk' -o -name '*.aab' \) -print -quit)"
+          changed="$(git diff --name-only | sort)"
+          expected="$(printf '%s\n' \
+            app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryActions.kt \
+            app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryShell.kt | sort)"
+          test "$changed" = "$expected"
+
+      - name: Commit validated Library hierarchy polish to target branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "Gersi365"
+          git config user.email "Gersi365@outlook.com"
+          git add \
+            app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryActions.kt \
+            app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryShell.kt
+          git commit -m "Polish Library hierarchy and interaction states"
+          git push origin HEAD:refs/heads/$TARGET_BRANCH
