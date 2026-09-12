@@ -1,0 +1,294 @@
+name: Stage 17D offline polish helper
+
+on:
+  push:
+    branches:
+      - stage17d-offline-helper
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    env:
+      BASE_SHA: 39d690caaa7880592a266f405d8044c3a3fc88a5
+      TARGET_BRANCH: stage-17d-library-offline-polish
+    steps:
+      - name: Checkout exact Stage 17C base
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.BASE_SHA }}
+          fetch-depth: 0
+
+      - name: Verify exact base
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "$BASE_SHA"
+          test -z "$(git status --porcelain)"
+
+      - name: Apply bounded Library offline visual patch
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          shell = Path("app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryShell.kt")
+          text = shell.read_text()
+
+          old_header = '            LibraryShelfHeader(title = "Downloaded Media")'
+          new_header = '''            LibraryShelfHeader(
+                title = "Downloaded Media",
+                actionLabel = catalog?.downloadedMedia?.size?.takeIf { it > 0 }?.let { "$it offline" },
+            )'''
+          if old_header not in text:
+              raise SystemExit("Downloaded Media shelf header anchor not found")
+          text = text.replace(old_header, new_header, 1)
+
+          start = text.index("@Composable\nprivate fun DownloadedRow(")
+          end = text.index("\n@Composable\nprivate fun MovieDetail(", start)
+          new_block = '''@Composable
+private fun DownloadedRow(
+    mediaItems: List<LibraryDownloadedMedia>,
+    downloads: List<DownloadItem>,
+    onAction: (LibraryDownloadedMedia, DownloadItem, DownloadAction) -> Unit,
+) {
+    val byId = remember(downloads) { downloads.associateBy { it.downloadId } }
+    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+        val itemWidth = (maxWidth * 0.84f).coerceIn(244.dp, 292.dp)
+        val listState = rememberLazyListState()
+        val flingBehavior = rememberSnapFlingBehavior(
+            lazyListState = listState,
+            snapPosition = SnapPosition.Start,
+        )
+        LazyRow(
+            modifier = Modifier.fillMaxWidth(),
+            state = listState,
+            flingBehavior = flingBehavior,
+            horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),
+        ) {
+            items(
+                items = mediaItems,
+                key = { media -> media.downloadId },
+            ) { media ->
+                val item = byId[media.downloadId]
+                Column(
+                    modifier = Modifier
+                        .width(itemWidth)
+                        .padding(vertical = 4.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .width(2.dp)
+                                .height(44.dp)
+                                .background(
+                                    OwnPlayColors.Accent.copy(alpha = 0.76f),
+                                    shape = OwnPlayShapeTokens.Small,
+                                ),
+                        )
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(2.dp),
+                        ) {
+                            Text(
+                                text = when (media.mediaKind) {
+                                    LibraryMediaKind.MOVIE -> "MOVIE • OFFLINE"
+                                    LibraryMediaKind.EPISODE -> "EPISODE • OFFLINE"
+                                },
+                                style = MaterialTheme.typography.labelSmall,
+                                color = OwnPlayColors.Accent.copy(alpha = 0.88f),
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                            )
+                            Text(
+                                text = media.title,
+                                style = MaterialTheme.typography.titleSmall,
+                                color = OwnPlayColors.TextPrimary,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 2,
+                            )
+                        }
+                    }
+                    if (item != null) {
+                        LibraryOfflineControls(
+                            item = item,
+                            onAction = { action -> onAction(media, item, action) },
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+'''
+          text = text[:start] + new_block + text[end:]
+          shell.write_text(text)
+
+          controls = Path("app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryOfflineControls.kt")
+          controls.write_text('''package app.ownplay.mobile.feature.library.ui
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.weight
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import app.ownplay.mobile.design.OwnPlayColors
+import app.ownplay.mobile.design.OwnPlayShapeTokens
+import app.ownplay.mobile.design.OwnPlaySpacing
+import app.ownplay.mobile.downloads.domain.DownloadAction
+import app.ownplay.mobile.downloads.domain.DownloadItem
+import app.ownplay.mobile.downloads.domain.DownloadState
+import app.ownplay.mobile.downloads.domain.DownloadStatePolicy
+import kotlin.math.roundToInt
+
+@Composable
+internal fun LibraryOfflineControls(
+    item: DownloadItem,
+    onAction: (DownloadAction) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val primaryAction = DownloadStatePolicy.primaryAction(item)
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Text(
+            text = libraryOfflineStatus(item),
+            style = MaterialTheme.typography.bodySmall,
+            color = if (item.state == DownloadState.FAILED) {
+                OwnPlayColors.TextSecondary
+            } else {
+                OwnPlayColors.TextMuted
+            },
+            fontWeight = FontWeight.Medium,
+            maxLines = 1,
+        )
+        item.progressFraction?.let { progress ->
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(2.dp)
+                    .background(
+                        OwnPlayColors.Divider.copy(alpha = 0.74f),
+                        shape = OwnPlayShapeTokens.Small,
+                    ),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(progress)
+                        .height(2.dp)
+                        .background(OwnPlayColors.Accent, shape = OwnPlayShapeTokens.Small),
+                )
+            }
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Xs),
+        ) {
+            LibraryPrimaryAction(
+                text = libraryOfflineActionLabel(primaryAction),
+                onClick = { onAction(primaryAction) },
+                modifier = Modifier.weight(1f),
+                glyph = if (
+                    primaryAction == DownloadAction.PLAY_OFFLINE ||
+                    primaryAction == DownloadAction.RESUME_OFFLINE
+                ) {
+                    LibraryActionGlyph.PLAY
+                } else {
+                    null
+                },
+            )
+            LibrarySecondaryAction(
+                text = "Remove",
+                onClick = { onAction(DownloadAction.REMOVE) },
+                modifier = Modifier.weight(0.66f),
+            )
+        }
+    }
+}
+
+private fun libraryOfflineStatus(item: DownloadItem): String = when (item.state) {
+    DownloadState.QUEUED -> "Preparing offline file"
+    DownloadState.DOWNLOADING -> item.progressFraction?.let { progress ->
+        "Downloading ${(progress * 100f).roundToInt()}%"
+    } ?: "Downloading"
+
+    DownloadState.PAUSED -> "Download paused"
+    DownloadState.FAILED -> "Download needs attention"
+    DownloadState.COMPLETED -> if (item.resumePositionMs != null) {
+        "Ready offline • resume available"
+    } else {
+        "Ready offline"
+    }
+}
+
+private fun libraryOfflineActionLabel(action: DownloadAction): String = when (action) {
+    DownloadAction.DOWNLOAD -> "Download"
+    DownloadAction.PAUSE -> "Pause"
+    DownloadAction.RESUME -> "Resume"
+    DownloadAction.RETRY -> "Retry"
+    DownloadAction.REMOVE -> "Remove"
+    DownloadAction.PLAY_OFFLINE -> "Play"
+    DownloadAction.RESUME_OFFLINE -> "Resume"
+}
+''')
+          PY
+
+      - name: Guard exact source scope
+        shell: bash
+        run: |
+          mapfile -t changed < <(git diff --name-only)
+          printf '%s\n' "${changed[@]}"
+          test "${#changed[@]}" -eq 2
+          printf '%s\n' "${changed[@]}" | grep -Fxq 'app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryShell.kt'
+          printf '%s\n' "${changed[@]}" | grep -Fxq 'app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryOfflineControls.kt'
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK 36
+        shell: bash
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Set up Gradle 9.6.0
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.6.0'
+          cache-read-only: true
+
+      - name: Validate source without APK generation
+        shell: bash
+        run: bash tools/validate-source-no-apk.sh
+
+      - name: Commit and push Stage 17D source
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "$BASE_SHA"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$TARGET_BRANCH"
+          git add app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryShell.kt \
+                  app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryOfflineControls.kt
+          git commit -m "Polish downloaded media hierarchy"
+          git push origin "HEAD:refs/heads/$TARGET_BRANCH"
