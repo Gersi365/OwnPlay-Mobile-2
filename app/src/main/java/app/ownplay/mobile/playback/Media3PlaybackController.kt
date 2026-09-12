@@ -15,9 +15,12 @@ import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.decoder.ffmpeg.FfmpegLibrary
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import app.ownplay.mobile.playback.domain.AudioTrackPolicy
 import app.ownplay.mobile.playback.domain.PlaybackAudioTrack
 import app.ownplay.mobile.playback.domain.PlaybackLoadRequest
@@ -295,7 +298,13 @@ class Media3PlaybackController(
         val renderersFactory = DefaultRenderersFactory(context)
             .setEnableDecoderFallback(true)
             .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
+        val httpDataSourceFactory = DefaultHttpDataSource.Factory()
+            .setAllowCrossProtocolRedirects(true)
+        val dataSourceFactory = DefaultDataSource.Factory(context, httpDataSourceFactory)
+        val mediaSourceFactory = DefaultMediaSourceFactory(context)
+            .setDataSourceFactory(dataSourceFactory)
         return ExoPlayer.Builder(context, renderersFactory)
+            .setMediaSourceFactory(mediaSourceFactory)
             .setLooper(Looper.getMainLooper())
             .build()
     }
