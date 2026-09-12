@@ -56,6 +56,7 @@ internal class DownloadRepositoryImpl(
     private val nowMillis: () -> Long = System::currentTimeMillis,
 ) : DownloadRepository {
     private val fileStore = DownloadFileStore(context.applicationContext.filesDir)
+    private val publicFileStore = PublicDownloadFileStore(context.applicationContext)
     private val transferMutex = Mutex()
 
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -99,6 +100,12 @@ internal class DownloadRepositoryImpl(
         val existing = downloadDao.getForContent(sourceId, mediaKind.name, contentId)
         if (existing != null) {
             return DownloadOperationResult.Success(existing.toDomainOrNull())
+        }
+        if (!publicFileStore.canWrite()) {
+            return failure(
+                "STORAGE_PERMISSION_REQUIRED",
+                "Allow storage access so OwnPlay can save media in Download/OwnPlay Downloads.",
+            )
         }
 
         val now = nowMillis()
@@ -159,6 +166,9 @@ internal class DownloadRepositoryImpl(
             ?: return failure("DOWNLOAD_NOT_FOUND", "This download no longer exists.")
         workManager.cancelUniqueWork(workName(downloadId)).await()
         fileStore.delete(row)
+        row.localReference
+            ?.takeIf(publicFileStore::handles)
+            ?.let(publicFileStore::delete)
         downloadDao.delete(downloadId)
         return DownloadOperationResult.Success()
     }
@@ -177,12 +187,30 @@ internal class DownloadRepositoryImpl(
             ?: return playbackFailure("OFFLINE_FILE_MISSING", "The offline file is unavailable.")
         val integrityMetadata = row.integrityMetadata
             ?: return playbackFailure("OFFLINE_INTEGRITY_MISSING", "The offline file cannot be verified.")
-        val file = fileStore.resolve(localReference)
-        if (file == null || !DownloadIntegrity.verify(file, integrityMetadata)) {
-            if (file != null) file.delete()
-            downloadDao.markCompletedIntegrityFailure(downloadId, nowMillis())
-            return playbackFailure("OFFLINE_INTEGRITY_FAILED", "The offline file failed integrity verification. Retry the download.")
+
+        val playbackUri = if (publicFileStore.handles(localReference)) {
+            if (!publicFileStore.verify(localReference, integrityMetadata)) {
+                publicFileStore.delete(localReference)
+                downloadDao.markCompletedIntegrityFailure(downloadId, nowMillis())
+                return playbackFailure(
+                    "OFFLINE_INTEGRITY_FAILED",
+                    "The offline file failed integrity verification. Retry the download.",
+                )
+            }
+            localReference
+        } else {
+            val file = fileStore.resolve(localReference)
+            if (file == null || !DownloadIntegrity.verify(file, integrityMetadata)) {
+                if (file != null) file.delete()
+                downloadDao.markCompletedIntegrityFailure(downloadId, nowMillis())
+                return playbackFailure(
+                    "OFFLINE_INTEGRITY_FAILED",
+                    "The offline file failed integrity verification. Retry the download.",
+                )
+            }
+            file.toURI().toString()
         }
+
         val mediaKind = runCatching {
             LibraryMediaKind.valueOf(row.mediaKind.uppercase(Locale.US))
         }.getOrNull() ?: return playbackFailure("INVALID_MEDIA_KIND", "This offline item cannot be played.")
@@ -195,7 +223,7 @@ internal class DownloadRepositoryImpl(
                 mediaKind = mediaKind,
                 title = row.title,
                 subtitle = "Downloaded • ${if (mediaKind == LibraryMediaKind.MOVIE) "Movie" else "Episode"}",
-                uri = file.toURI().toString(),
+                uri = playbackUri,
                 streamFormat = PlaybackStreamFormat.AUTO,
                 start = LibraryStartPolicy.resolve(startMode, progress?.positionMs),
                 knownDurationMs = progress?.durationMs,
@@ -254,7 +282,12 @@ internal class DownloadRepositoryImpl(
                         integrityMetadata = transfer.integrityMetadata,
                         updatedAt = nowMillis(),
                     )
-                    if (changed > 0) DownloadWorkResult.SUCCESS else DownloadWorkResult.NO_OP
+                    if (changed > 0) {
+                        DownloadWorkResult.SUCCESS
+                    } else {
+                        publicFileStore.delete(transfer.localReference)
+                        DownloadWorkResult.NO_OP
+                    }
                 }
 
                 is TransferResult.FatalFailure -> {
@@ -324,7 +357,6 @@ internal class DownloadRepositoryImpl(
         source: ResolvedDownloadSource,
     ): TransferResult = withContext(Dispatchers.IO) {
         val partial = fileStore.partialFile(row.downloadId)
-        val final = fileStore.finalFile(row.downloadId)
         partial.parentFile?.mkdirs()
 
         var resumeOffset = partial.takeIf { it.isFile }?.length()?.coerceAtLeast(0L) ?: 0L
@@ -421,33 +453,67 @@ internal class DownloadRepositoryImpl(
                 if (metadata.bytes != downloaded) {
                     return@withContext TransferResult.FatalFailure("INTEGRITY")
                 }
-                if (final.exists() && !final.delete()) {
-                    return@withContext TransferResult.FatalFailure("FILE_REPLACE")
+                val destination = resolveDestination(row, source)
+                    ?: return@withContext TransferResult.FatalFailure("DESTINATION_METADATA")
+                val localReference = try {
+                    publicFileStore.publish(
+                        sourceFile = partial,
+                        destination = destination,
+                        integrityMetadata = metadata.encode(),
+                    )
+                } catch (_: SecurityException) {
+                    return@withContext TransferResult.FatalFailure("STORAGE_PERMISSION")
+                } catch (_: IOException) {
+                    return@withContext TransferResult.FatalFailure("PUBLIC_STORAGE")
+                } catch (_: Exception) {
+                    return@withContext TransferResult.FatalFailure("PUBLIC_STORAGE")
                 }
-                if (!partial.renameTo(final)) {
-                    try {
-                        partial.copyTo(final, overwrite = true)
-                        if (!partial.delete()) {
-                            final.delete()
-                            return@withContext TransferResult.FatalFailure("FILE_MOVE")
-                        }
-                    } catch (_: IOException) {
-                        final.delete()
-                        return@withContext TransferResult.FatalFailure("FILE_MOVE")
-                    }
-                }
-                if (!DownloadIntegrity.verify(final, metadata.encode())) {
-                    final.delete()
+                if (!publicFileStore.verify(localReference, metadata.encode())) {
+                    publicFileStore.delete(localReference)
                     return@withContext TransferResult.FatalFailure("INTEGRITY")
                 }
+                partial.delete()
                 return@withContext TransferResult.Complete(
                     bytes = metadata.bytes,
-                    localReference = fileStore.finalReference(row.downloadId),
+                    localReference = localReference,
                     integrityMetadata = metadata.encode(),
                 )
             }
         }
         TransferResult.TransientFailure
+    }
+
+    private suspend fun resolveDestination(
+        row: DownloadEntity,
+        source: ResolvedDownloadSource,
+    ): DownloadDestination? {
+        val mediaKind = runCatching {
+            LibraryMediaKind.valueOf(row.mediaKind.uppercase(Locale.US))
+        }.getOrNull() ?: return null
+        return when (mediaKind) {
+            LibraryMediaKind.MOVIE -> {
+                val movie = libraryDao.getMovie(row.contentId) ?: return null
+                if (movie.sourceId != row.sourceId) return null
+                DownloadDestinationPolicy.movie(
+                    title = movie.name,
+                    extension = movie.extension.takeUnless { it.isNullOrBlank() }
+                        ?: DownloadDestinationPolicy.extensionFromUri(source.uri),
+                )
+            }
+
+            LibraryMediaKind.EPISODE -> {
+                val episode = libraryDao.getEpisode(row.contentId) ?: return null
+                if (episode.sourceId != row.sourceId) return null
+                DownloadDestinationPolicy.episode(
+                    seriesTitle = episode.seriesName,
+                    seasonNumber = episode.seasonNumber,
+                    episodeNumber = episode.episodeNumber,
+                    episodeTitle = episode.title,
+                    extension = episode.extension.takeUnless { it.isNullOrBlank() }
+                        ?: DownloadDestinationPolicy.extensionFromUri(source.uri),
+                )
+            }
+        }
     }
 
     private fun parseContentRangeTotal(value: String?): Long? {
