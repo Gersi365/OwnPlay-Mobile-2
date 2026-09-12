@@ -1,8 +1,11 @@
 package app.ownplay.mobile.feature.library.ui
 
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,6 +19,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -77,11 +82,27 @@ private fun LibraryActionButton(
     primary: Boolean,
     glyph: LibraryActionGlyph?,
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
     val contentColor = if (primary) Color.White else OwnPlayColors.TextSecondary
+    val containerColor by animateColorAsState(
+        targetValue = when {
+            primary && isPressed -> OwnPlayColors.Accent
+            primary -> OwnPlayColors.AccentStrong
+            isPressed -> OwnPlayColors.SurfaceElevated.copy(alpha = 0.72f)
+            else -> Color.Transparent
+        },
+        label = "libraryActionContainer",
+    )
     Box(
         modifier = modifier
             .height(48.dp)
-            .clickable(role = Role.Button, onClick = onClick)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                role = Role.Button,
+                onClick = onClick,
+            )
             .semantics(mergeDescendants = true) {},
         contentAlignment = Alignment.Center,
     ) {
@@ -90,7 +111,7 @@ private fun LibraryActionButton(
                 .fillMaxWidth()
                 .height(40.dp),
             shape = OwnPlayShapeTokens.Small,
-            color = if (primary) OwnPlayColors.AccentStrong else Color.Transparent,
+            color = containerColor,
             border = null,
             tonalElevation = 0.dp,
         ) {
@@ -133,11 +154,27 @@ internal fun LibraryIconAction(
     emphasized: Boolean = false,
     visualSize: Dp = 40.dp,
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val containerColor by animateColorAsState(
+        targetValue = when {
+            emphasized && isPressed -> OwnPlayColors.Accent
+            emphasized -> OwnPlayColors.AccentStrong
+            isPressed -> Color.Black.copy(alpha = 0.68f)
+            else -> Color.Black.copy(alpha = 0.52f)
+        },
+        label = "libraryIconContainer",
+    )
     Box(
         modifier = modifier
             .width(48.dp)
             .height(48.dp)
-            .clickable(role = Role.Button, onClick = onClick)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                role = Role.Button,
+                onClick = onClick,
+            )
             .semantics { this.contentDescription = contentDescription },
         contentAlignment = Alignment.Center,
     ) {
@@ -146,7 +183,7 @@ internal fun LibraryIconAction(
                 .width(visualSize)
                 .height(visualSize),
             shape = OwnPlayShapeTokens.Action,
-            color = if (emphasized) OwnPlayColors.AccentStrong else Color.Black.copy(alpha = 0.52f),
+            color = containerColor,
             border = if (emphasized) null else BorderStroke(1.dp, Color.White.copy(alpha = 0.12f)),
             tonalElevation = 0.dp,
         ) {
@@ -168,6 +205,7 @@ internal fun LibraryShelfHeader(
     title: String,
     actionLabel: String? = null,
     modifier: Modifier = Modifier,
+    prominent: Boolean = false,
 ) {
     Row(
         modifier = modifier.fillMaxWidth(),
@@ -177,16 +215,65 @@ internal fun LibraryShelfHeader(
         Text(
             text = title,
             modifier = Modifier.weight(1f),
-            style = MaterialTheme.typography.titleLarge.copy(fontSize = 20.sp, lineHeight = 24.sp),
+            style = MaterialTheme.typography.titleLarge.copy(
+                fontSize = if (prominent) 21.sp else 18.sp,
+                lineHeight = if (prominent) 25.sp else 22.sp,
+            ),
             color = OwnPlayColors.TextPrimary,
             fontWeight = FontWeight.SemiBold,
         )
         actionLabel?.let {
             Text(
                 text = it,
-                style = MaterialTheme.typography.labelMedium,
-                color = OwnPlayColors.TextMuted.copy(alpha = 0.78f),
+                style = MaterialTheme.typography.labelSmall,
+                color = OwnPlayColors.TextMuted.copy(alpha = 0.72f),
                 maxLines = 1,
+            )
+        }
+    }
+}
+
+@Composable
+internal fun LibraryShelfState(
+    title: String,
+    message: String,
+    modifier: Modifier = Modifier,
+    loading: Boolean = false,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier = Modifier
+                .width(2.dp)
+                .height(34.dp)
+                .background(
+                    color = if (loading) {
+                        OwnPlayColors.Accent.copy(alpha = 0.64f)
+                    } else {
+                        OwnPlayColors.Divider.copy(alpha = 0.82f)
+                    },
+                    shape = OwnPlayShapeTokens.Small,
+                ),
+        )
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.labelLarge,
+                color = OwnPlayColors.TextSecondary,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                text = message,
+                style = MaterialTheme.typography.bodySmall,
+                color = OwnPlayColors.TextMuted,
             )
         }
     }
@@ -199,10 +286,17 @@ internal fun LibraryFilterTab(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
     Box(
         modifier = modifier
             .height(48.dp)
-            .clickable(role = Role.Tab, onClick = onClick)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                role = Role.Tab,
+                onClick = onClick,
+            )
             .semantics { this.selected = selected },
         contentAlignment = Alignment.Center,
     ) {
@@ -214,14 +308,18 @@ internal fun LibraryFilterTab(
                 text = label,
                 modifier = Modifier.padding(horizontal = 6.dp),
                 style = MaterialTheme.typography.labelLarge,
-                color = if (selected) OwnPlayColors.Accent else OwnPlayColors.TextMuted,
+                color = when {
+                    selected -> OwnPlayColors.TextPrimary
+                    isPressed -> OwnPlayColors.TextSecondary
+                    else -> OwnPlayColors.TextMuted
+                },
                 fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
                 maxLines = 1,
             )
             Spacer(modifier = Modifier.height(3.dp))
             Box(
                 modifier = Modifier
-                    .width(if (selected) 20.dp else 1.dp)
+                    .width(if (selected) 22.dp else 1.dp)
                     .height(2.dp)
                     .background(
                         color = if (selected) OwnPlayColors.Accent else Color.Transparent,
