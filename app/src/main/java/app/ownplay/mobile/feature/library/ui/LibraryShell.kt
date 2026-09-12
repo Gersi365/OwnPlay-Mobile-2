@@ -48,8 +48,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import app.ownplay.mobile.design.OwnPlayColors
-import app.ownplay.mobile.design.OwnPlayPanel
-import app.ownplay.mobile.design.OwnPlaySectionHeader
 import app.ownplay.mobile.design.OwnPlayShapeTokens
 import app.ownplay.mobile.design.OwnPlaySpacing
 import app.ownplay.mobile.design.OwnPlayStatePanel
@@ -397,7 +395,7 @@ private fun LibraryHome(
             .fillMaxSize()
             .verticalScroll(rememberScrollState()),
     ) {
-        OwnPlayTopBar(showTagline = true)
+        OwnPlayTopBar(showTagline = false)
 
         Column(
             modifier = Modifier.padding(horizontal = OwnPlaySpacing.Lg),
@@ -407,7 +405,7 @@ private fun LibraryHome(
                 OwnPlayStatePanel(title = "Action unavailable", message = errorMessage)
             }
 
-            OwnPlaySectionHeader(
+            LibraryShelfHeader(
                 title = "Continue Watching",
                 actionLabel = catalog?.continueWatching?.size?.takeIf { it > 0 }?.let { "$it in progress" },
             )
@@ -435,7 +433,7 @@ private fun LibraryHome(
             }
 
             Spacer(modifier = Modifier.height(OwnPlaySpacing.Sm))
-            OwnPlaySectionHeader(
+            LibraryShelfHeader(
                 title = "Movies",
                 actionLabel = catalog?.movies?.size?.takeIf { it > 0 }?.let { "$it titles" },
             )
@@ -464,7 +462,7 @@ private fun LibraryHome(
             }
 
             Spacer(modifier = Modifier.height(OwnPlaySpacing.Sm))
-            OwnPlaySectionHeader(
+            LibraryShelfHeader(
                 title = "Series",
                 actionLabel = catalog?.series?.size?.takeIf { it > 0 }?.let { "$it titles" },
             )
@@ -493,7 +491,7 @@ private fun LibraryHome(
             }
 
             Spacer(modifier = Modifier.height(OwnPlaySpacing.Sm))
-            OwnPlaySectionHeader(title = "Downloaded Media")
+            LibraryShelfHeader(title = "Downloaded Media")
             if (catalog != null && catalog.activeSourceId != null && catalog.downloadedMedia.isEmpty()) {
                 OwnPlayStatePanel(
                     title = "No completed downloads",
@@ -560,107 +558,113 @@ private fun ContinueWatchingCard(
     } else {
         0f
     }
+    val remainingMs = (item.durationMs - item.positionMs).coerceAtLeast(0L)
+
     Surface(
-        modifier = Modifier.width(282.dp),
-        color = OwnPlayColors.Surface,
+        modifier = Modifier
+            .width(292.dp)
+            .clickable(onClick = onResume),
+        color = Color.Transparent,
         shape = OwnPlayShapeTokens.Medium,
         tonalElevation = 0.dp,
     ) {
-        Column {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(1.72f)
+                .clip(OwnPlayShapeTokens.Medium)
+                .background(OwnPlayColors.SurfaceElevated),
+        ) {
+            RemoteArtwork(
+                locator = item.artworkUrl,
+                contentDescription = "${item.title} artwork",
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
+            )
             Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .height(154.dp)
-                    .clip(OwnPlayShapeTokens.Medium)
-                    .background(OwnPlayColors.SurfaceElevated),
-                contentAlignment = Alignment.BottomStart,
-            ) {
-                RemoteArtwork(
-                    locator = item.artworkUrl,
-                    contentDescription = "${item.title} artwork",
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop,
-                )
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(
-                            Brush.verticalGradient(
-                                0f to Color.Transparent,
-                                0.52f to Color.Transparent,
-                                1f to OwnPlayColors.Background.copy(alpha = 0.92f),
-                            ),
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            0f to Color.Black.copy(alpha = 0.08f),
+                            0.44f to Color.Transparent,
+                            1f to Color.Black.copy(alpha = 0.92f),
                         ),
+                    ),
+            )
+
+            LibraryIconAction(
+                glyph = LibraryActionGlyph.RESTART,
+                contentDescription = "Start ${item.title} over",
+                onClick = onBeginning,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(8.dp),
+            )
+
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(start = 14.dp, end = 68.dp, bottom = 15.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Text(
+                    text = item.mediaKind.name,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = OwnPlayColors.Accent,
+                    fontWeight = FontWeight.SemiBold,
                 )
-                Column(
-                    modifier = Modifier.padding(OwnPlaySpacing.Md),
-                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                Text(
+                    text = item.title,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = Color.White,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                )
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text(
-                        text = item.mediaKind.name,
-                        style = MaterialTheme.typography.labelMedium,
-                        color = OwnPlayColors.Accent,
-                    )
-                    Text(
-                        text = item.title,
-                        style = MaterialTheme.typography.titleMedium,
-                        color = OwnPlayColors.TextPrimary,
-                        maxLines = 2,
-                    )
-                    item.subtitle?.let { subtitle ->
+                    item.subtitle?.takeIf { it.isNotBlank() }?.let { subtitle ->
                         Text(
                             text = subtitle,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = OwnPlayColors.TextSecondary,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.White.copy(alpha = 0.72f),
                             maxLines = 1,
                         )
                     }
+                    Text(
+                        text = "${formatDuration(remainingMs)} left",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.White.copy(alpha = 0.58f),
+                        maxLines = 1,
+                    )
                 }
             }
-            Column(
-                modifier = Modifier.padding(horizontal = OwnPlaySpacing.Md, vertical = 10.dp),
-                verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm),
+
+            LibraryIconAction(
+                glyph = LibraryActionGlyph.PLAY,
+                contentDescription = "Resume ${item.title}",
+                emphasized = true,
+                onClick = onResume,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 10.dp, bottom = 10.dp),
+            )
+
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .height(3.dp)
+                    .background(Color.White.copy(alpha = 0.16f)),
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(3.dp)
-                            .clip(OwnPlayShapeTokens.Small)
-                            .background(OwnPlayColors.Divider),
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth(progress)
-                                .height(3.dp)
-                                .background(OwnPlayColors.Accent),
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(OwnPlaySpacing.Md))
-                    Text(
-                        text = "${formatDuration((item.durationMs - item.positionMs).coerceAtLeast(0L))} left",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = OwnPlayColors.TextMuted,
-                    )
-                }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Xs),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    LibraryPrimaryAction(
-                        text = "Resume",
-                        onClick = onResume,
-                        modifier = Modifier.weight(1.25f),
-                        glyph = LibraryActionGlyph.PLAY,
-                    )
-                    LibrarySecondaryAction(
-                        text = "Start Over",
-                        onClick = onBeginning,
-                        modifier = Modifier.weight(0.85f),
-                        glyph = LibraryActionGlyph.RESTART,
-                    )
-                }
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(progress)
+                        .height(3.dp)
+                        .background(OwnPlayColors.Accent),
+                )
             }
         }
     }
@@ -713,69 +717,62 @@ private fun PosterCard(
     eyebrow: String,
     onClick: () -> Unit,
 ) {
-    Surface(
-        onClick = onClick,
-        modifier = Modifier.width(132.dp),
-        color = OwnPlayColors.SurfaceElevated,
-        shape = OwnPlayShapeTokens.Medium,
-        tonalElevation = 0.dp,
+    Box(
+        modifier = Modifier
+            .width(138.dp)
+            .aspectRatio(0.68f)
+            .clip(OwnPlayShapeTokens.Medium)
+            .background(OwnPlayColors.SurfaceElevated)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
     ) {
+        if (artworkUrl.isNullOrBlank()) {
+            Text(
+                text = title,
+                modifier = Modifier.padding(OwnPlaySpacing.Md),
+                style = MaterialTheme.typography.labelLarge,
+                color = OwnPlayColors.TextSecondary,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 3,
+            )
+        } else {
+            RemoteArtwork(
+                locator = artworkUrl,
+                contentDescription = "$title poster",
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
+            )
+        }
         Box(
             modifier = Modifier
-                .fillMaxWidth()
-                .aspectRatio(0.68f)
-                .clip(OwnPlayShapeTokens.Medium)
-                .background(OwnPlayColors.SurfaceElevated),
-            contentAlignment = Alignment.Center,
-        ) {
-            if (artworkUrl.isNullOrBlank()) {
-                Text(
-                    text = title,
-                    modifier = Modifier.padding(OwnPlaySpacing.Md),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = OwnPlayColors.TextSecondary,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 3,
-                )
-            } else {
-                RemoteArtwork(
-                    locator = artworkUrl,
-                    contentDescription = "$title poster",
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop,
-                )
-            }
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            0f to Color.Transparent,
-                            0.58f to Color.Transparent,
-                            1f to Color.Black.copy(alpha = 0.84f),
-                        ),
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        0f to Color.Transparent,
+                        0.58f to Color.Transparent,
+                        1f to Color.Black.copy(alpha = 0.90f),
                     ),
+                ),
+        )
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(horizontal = 10.dp, vertical = 9.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Text(
+                text = eyebrow,
+                style = MaterialTheme.typography.labelMedium,
+                color = OwnPlayColors.Accent,
+                maxLines = 1,
             )
-            Column(
-                modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .padding(OwnPlaySpacing.Sm),
-                verticalArrangement = Arrangement.spacedBy(1.dp),
-            ) {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.labelLarge,
-                    color = Color.White,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 2,
-                )
-                Text(
-                    text = eyebrow,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = Color.White.copy(alpha = 0.72f),
-                    maxLines = 1,
-                )
-            }
+            Text(
+                text = title,
+                style = MaterialTheme.typography.labelLarge,
+                color = Color.White,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 2,
+            )
         }
     }
 }
@@ -789,35 +786,56 @@ private fun DownloadedRow(
     val byId = remember(downloads) { downloads.associateBy { it.downloadId } }
     LazyRow(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),
+        horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm),
     ) {
         items(
             items = mediaItems,
             key = { media -> media.downloadId },
         ) { media ->
-            OwnPlayPanel(modifier = Modifier.width(232.dp)) {
+            Surface(
+                modifier = Modifier.width(244.dp),
+                color = OwnPlayColors.Surface.copy(alpha = 0.52f),
+                shape = OwnPlayShapeTokens.Medium,
+                tonalElevation = 0.dp,
+            ) {
                 Column(
-                    modifier = Modifier.padding(OwnPlaySpacing.Md),
+                    modifier = Modifier.padding(12.dp),
                     verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm),
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .aspectRatio(1.65f)
-                            .clip(OwnPlayShapeTokens.Small)
-                            .background(OwnPlayColors.SurfaceElevated),
-                    )
-                    Text(
-                        text = media.title,
-                        style = MaterialTheme.typography.titleMedium,
-                        color = OwnPlayColors.TextPrimary,
-                        maxLines = 2,
-                    )
-                    Text(
-                        text = "Downloaded",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = OwnPlayColors.Accent,
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .width(38.dp)
+                                .height(38.dp)
+                                .clip(OwnPlayShapeTokens.Action)
+                                .background(OwnPlayColors.Accent.copy(alpha = 0.16f)),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = "✓",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = OwnPlayColors.Accent,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = media.title,
+                                style = MaterialTheme.typography.titleSmall,
+                                color = OwnPlayColors.TextPrimary,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 2,
+                            )
+                            Text(
+                                text = "Available offline",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = OwnPlayColors.TextMuted,
+                            )
+                        }
+                    }
                     byId[media.downloadId]?.let { item ->
                         DownloadControls(
                             item = item,
@@ -849,22 +867,17 @@ private fun MovieDetail(
             .fillMaxSize()
             .verticalScroll(rememberScrollState()),
     ) {
+        LibraryHero(
+            title = movie.name,
+            label = "MOVIE",
+            rating = movie.rating,
+            artworkUrl = movie.backdropUrl ?: movie.posterUrl,
+            onBack = onBack,
+        )
         Column(
-            modifier = Modifier.padding(horizontal = OwnPlaySpacing.Lg, vertical = OwnPlaySpacing.Md),
-            verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Lg),
+            modifier = Modifier.padding(horizontal = OwnPlaySpacing.Lg, vertical = OwnPlaySpacing.Lg),
+            verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),
         ) {
-            Text(
-                text = "‹ Library",
-                modifier = Modifier.clickable(onClick = onBack).padding(vertical = OwnPlaySpacing.Sm),
-                style = MaterialTheme.typography.labelLarge,
-                color = OwnPlayColors.Accent,
-            )
-            LibraryHero(
-                title = movie.name,
-                label = "MOVIE",
-                rating = movie.rating,
-                artworkUrl = movie.backdropUrl ?: movie.posterUrl,
-            )
             if (errorMessage != null) {
                 OwnPlayStatePanel(title = "Action unavailable", message = errorMessage)
             }
@@ -874,20 +887,15 @@ private fun MovieDetail(
                     onResume = onResume,
                     onBeginning = onBeginning,
                 )
-                DownloadControls(item = downloadItem, onAction = onDownloadAction, compact = true)
             } else {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    LibraryPrimaryAction(
-                        text = "Play",
-                        onClick = onBeginning,
-                        glyph = LibraryActionGlyph.PLAY,
-                    )
-                    DownloadControls(item = downloadItem, onAction = onDownloadAction, compact = true)
-                }
+                LibraryPrimaryAction(
+                    text = "Play",
+                    onClick = onBeginning,
+                    modifier = Modifier.fillMaxWidth(0.44f),
+                    glyph = LibraryActionGlyph.PLAY,
+                )
             }
+            DownloadControls(item = downloadItem, onAction = onDownloadAction, compact = true)
             Spacer(modifier = Modifier.height(OwnPlaySpacing.Xl))
         }
     }
@@ -913,24 +921,23 @@ private fun SeriesDetail(
             .fillMaxSize()
             .verticalScroll(rememberScrollState()),
     ) {
+        LibraryHero(
+            title = series.name,
+            label = "SERIES",
+            rating = series.rating,
+            artworkUrl = series.backdropUrl ?: series.posterUrl,
+            onBack = onBack,
+        )
         Column(
-            modifier = Modifier.padding(horizontal = OwnPlaySpacing.Lg, vertical = OwnPlaySpacing.Md),
-            verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Lg),
+            modifier = Modifier.padding(horizontal = OwnPlaySpacing.Lg, vertical = OwnPlaySpacing.Lg),
+            verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),
         ) {
-            Text(
-                text = "‹ Library",
-                modifier = Modifier.clickable(onClick = onBack).padding(vertical = OwnPlaySpacing.Sm),
-                style = MaterialTheme.typography.labelLarge,
-                color = OwnPlayColors.Accent,
-            )
-            LibraryHero(
-                title = series.name,
-                label = "SERIES",
-                rating = series.rating,
-                artworkUrl = series.backdropUrl ?: series.posterUrl,
-            )
             series.description?.takeIf { it.isNotBlank() }?.let { description ->
-                Text(description, style = MaterialTheme.typography.bodyLarge, color = OwnPlayColors.TextSecondary)
+                Text(
+                    text = description,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = OwnPlayColors.TextSecondary,
+                )
             }
             if (warning != null) {
                 OwnPlayStatePanel(title = "Using cached episodes", message = warning)
@@ -938,7 +945,7 @@ private fun SeriesDetail(
             if (errorMessage != null) {
                 OwnPlayStatePanel(title = "Action unavailable", message = errorMessage)
             }
-            OwnPlaySectionHeader(title = "Episodes")
+            LibraryShelfHeader(title = "Episodes")
             when {
                 detail == null && errorMessage == null -> OwnPlayStatePanel(
                     title = "Loading episodes",
@@ -950,7 +957,7 @@ private fun SeriesDetail(
                     message = "The source did not return playable episodes for this series.",
                 )
 
-                else -> Column(verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm)) {
+                else -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     detail?.episodes.orEmpty().forEach { episode ->
                         val downloadItem = downloadForEpisode(episode)
                         EpisodeRow(
@@ -975,12 +982,12 @@ private fun LibraryHero(
     label: String,
     rating: String?,
     artworkUrl: String?,
+    onBack: () -> Unit,
 ) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .aspectRatio(16f / 9f)
-            .clip(OwnPlayShapeTokens.Large)
+            .aspectRatio(1.55f)
             .background(OwnPlayColors.SurfaceElevated),
         contentAlignment = Alignment.BottomStart,
     ) {
@@ -995,22 +1002,45 @@ private fun LibraryHero(
                 .fillMaxSize()
                 .background(
                     Brush.verticalGradient(
-                        0f to Color.Transparent,
-                        0.48f to Color.Transparent,
-                        1f to Color.Black.copy(alpha = 0.88f),
+                        0f to Color.Black.copy(alpha = 0.18f),
+                        0.44f to Color.Transparent,
+                        1f to Color.Black.copy(alpha = 0.94f),
                     ),
                 ),
+        )
+        LibraryIconAction(
+            glyph = LibraryActionGlyph.BACK,
+            contentDescription = "Back to Library",
+            onClick = onBack,
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(OwnPlaySpacing.Md),
         )
         Column(
             modifier = Modifier
                 .align(Alignment.BottomStart)
-                .padding(OwnPlaySpacing.Xl),
-            verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Xs),
+                .padding(horizontal = OwnPlaySpacing.Lg, vertical = OwnPlaySpacing.Lg),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            Text(label, style = MaterialTheme.typography.labelMedium, color = OwnPlayColors.Accent)
-            Text(title, style = MaterialTheme.typography.headlineMedium, color = Color.White, maxLines = 2)
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelMedium,
+                color = OwnPlayColors.Accent,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                text = title,
+                style = MaterialTheme.typography.headlineMedium,
+                color = Color.White,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 2,
+            )
             rating?.let {
-                Text("★ $it", style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.76f))
+                Text(
+                    text = "★ $it",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color.White.copy(alpha = 0.72f),
+                )
             }
         }
     }
@@ -1077,47 +1107,81 @@ private fun EpisodeRow(
     onBeginning: () -> Unit,
     onDownloadAction: (DownloadAction) -> Unit,
 ) {
-    OwnPlayPanel(modifier = Modifier.fillMaxWidth()) {
+    val hasProgress = episode.resumePositionMs != null
+    val primaryIsResume = hasProgress && preferResume
+    val primaryLabel = if (primaryIsResume) "Resume" else "Play"
+    val primaryAction = if (primaryIsResume) onResume else onBeginning
+
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = OwnPlayColors.Surface.copy(alpha = 0.40f),
+        shape = OwnPlayShapeTokens.Medium,
+        tonalElevation = 0.dp,
+    ) {
         Column(
-            modifier = Modifier.padding(OwnPlaySpacing.Md),
-            verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm),
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                Text(
-                    text = "S${episode.seasonNumber} E${episode.episodeNumber}",
-                    modifier = Modifier.width(72.dp),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = OwnPlayColors.Accent,
-                )
+                Column(modifier = Modifier.width(54.dp)) {
+                    Text(
+                        text = "S${episode.seasonNumber}",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = OwnPlayColors.TextMuted,
+                    )
+                    Text(
+                        text = "E${episode.episodeNumber}",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = OwnPlayColors.Accent,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(episode.title, style = MaterialTheme.typography.titleMedium, color = OwnPlayColors.TextPrimary)
+                    Text(
+                        text = episode.title,
+                        style = MaterialTheme.typography.titleSmall,
+                        color = OwnPlayColors.TextPrimary,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 2,
+                    )
                     episode.durationMs?.let { duration ->
-                        Text(formatDuration(duration), style = MaterialTheme.typography.bodyMedium, color = OwnPlayColors.TextSecondary)
+                        Text(
+                            text = formatDuration(duration),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = OwnPlayColors.TextMuted,
+                        )
                     }
                 }
-            }
-            if (episode.resumePositionMs != null) {
-                PlaybackChoiceButtons(
-                    preferResume = preferResume,
-                    onResume = onResume,
-                    onBeginning = onBeginning,
+                LibraryIconAction(
+                    glyph = LibraryActionGlyph.PLAY,
+                    contentDescription = "$primaryLabel ${episode.title}",
+                    emphasized = true,
+                    onClick = primaryAction,
                 )
-                DownloadControls(item = downloadItem, onAction = onDownloadAction, compact = true)
-            } else {
+            }
+
+            if (hasProgress) {
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm),
+                    modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Xs),
                 ) {
-                    LibraryPrimaryAction(
-                        text = "Play",
-                        onClick = onBeginning,
-                        glyph = LibraryActionGlyph.PLAY,
+                    LibrarySecondaryAction(
+                        text = if (primaryIsResume) "Start Over" else "Resume",
+                        onClick = if (primaryIsResume) onBeginning else onResume,
+                        modifier = Modifier.weight(0.55f),
+                        glyph = if (primaryIsResume) LibraryActionGlyph.RESTART else LibraryActionGlyph.PLAY,
                     )
-                    DownloadControls(item = downloadItem, onAction = onDownloadAction, compact = true)
+                    Box(modifier = Modifier.weight(1f)) {
+                        DownloadControls(item = downloadItem, onAction = onDownloadAction, compact = true)
+                    }
                 }
+            } else {
+                DownloadControls(item = downloadItem, onAction = onDownloadAction, compact = true)
             }
         }
     }

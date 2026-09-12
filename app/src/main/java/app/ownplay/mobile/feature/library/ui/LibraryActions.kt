@@ -21,6 +21,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -31,6 +32,7 @@ import app.ownplay.mobile.design.OwnPlayShapeTokens
 internal enum class LibraryActionGlyph {
     PLAY,
     RESTART,
+    BACK,
 }
 
 @Composable
@@ -73,7 +75,7 @@ private fun LibraryActionButton(
     primary: Boolean,
     glyph: LibraryActionGlyph?,
 ) {
-    val contentColor = if (primary) OwnPlayColors.TextPrimary else OwnPlayColors.TextSecondary
+    val contentColor = if (primary) Color.White else OwnPlayColors.TextSecondary
     Box(
         modifier = modifier
             .height(48.dp)
@@ -85,25 +87,22 @@ private fun LibraryActionButton(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(40.dp),
-            shape = OwnPlayShapeTokens.Action,
-            color = if (primary) OwnPlayColors.AccentStrong else OwnPlayColors.SurfaceElevated.copy(alpha = 0.66f),
-            border = if (primary) null else BorderStroke(1.dp, OwnPlayColors.Divider.copy(alpha = 0.52f)),
+            shape = OwnPlayShapeTokens.Small,
+            color = if (primary) OwnPlayColors.AccentStrong else Color.Transparent,
+            border = null,
             tonalElevation = 0.dp,
         ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(40.dp)
-                    .padding(horizontal = 12.dp),
+                    .padding(horizontal = if (primary) 14.dp else 8.dp),
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 glyph?.let {
                     Text(
-                        text = when (it) {
-                            LibraryActionGlyph.PLAY -> "▶"
-                            LibraryActionGlyph.RESTART -> "↺"
-                        },
+                        text = it.symbol,
                         modifier = Modifier.clearAndSetSemantics {},
                         style = MaterialTheme.typography.labelMedium,
                         color = contentColor,
@@ -124,6 +123,73 @@ private fun LibraryActionButton(
 }
 
 @Composable
+internal fun LibraryIconAction(
+    glyph: LibraryActionGlyph,
+    contentDescription: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    emphasized: Boolean = false,
+) {
+    Box(
+        modifier = modifier
+            .width(48.dp)
+            .height(48.dp)
+            .clickable(role = Role.Button, onClick = onClick)
+            .semantics { this.contentDescription = contentDescription },
+        contentAlignment = Alignment.Center,
+    ) {
+        Surface(
+            modifier = Modifier
+                .width(40.dp)
+                .height(40.dp),
+            shape = OwnPlayShapeTokens.Action,
+            color = if (emphasized) OwnPlayColors.AccentStrong else Color.Black.copy(alpha = 0.52f),
+            border = if (emphasized) null else BorderStroke(1.dp, Color.White.copy(alpha = 0.12f)),
+            tonalElevation = 0.dp,
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Text(
+                    text = glyph.symbol,
+                    modifier = Modifier.clearAndSetSemantics {},
+                    style = MaterialTheme.typography.titleSmall,
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+internal fun LibraryShelfHeader(
+    title: String,
+    actionLabel: String? = null,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.Bottom,
+        horizontalArrangement = Arrangement.spacedBy(OwnPlayShapeHeaderSpacing),
+    ) {
+        Text(
+            text = title,
+            modifier = Modifier.weight(1f),
+            style = MaterialTheme.typography.titleLarge,
+            color = OwnPlayColors.TextPrimary,
+            fontWeight = FontWeight.SemiBold,
+        )
+        actionLabel?.let {
+            Text(
+                text = it,
+                style = MaterialTheme.typography.labelMedium,
+                color = OwnPlayColors.TextMuted,
+                maxLines = 1,
+            )
+        }
+    }
+}
+
+@Composable
 internal fun LibraryFilterTab(
     label: String,
     selected: Boolean,
@@ -132,7 +198,7 @@ internal fun LibraryFilterTab(
 ) {
     Box(
         modifier = modifier
-            .height(48.dp)
+            .height(44.dp)
             .clickable(role = Role.Tab, onClick = onClick)
             .semantics { this.selected = selected },
         contentAlignment = Alignment.Center,
@@ -143,16 +209,16 @@ internal fun LibraryFilterTab(
         ) {
             Text(
                 text = label,
-                modifier = Modifier.padding(horizontal = 10.dp),
+                modifier = Modifier.padding(horizontal = 8.dp),
                 style = MaterialTheme.typography.labelLarge,
-                color = if (selected) OwnPlayColors.TextPrimary else OwnPlayColors.TextSecondary,
+                color = if (selected) OwnPlayColors.Accent else OwnPlayColors.TextMuted,
                 fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
                 maxLines = 1,
             )
             Spacer(modifier = Modifier.height(4.dp))
             Box(
                 modifier = Modifier
-                    .width(24.dp)
+                    .width(if (selected) 18.dp else 1.dp)
                     .height(2.dp)
                     .background(
                         color = if (selected) OwnPlayColors.Accent else Color.Transparent,
@@ -162,3 +228,12 @@ internal fun LibraryFilterTab(
         }
     }
 }
+
+private val LibraryActionGlyph.symbol: String
+    get() = when (this) {
+        LibraryActionGlyph.PLAY -> "▶"
+        LibraryActionGlyph.RESTART -> "↺"
+        LibraryActionGlyph.BACK -> "‹"
+    }
+
+private val OwnPlayShapeHeaderSpacing = 12.dp
