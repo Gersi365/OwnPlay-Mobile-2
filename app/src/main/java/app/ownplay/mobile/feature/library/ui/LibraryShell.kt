@@ -9,6 +9,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.snapping.SnapPosition
 import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -404,7 +405,7 @@ private fun LibraryHome(
 
         Column(
             modifier = Modifier.padding(horizontal = OwnPlaySpacing.Lg),
-            verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             if (errorMessage != null) {
                 OwnPlayStatePanel(title = "Action unavailable", message = errorMessage)
@@ -413,19 +414,21 @@ private fun LibraryHome(
             LibraryShelfHeader(
                 title = "Continue Watching",
                 actionLabel = catalog?.continueWatching?.size?.takeIf { it > 0 }?.let { "$it in progress" },
+                prominent = true,
             )
             when {
-                catalog == null -> OwnPlayStatePanel(
+                catalog == null -> LibraryShelfState(
                     title = "Loading Library",
                     message = "Reading the active source and saved progress.",
+                    loading = true,
                 )
 
-                catalog.activeSourceId == null -> OwnPlayStatePanel(
+                catalog.activeSourceId == null -> LibraryShelfState(
                     title = "No active source",
                     message = "Add or select a source in Settings to populate your Library.",
                 )
 
-                catalog.continueWatching.isEmpty() -> OwnPlayStatePanel(
+                catalog.continueWatching.isEmpty() -> LibraryShelfState(
                     title = "Nothing to resume yet",
                     message = "Movies and episodes with saved progress will appear here.",
                 )
@@ -450,7 +453,7 @@ private fun LibraryHome(
                 )
             }
             when {
-                catalog != null && catalog.activeSourceId != null && catalog.movies.isEmpty() -> OwnPlayStatePanel(
+                catalog != null && catalog.activeSourceId != null && catalog.movies.isEmpty() -> LibraryShelfState(
                     title = "No movies available",
                     message = "Refresh ${catalog.activeSourceName ?: "the active source"} to load movie metadata.",
                 )
@@ -460,7 +463,7 @@ private fun LibraryHome(
                     onMovieSelected = onMovieSelected,
                 )
 
-                catalog != null && catalog.movies.isNotEmpty() -> OwnPlayStatePanel(
+                catalog != null && catalog.movies.isNotEmpty() -> LibraryShelfState(
                     title = "No movies in this category",
                     message = "Choose another provider category.",
                 )
@@ -479,7 +482,7 @@ private fun LibraryHome(
                 )
             }
             when {
-                catalog != null && catalog.activeSourceId != null && catalog.series.isEmpty() -> OwnPlayStatePanel(
+                catalog != null && catalog.activeSourceId != null && catalog.series.isEmpty() -> LibraryShelfState(
                     title = "No series available",
                     message = "Refresh ${catalog.activeSourceName ?: "the active source"} to load series metadata.",
                 )
@@ -489,7 +492,7 @@ private fun LibraryHome(
                     onSeriesSelected = onSeriesSelected,
                 )
 
-                catalog != null && catalog.series.isNotEmpty() -> OwnPlayStatePanel(
+                catalog != null && catalog.series.isNotEmpty() -> LibraryShelfState(
                     title = "No series in this category",
                     message = "Choose another provider category.",
                 )
@@ -498,7 +501,7 @@ private fun LibraryHome(
             Spacer(modifier = Modifier.height(OwnPlaySpacing.Sm))
             LibraryShelfHeader(title = "Downloaded Media")
             if (catalog != null && catalog.activeSourceId != null && catalog.downloadedMedia.isEmpty()) {
-                OwnPlayStatePanel(
+                LibraryShelfState(
                     title = "No completed downloads",
                     message = "Completed media appears here after its offline file passes integrity verification.",
                 )
@@ -586,11 +589,17 @@ private fun ContinueWatchingCard(
         0f
     }
     val remainingMs = (item.durationMs - item.positionMs).coerceAtLeast(0L)
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
 
     Surface(
         modifier = Modifier
             .width(cardWidth)
-            .clickable(onClick = onResume),
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onResume,
+            ),
         color = Color.Transparent,
         shape = OwnPlayShapeTokens.Medium,
         tonalElevation = 0.dp,
@@ -619,6 +628,14 @@ private fun ContinueWatchingCard(
                         ),
                     ),
             )
+
+            if (isPressed) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.12f)),
+                )
+            }
 
             LibraryIconAction(
                 glyph = LibraryActionGlyph.RESTART,
@@ -769,13 +786,19 @@ private fun PosterCard(
     cardWidth: Dp,
     onClick: () -> Unit,
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
     Box(
         modifier = Modifier
             .width(cardWidth)
             .aspectRatio(0.68f)
             .clip(OwnPlayShapeTokens.Medium)
             .background(OwnPlayColors.SurfaceElevated)
-            .clickable(onClick = onClick),
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick,
+            ),
         contentAlignment = Alignment.Center,
     ) {
         if (artworkUrl.isNullOrBlank()) {
@@ -806,6 +829,13 @@ private fun PosterCard(
                     ),
                 ),
         )
+        if (isPressed) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.12f)),
+            )
+        }
         Column(
             modifier = Modifier
                 .align(Alignment.BottomStart)
