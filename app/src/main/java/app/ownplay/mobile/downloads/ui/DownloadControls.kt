@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
@@ -42,23 +41,19 @@ fun DownloadControls(
             Text(
                 text = statusLabel(item),
                 style = MaterialTheme.typography.bodyMedium,
-                color = if (item.state == DownloadState.FAILED) {
-                    OwnPlayColors.TextSecondary
-                } else {
-                    OwnPlayColors.Accent
-                },
+                color = if (item.state == DownloadState.FAILED) OwnPlayColors.TextSecondary else OwnPlayColors.Accent,
             )
             item.progressFraction?.let { progress ->
                 Box(
-                    modifier = (if (compact) Modifier.width(180.dp) else Modifier.fillMaxWidth())
-                        .height(4.dp)
+                    modifier = (if (compact) Modifier.width(160.dp) else Modifier.fillMaxWidth())
+                        .height(3.dp)
                         .clip(RoundedCornerShape(2.dp))
                         .background(OwnPlayColors.Divider),
                 ) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth(progress)
-                            .height(4.dp)
+                            .height(3.dp)
                             .background(OwnPlayColors.Accent),
                     )
                 }
@@ -74,33 +69,30 @@ fun DownloadControls(
                     OwnPlaySecondaryButton(
                         text = actionLabel(primaryAction),
                         onClick = { onAction(primaryAction) },
-                        modifier = Modifier.height(40.dp),
                     )
                 } else {
                     OwnPlayPrimaryButton(
                         text = actionLabel(primaryAction),
                         onClick = { onAction(primaryAction) },
-                        modifier = Modifier.height(40.dp),
                     )
                 }
                 if (item != null) {
                     OwnPlaySecondaryButton(
                         text = "Remove",
                         onClick = { onAction(DownloadAction.REMOVE) },
-                        modifier = Modifier.height(40.dp),
                     )
                 }
             } else {
                 OwnPlayPrimaryButton(
                     text = actionLabel(primaryAction),
                     onClick = { onAction(primaryAction) },
-                    modifier = Modifier.weight(1f).height(52.dp),
+                    modifier = Modifier.weight(1f),
                 )
                 if (item != null) {
                     OwnPlaySecondaryButton(
                         text = "Remove",
                         onClick = { onAction(DownloadAction.REMOVE) },
-                        modifier = Modifier.weight(0.7f).height(52.dp),
+                        modifier = Modifier.weight(0.7f),
                     )
                 }
             }

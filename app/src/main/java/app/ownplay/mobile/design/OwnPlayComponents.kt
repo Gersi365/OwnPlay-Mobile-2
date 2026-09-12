@@ -2,6 +2,7 @@ package app.ownplay.mobile.design
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -9,25 +10,26 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 
 @Composable
 fun OwnPlayWordmark(
@@ -37,16 +39,12 @@ fun OwnPlayWordmark(
     Column(modifier = modifier) {
         Text(
             text = buildAnnotatedString {
-                withStyle(SpanStyle(color = OwnPlayColors.TextPrimary)) {
-                    append("Own")
-                }
-                withStyle(SpanStyle(color = OwnPlayColors.Accent)) {
-                    append("Play")
-                }
+                withStyle(SpanStyle(color = OwnPlayColors.TextPrimary)) { append("Own") }
+                withStyle(SpanStyle(color = OwnPlayColors.Accent)) { append("Play") }
             },
-            fontSize = 30.sp,
-            lineHeight = 32.sp,
-            fontWeight = FontWeight.Bold,
+            fontSize = 28.sp,
+            lineHeight = 30.sp,
+            fontWeight = FontWeight.SemiBold,
         )
         if (showTagline) {
             Spacer(modifier = Modifier.height(2.dp))
@@ -67,7 +65,7 @@ fun OwnPlayTopBar(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = OwnPlaySpacing.Lg, vertical = OwnPlaySpacing.Md),
+            .padding(horizontal = OwnPlaySpacing.Lg, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         OwnPlayWordmark(
@@ -75,7 +73,7 @@ fun OwnPlayTopBar(
             showTagline = showTagline,
         )
         TopActionGlyph(kind = TopActionKind.Search)
-        Spacer(modifier = Modifier.width(OwnPlaySpacing.Sm))
+        Spacer(modifier = Modifier.width(OwnPlaySpacing.Xs))
         TopActionGlyph(kind = TopActionKind.Menu)
     }
 }
@@ -99,8 +97,8 @@ fun OwnPlaySectionHeader(
         if (actionLabel != null) {
             Text(
                 text = actionLabel,
-                style = MaterialTheme.typography.bodyMedium,
-                color = OwnPlayColors.TextSecondary,
+                style = MaterialTheme.typography.labelLarge,
+                color = OwnPlayColors.TextMuted,
             )
         }
     }
@@ -115,7 +113,6 @@ fun OwnPlayPanel(
         modifier = modifier,
         color = OwnPlayColors.Surface,
         shape = OwnPlayShapeTokens.Medium,
-        border = BorderStroke(1.dp, OwnPlayColors.Divider),
         tonalElevation = 0.dp,
         content = content,
     )
@@ -127,16 +124,24 @@ fun OwnPlayPrimaryButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Button(
+    Surface(
         onClick = onClick,
-        modifier = modifier.height(52.dp),
+        modifier = modifier.heightIn(min = 44.dp),
         shape = OwnPlayShapeTokens.Action,
-        colors = ButtonDefaults.buttonColors(
-            containerColor = OwnPlayColors.AccentStrong,
-            contentColor = OwnPlayColors.TextPrimary,
-        ),
+        color = OwnPlayColors.AccentStrong,
+        tonalElevation = 0.dp,
     ) {
-        Text(text = text, style = MaterialTheme.typography.labelLarge)
+        Box(
+            modifier = Modifier.padding(horizontal = OwnPlaySpacing.Lg, vertical = 10.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = text,
+                style = MaterialTheme.typography.labelLarge,
+                color = OwnPlayColors.TextPrimary,
+                maxLines = 1,
+            )
+        }
     }
 }
 
@@ -146,16 +151,64 @@ fun OwnPlaySecondaryButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    OutlinedButton(
+    Surface(
         onClick = onClick,
-        modifier = modifier.height(52.dp),
+        modifier = modifier.heightIn(min = 44.dp),
         shape = OwnPlayShapeTokens.Action,
-        border = BorderStroke(1.dp, OwnPlayColors.Divider),
-        colors = ButtonDefaults.outlinedButtonColors(
-            contentColor = OwnPlayColors.TextPrimary,
-        ),
+        color = OwnPlayColors.SurfaceElevated,
+        border = BorderStroke(1.dp, OwnPlayColors.Divider.copy(alpha = 0.82f)),
+        tonalElevation = 0.dp,
     ) {
-        Text(text = text, style = MaterialTheme.typography.labelLarge)
+        Box(
+            modifier = Modifier.padding(horizontal = OwnPlaySpacing.Lg, vertical = 10.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = text,
+                style = MaterialTheme.typography.labelLarge,
+                color = OwnPlayColors.TextPrimary,
+                maxLines = 1,
+            )
+        }
+    }
+}
+
+@Composable
+fun OwnPlayFilterChip(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        onClick = onClick,
+        modifier = modifier.heightIn(min = 44.dp),
+        shape = OwnPlayShapeTokens.Small,
+        color = if (selected) OwnPlayColors.Accent.copy(alpha = 0.10f) else Color.Transparent,
+        tonalElevation = 0.dp,
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelLarge,
+                color = if (selected) OwnPlayColors.TextPrimary else OwnPlayColors.TextSecondary,
+                maxLines = 1,
+            )
+            Spacer(modifier = Modifier.height(5.dp))
+            Box(
+                modifier = Modifier
+                    .width(24.dp)
+                    .height(2.dp)
+                    .background(
+                        color = if (selected) OwnPlayColors.Accent else Color.Transparent,
+                        shape = OwnPlayShapeTokens.Small,
+                    ),
+            )
+        }
     }
 }
 
@@ -167,9 +220,14 @@ fun OwnPlayStatePanel(
     actionLabel: String? = null,
     onAction: (() -> Unit)? = null,
 ) {
-    OwnPlayPanel(modifier = modifier.fillMaxWidth()) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        color = OwnPlayColors.SurfaceElevated.copy(alpha = 0.72f),
+        shape = OwnPlayShapeTokens.Medium,
+        tonalElevation = 0.dp,
+    ) {
         Column(
-            modifier = Modifier.padding(OwnPlaySpacing.Xl),
+            modifier = Modifier.padding(OwnPlaySpacing.Lg),
             verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm),
         ) {
             Text(
@@ -190,6 +248,49 @@ fun OwnPlayStatePanel(
     }
 }
 
+@Composable
+fun OwnPlayModal(
+    title: String,
+    message: String,
+    confirmLabel: String,
+    dismissLabel: String,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            color = OwnPlayColors.SurfaceElevated,
+            shape = OwnPlayShapeTokens.Large,
+            border = BorderStroke(1.dp, OwnPlayColors.Divider.copy(alpha = 0.74f)),
+            tonalElevation = 0.dp,
+        ) {
+            Column(
+                modifier = Modifier.padding(OwnPlaySpacing.Xl),
+                verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),
+            ) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleLarge,
+                    color = OwnPlayColors.TextPrimary,
+                )
+                Text(
+                    text = message,
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = OwnPlayColors.TextSecondary,
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm, Alignment.End),
+                ) {
+                    OwnPlaySecondaryButton(text = dismissLabel, onClick = onDismiss)
+                    OwnPlayPrimaryButton(text = confirmLabel, onClick = onConfirm)
+                }
+            }
+        }
+    }
+}
+
 private enum class TopActionKind {
     Search,
     Menu,
@@ -198,11 +299,13 @@ private enum class TopActionKind {
 @Composable
 private fun TopActionGlyph(kind: TopActionKind) {
     Box(
-        modifier = Modifier.size(44.dp),
+        modifier = Modifier
+            .size(40.dp)
+            .clearAndSetSemantics { },
         contentAlignment = Alignment.Center,
     ) {
-        Canvas(modifier = Modifier.size(24.dp)) {
-            val strokeWidth = 2.dp.toPx()
+        Canvas(modifier = Modifier.size(22.dp)) {
+            val strokeWidth = 1.8.dp.toPx()
             when (kind) {
                 TopActionKind.Search -> {
                     drawCircle(
@@ -229,7 +332,7 @@ private fun TopActionGlyph(kind: TopActionKind) {
                 }
 
                 TopActionKind.Menu -> {
-                    val radius = 1.8.dp.toPx()
+                    val radius = 1.55.dp.toPx()
                     drawCircle(OwnPlayColors.TextPrimary, radius, center.copy(y = size.height * 0.25f))
                     drawCircle(OwnPlayColors.TextPrimary, radius, center)
                     drawCircle(OwnPlayColors.TextPrimary, radius, center.copy(y = size.height * 0.75f))

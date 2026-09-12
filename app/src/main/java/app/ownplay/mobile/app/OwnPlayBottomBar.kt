@@ -3,10 +3,10 @@ package app.ownplay.mobile.app
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -54,34 +54,30 @@ fun OwnPlayBottomBar(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(1.dp)
-                    .background(OwnPlayColors.Divider),
+                    .background(OwnPlayColors.Divider.copy(alpha = 0.56f)),
             )
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(74.dp)
-                    .padding(horizontal = OwnPlaySpacing.Lg),
+                    .height(64.dp)
+                    .padding(horizontal = OwnPlaySpacing.Md),
             ) {
                 primaryDestinations.forEach { destination ->
                     val selected = destination == selectedDestination
-                    val contentColor = if (selected) {
-                        OwnPlayColors.Accent
-                    } else {
-                        OwnPlayColors.TextMuted
-                    }
+                    val contentColor = if (selected) OwnPlayColors.Accent else OwnPlayColors.TextMuted
                     Column(
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxHeight()
                             .semantics { this.selected = selected }
-                            .clickable(role = Role.Tab) { onDestinationSelected(destination) }
-                            .padding(top = OwnPlaySpacing.Sm),
+                            .clickable(role = Role.Tab) { onDestinationSelected(destination) },
                         horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center,
                     ) {
                         OwnPlayNavIcon(
                             destination = destination,
                             color = contentColor,
-                            modifier = Modifier.size(28.dp),
+                            modifier = Modifier.size(24.dp),
                         )
                         Text(
                             text = destination.label,
@@ -89,14 +85,14 @@ fun OwnPlayBottomBar(
                             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
                             color = contentColor,
                         )
-                        Spacer(modifier = Modifier.weight(1f))
                         Box(
                             modifier = Modifier
-                                .width(48.dp)
-                                .height(3.dp)
+                                .padding(top = 4.dp)
+                                .width(30.dp)
+                                .height(2.dp)
                                 .background(
                                     color = if (selected) OwnPlayColors.Accent else Color.Transparent,
-                                    shape = RoundedCornerShape(topStart = 3.dp, topEnd = 3.dp),
+                                    shape = RoundedCornerShape(2.dp),
                                 ),
                         )
                     }
@@ -113,14 +109,14 @@ private fun OwnPlayNavIcon(
     modifier: Modifier = Modifier,
 ) {
     Canvas(modifier = modifier) {
-        val stroke = 2.dp.toPx()
+        val stroke = 1.8.dp.toPx()
         when (destination) {
             AppDestination.Live -> {
                 drawRoundRect(
                     color = color,
                     topLeft = Offset(size.width * 0.16f, size.height * 0.24f),
                     size = Size(size.width * 0.68f, size.height * 0.55f),
-                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(4.dp.toPx()),
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(3.5.dp.toPx()),
                     style = Stroke(width = stroke),
                 )
                 drawLine(

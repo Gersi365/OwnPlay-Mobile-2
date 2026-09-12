@@ -176,18 +176,20 @@ private fun MainSettings(
         OwnPlayTopBar(showTagline = true)
         Column(
             modifier = Modifier.padding(horizontal = OwnPlaySpacing.Lg),
-            verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),
+            verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Xl),
         ) {
-            Text("Settings", style = MaterialTheme.typography.headlineMedium, color = OwnPlayColors.TextPrimary)
-            Text(
-                "Personalize your viewing experience",
-                style = MaterialTheme.typography.bodyLarge,
-                color = OwnPlayColors.TextSecondary,
-            )
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text("Settings", style = MaterialTheme.typography.headlineMedium, color = OwnPlayColors.TextPrimary)
+                Text(
+                    "Personalize your viewing experience",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = OwnPlayColors.TextSecondary,
+                )
+            }
 
             SettingsSection(
                 title = "Playback",
-                subtitle = "Controls that change playback behavior",
+                subtitle = "How OwnPlay behaves while media is playing",
                 marker = "▶",
                 rows = listOf(
                     SettingRowModel(
@@ -197,7 +199,7 @@ private fun MainSettings(
                     ) { scope.launch { settingsPreferences.setPictureInPictureEnabled(!settings.pictureInPictureEnabled) } },
                     SettingRowModel(
                         "Resume playback",
-                        "Make Resume the preferred action when saved progress exists",
+                        "Prefer Resume when saved progress exists",
                         SettingTrailing.Toggle(settings.resumePlaybackEnabled),
                     ) { scope.launch { settingsPreferences.setResumePlaybackEnabled(!settings.resumePlaybackEnabled) } },
                 ),
@@ -205,11 +207,11 @@ private fun MainSettings(
 
             SettingsSection(
                 title = "Live & EPG",
-                subtitle = "Provider, visibility, and guide controls",
+                subtitle = "Providers, channel visibility, and guide behavior",
                 marker = "●",
                 rows = listOf(
                     SettingRowModel("Sources", "Add, edit, select, remove, and refresh providers", SettingTrailing.Chevron, onOpenSources),
-                    SettingRowModel("Manage Live channels", "Search, hide/show, and reorder categories or channels", SettingTrailing.Chevron, onManageLive),
+                    SettingRowModel("Manage Live channels", "Show, hide, and reorder categories or channels", SettingTrailing.Chevron, onManageLive),
                     SettingRowModel(
                         "Auto-refresh providers",
                         "Refresh configured sources when a network is available",
@@ -222,7 +224,7 @@ private fun MainSettings(
                     ) { intervalChooserVisible = !intervalChooserVisible },
                     SettingRowModel(
                         "Show channel logos",
-                        "Load provider artwork in Live rows; disable to use text-only rows",
+                        "Use provider artwork in Live browsing",
                         SettingTrailing.Toggle(settings.showChannelLogos),
                     ) { scope.launch { settingsPreferences.setShowChannelLogos(!settings.showChannelLogos) } },
                 ),
@@ -240,7 +242,7 @@ private fun MainSettings(
 
             SettingsSection(
                 title = "Downloads",
-                subtitle = "Manage offline work",
+                subtitle = "Offline media",
                 marker = "↓",
                 rows = listOf(
                     SettingRowModel("Manage downloads", "Pause, resume, retry, remove, or open completed media", SettingTrailing.Chevron, onManageDownloads),
@@ -263,7 +265,7 @@ private fun MainSettings(
 
             SettingsSection(
                 title = "About",
-                subtitle = "Product information",
+                subtitle = "Help and privacy",
                 marker = "i",
                 rows = listOf(
                     SettingRowModel("Help & support", "Usage guidance for OwnPlay", SettingTrailing.Chevron, onHelp),
@@ -271,16 +273,6 @@ private fun MainSettings(
                 ),
             )
 
-            FixedStatusSection(
-                rows = listOf(
-                    "Playback quality" to "Auto · Best available",
-                    "Download quality" to "Original source",
-                    "Storage location" to "Internal app storage",
-                    "Theme" to "OwnPlay Dark",
-                    "Accent" to "OwnPlay blue",
-                    "App version" to "0.1.0-dev",
-                ),
-            )
             Spacer(modifier = Modifier.height(OwnPlaySpacing.Xl))
         }
     }
@@ -293,8 +285,8 @@ private fun ProviderRefreshIntervalChooser(
 ) {
     OwnPlayPanel(modifier = Modifier.fillMaxWidth()) {
         Column(
-            modifier = Modifier.padding(OwnPlaySpacing.Md),
-            verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Xs),
+            modifier = Modifier.padding(OwnPlaySpacing.Lg),
+            verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm),
         ) {
             Text(
                 "Provider refresh interval",
@@ -316,9 +308,9 @@ private fun ProviderRefreshIntervalChooser(
                 ) {
                     Text(
                         text = if (interval == selected) "●" else "○",
-                        modifier = Modifier.width(32.dp),
+                        modifier = Modifier.width(28.dp),
                         style = MaterialTheme.typography.titleMedium,
-                        color = if (interval == selected) OwnPlayColors.Accent else OwnPlayColors.TextSecondary,
+                        color = if (interval == selected) OwnPlayColors.Accent else OwnPlayColors.TextMuted,
                     )
                     Text(
                         interval.summary,
@@ -338,47 +330,34 @@ private fun SettingsSection(
     marker: String,
     rows: List<SettingRowModel>,
 ) {
-    OwnPlayPanel(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(horizontal = OwnPlaySpacing.Md)) {
-            Row(
-                modifier = Modifier.padding(vertical = OwnPlaySpacing.Md),
-                verticalAlignment = Alignment.CenterVertically,
+    Column(verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(32.dp)
+                    .clip(OwnPlayShapeTokens.Small)
+                    .background(OwnPlayColors.Accent.copy(alpha = 0.10f)),
+                contentAlignment = Alignment.Center,
             ) {
-                Box(
-                    modifier = Modifier.size(44.dp).clip(OwnPlayShapeTokens.Small).background(OwnPlayColors.SurfaceElevated),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(marker, style = MaterialTheme.typography.titleMedium, color = OwnPlayColors.Accent, fontWeight = FontWeight.Bold)
-                }
-                Spacer(modifier = Modifier.width(OwnPlaySpacing.Md))
-                Column {
-                    Text(title, style = MaterialTheme.typography.titleMedium, color = OwnPlayColors.TextPrimary)
-                    Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = OwnPlayColors.TextSecondary)
-                }
+                Text(
+                    marker,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = OwnPlayColors.Accent,
+                    fontWeight = FontWeight.Bold,
+                )
             }
-            rows.forEachIndexed { index, row ->
-                if (index > 0) DividerLine()
-                SettingRow(row)
+            Spacer(modifier = Modifier.width(OwnPlaySpacing.Md))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.titleMedium, color = OwnPlayColors.TextPrimary)
+                Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = OwnPlayColors.TextMuted)
             }
         }
-    }
-}
-
-@Composable
-private fun FixedStatusSection(rows: List<Pair<String, String>>) {
-    OwnPlayPanel(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(OwnPlaySpacing.Md), verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm)) {
-            Text("Current configuration", style = MaterialTheme.typography.titleMedium, color = OwnPlayColors.TextPrimary)
-            Text(
-                "These values are fixed by the current build and are shown as status, not interactive settings.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = OwnPlayColors.TextSecondary,
-            )
-            rows.forEach { (title, value) ->
-                Row(modifier = Modifier.fillMaxWidth()) {
-                    Text(title, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, color = OwnPlayColors.TextSecondary)
-                    Text(value, style = MaterialTheme.typography.bodyMedium, color = OwnPlayColors.TextPrimary)
-                }
+        OwnPlayPanel(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(horizontal = OwnPlaySpacing.Md, vertical = OwnPlaySpacing.Xs)) {
+                rows.forEach { row -> SettingRow(row) }
             }
         }
     }
@@ -395,7 +374,10 @@ private fun SettingRow(row: SettingRowModel) {
         SettingTrailing.Chevron -> Modifier.clickable(role = Role.Button, onClick = row.onClick)
     }
     Row(
-        modifier = Modifier.fillMaxWidth().then(interactionModifier).padding(vertical = OwnPlaySpacing.Sm),
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(interactionModifier)
+            .padding(vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(modifier = Modifier.weight(1f)) {
@@ -405,7 +387,7 @@ private fun SettingRow(row: SettingRowModel) {
         Spacer(modifier = Modifier.width(OwnPlaySpacing.Md))
         when (val trailing = row.trailing) {
             is SettingTrailing.Toggle -> OwnPlayToggle(trailing.checked)
-            SettingTrailing.Chevron -> Text("›", style = MaterialTheme.typography.titleLarge, color = OwnPlayColors.TextSecondary)
+            SettingTrailing.Chevron -> Text("›", style = MaterialTheme.typography.titleLarge, color = OwnPlayColors.TextMuted)
         }
     }
 }
@@ -413,11 +395,15 @@ private fun SettingRow(row: SettingRowModel) {
 @Composable
 private fun OwnPlayToggle(checked: Boolean) {
     Box(
-        modifier = Modifier.width(52.dp).height(30.dp).clip(CircleShape)
-            .background(if (checked) OwnPlayColors.AccentStrong else OwnPlayColors.Divider).padding(3.dp),
+        modifier = Modifier
+            .width(46.dp)
+            .height(26.dp)
+            .clip(CircleShape)
+            .background(if (checked) OwnPlayColors.AccentStrong else OwnPlayColors.Divider)
+            .padding(3.dp),
         contentAlignment = if (checked) Alignment.CenterEnd else Alignment.CenterStart,
     ) {
-        Box(modifier = Modifier.size(24.dp).clip(CircleShape).background(OwnPlayColors.TextPrimary))
+        Box(modifier = Modifier.size(20.dp).clip(CircleShape).background(OwnPlayColors.TextPrimary))
     }
 }
 
@@ -435,10 +421,18 @@ private fun SettingsInfoScreen(
             modifier = Modifier.padding(horizontal = OwnPlaySpacing.Lg),
             verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),
         ) {
-            Text("‹ Settings", modifier = Modifier.clickable(onClick = onBack), style = MaterialTheme.typography.labelLarge, color = OwnPlayColors.Accent)
+            Text(
+                "‹ Settings",
+                modifier = Modifier.clickable(onClick = onBack).padding(vertical = OwnPlaySpacing.Sm),
+                style = MaterialTheme.typography.labelLarge,
+                color = OwnPlayColors.Accent,
+            )
             Text(title, style = MaterialTheme.typography.headlineMedium, color = OwnPlayColors.TextPrimary)
             OwnPlayPanel(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.padding(OwnPlaySpacing.Lg), verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md)) {
+                Column(
+                    modifier = Modifier.padding(OwnPlaySpacing.Lg),
+                    verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),
+                ) {
                     paragraphs.forEach { paragraph ->
                         Text(paragraph, style = MaterialTheme.typography.bodyLarge, color = OwnPlayColors.TextSecondary)
                     }
@@ -446,9 +440,4 @@ private fun SettingsInfoScreen(
             }
         }
     }
-}
-
-@Composable
-private fun DividerLine() {
-    Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(OwnPlayColors.Divider))
 }
