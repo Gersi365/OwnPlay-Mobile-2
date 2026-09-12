@@ -6,9 +6,12 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.snapping.SnapPosition
+import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -20,6 +23,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
@@ -45,6 +49,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import app.ownplay.mobile.design.OwnPlayColors
@@ -516,7 +521,17 @@ private fun LibraryCategoryStrip(
     selectedCategoryKey: String?,
     onSelected: (String?) -> Unit,
 ) {
-    LazyRow(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+    val listState = rememberLazyListState()
+    LaunchedEffect(selectedCategoryKey, categories) {
+        val selectedIndex = categories.indexOfFirst { it.categoryKey == selectedCategoryKey }
+        if (selectedIndex >= 0) {
+            listState.animateScrollToItem((selectedIndex - 1).coerceAtLeast(0))
+        }
+    }
+    LazyRow(
+        state = listState,
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
         items(categories, key = { it.categoryKey }) { category ->
             LibraryFilterTab(
                 label = category.name,
@@ -533,16 +548,27 @@ private fun ContinueWatchingRow(
     onResume: (ContinueWatchingItem) -> Unit,
     onBeginning: (ContinueWatchingItem) -> Unit,
 ) {
-    LazyRow(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        items(items, key = { "${it.mediaKind}:${it.contentId}" }) { item ->
-            ContinueWatchingCard(
-                item = item,
-                onResume = { onResume(item) },
-                onBeginning = { onBeginning(item) },
-            )
+    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+        val cardWidth = (maxWidth * 0.76f).coerceIn(248.dp, 312.dp)
+        val listState = rememberLazyListState()
+        val flingBehavior = rememberSnapFlingBehavior(
+            lazyListState = listState,
+            snapPosition = SnapPosition.Start,
+        )
+        LazyRow(
+            modifier = Modifier.fillMaxWidth(),
+            state = listState,
+            flingBehavior = flingBehavior,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            items(items, key = { "${it.mediaKind}:${it.contentId}" }) { item ->
+                ContinueWatchingCard(
+                    item = item,
+                    cardWidth = cardWidth,
+                    onResume = { onResume(item) },
+                    onBeginning = { onBeginning(item) },
+                )
+            }
         }
     }
 }
@@ -550,6 +576,7 @@ private fun ContinueWatchingRow(
 @Composable
 private fun ContinueWatchingCard(
     item: ContinueWatchingItem,
+    cardWidth: Dp,
     onResume: () -> Unit,
     onBeginning: () -> Unit,
 ) {
@@ -562,7 +589,7 @@ private fun ContinueWatchingCard(
 
     Surface(
         modifier = Modifier
-            .width(284.dp)
+            .width(cardWidth)
             .clickable(onClick = onResume),
         color = Color.Transparent,
         shape = OwnPlayShapeTokens.Medium,
@@ -674,40 +701,62 @@ private fun ContinueWatchingCard(
 
 @Composable
 private fun MovieRow(movies: List<LibraryMovie>, onMovieSelected: (LibraryMovie) -> Unit) {
-    LazyRow(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),
-    ) {
-        items(
-            items = movies,
-            key = { movie -> movie.movieId },
-        ) { movie ->
-            PosterCard(
-                title = movie.name,
-                artworkUrl = movie.posterUrl,
-                eyebrow = movie.rating?.let { "★ $it" } ?: "MOVIE",
-                onClick = { onMovieSelected(movie) },
-            )
+    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+        val posterWidth = (maxWidth * 0.39f).coerceIn(126.dp, 148.dp)
+        val listState = rememberLazyListState()
+        val flingBehavior = rememberSnapFlingBehavior(
+            lazyListState = listState,
+            snapPosition = SnapPosition.Start,
+        )
+        LazyRow(
+            modifier = Modifier.fillMaxWidth(),
+            state = listState,
+            flingBehavior = flingBehavior,
+            horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),
+        ) {
+            items(
+                items = movies,
+                key = { movie -> movie.movieId },
+            ) { movie ->
+                PosterCard(
+                    title = movie.name,
+                    artworkUrl = movie.posterUrl,
+                    eyebrow = movie.rating?.let { "★ $it" } ?: "MOVIE",
+                    cardWidth = posterWidth,
+                    onClick = { onMovieSelected(movie) },
+                )
+            }
         }
     }
 }
 
 @Composable
 private fun SeriesRow(seriesItems: List<LibrarySeries>, onSeriesSelected: (LibrarySeries) -> Unit) {
-    LazyRow(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),
-    ) {
-        items(
-            items = seriesItems,
-            key = { series -> series.seriesId },
-        ) { series ->
-            PosterCard(
-                title = series.name,
-                artworkUrl = series.posterUrl,
-                eyebrow = series.rating?.let { "★ $it" } ?: "SERIES",
-                onClick = { onSeriesSelected(series) },
-            )
+    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+        val posterWidth = (maxWidth * 0.39f).coerceIn(126.dp, 148.dp)
+        val listState = rememberLazyListState()
+        val flingBehavior = rememberSnapFlingBehavior(
+            lazyListState = listState,
+            snapPosition = SnapPosition.Start,
+        )
+        LazyRow(
+            modifier = Modifier.fillMaxWidth(),
+            state = listState,
+            flingBehavior = flingBehavior,
+            horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),
+        ) {
+            items(
+                items = seriesItems,
+                key = { series -> series.seriesId },
+            ) { series ->
+                PosterCard(
+                    title = series.name,
+                    artworkUrl = series.posterUrl,
+                    eyebrow = series.rating?.let { "★ $it" } ?: "SERIES",
+                    cardWidth = posterWidth,
+                    onClick = { onSeriesSelected(series) },
+                )
+            }
         }
     }
 }
@@ -717,11 +766,12 @@ private fun PosterCard(
     title: String,
     artworkUrl: String?,
     eyebrow: String,
+    cardWidth: Dp,
     onClick: () -> Unit,
 ) {
     Box(
         modifier = Modifier
-            .width(138.dp)
+            .width(cardWidth)
             .aspectRatio(0.68f)
             .clip(OwnPlayShapeTokens.Medium)
             .background(OwnPlayColors.SurfaceElevated)
