@@ -27,9 +27,11 @@ The initial repository bootstrap uses:
 - Gradle 9.6.0 in CI
 - JDK 17
 - `minSdk 26`
-- `compileSdk 37`
-- `targetSdk 37`
+- `compileSdk 36`
+- `targetSdk 36`
 - Compose BOM `2026.08.00`
+
+Android 16 / API level 36 is the current stable Stage 0 SDK baseline. API level 37 remains within AGP 9.4's supported maximum, but real CI validation showed that `platforms;android-37` was not available from the configured stable SDK repository, so it is not used as the build baseline.
 
 Later product stages add Media3 / ExoPlayer, Room, DataStore, WorkManager, OkHttp, coroutines, Flow, source integrations, playback, downloads, and persistence according to the approved project contracts.
 
