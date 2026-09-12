@@ -1,20 +1,28 @@
 package app.ownplay.mobile
 
 import android.app.PictureInPictureParams
+import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.os.Build
 import android.os.Bundle
 import android.util.Rational
+import android.view.KeyEvent
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.lifecycleScope
 import app.ownplay.mobile.app.OwnPlayApp
 import app.ownplay.mobile.core.OwnPlayServices
 import app.ownplay.mobile.playback.domain.PictureInPicturePolicy
 import app.ownplay.mobile.playback.domain.PlaybackSnapshot
+import app.ownplay.mobile.playback.domain.PlayerLocalControlPolicy
 import app.ownplay.mobile.playback.domain.VideoTarget
+import app.ownplay.mobile.playback.ui.PlayerLocalControlHud
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 
@@ -25,6 +33,7 @@ class MainActivity : ComponentActivity() {
     private var pictureInPictureEnabled = true
     private var playbackSnapshot = PlaybackSnapshot()
     private var resumePlaybackAfterBackground = false
+    private var appPlaybackVolume = 1f
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -41,6 +50,10 @@ class MainActivity : ComponentActivity() {
             }.collect { (enabled, playback) ->
                 pictureInPictureEnabled = enabled
                 playbackSnapshot = playback
+                appPlaybackVolume = playback.volume
+                if (playback.mediaId == null) {
+                    resetOwnPlayBrightness()
+                }
                 updatePictureInPictureParams()
             }
         }
@@ -48,12 +61,24 @@ class MainActivity : ComponentActivity() {
         setContent {
             OwnPlayApp(
                 services = services,
-                onFullscreenChanged = { fullscreen ->
-                    contentFullscreen = fullscreen
-                    updatePictureInPictureParams()
-                },
+                onExitConfirmed = { finish() },
+                onFullscreenChanged = ::handleContentFullscreenChanged,
             )
         }
+    }
+
+    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+        if (handlePlayerVolumeKey(keyCode)) {
+            return true
+        }
+        return super.onKeyDown(keyCode, event)
+    }
+
+    override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
+        if (isPlayerVolumeKey(keyCode) && isPlayerLocalControlActive()) {
+            return true
+        }
+        return super.onKeyUp(keyCode, event)
     }
 
     override fun onStart() {
@@ -125,6 +150,68 @@ class MainActivity : ComponentActivity() {
             }
         }
         super.onStop()
+    }
+
+    private fun handlePlayerVolumeKey(keyCode: Int): Boolean {
+        if (!isPlayerVolumeKey(keyCode) || !isPlayerLocalControlActive()) {
+            return false
+        }
+        val direction = if (keyCode == KeyEvent.KEYCODE_VOLUME_UP) 1 else -1
+        appPlaybackVolume = PlayerLocalControlPolicy.volumeAfterStep(appPlaybackVolume, direction)
+        PlayerLocalControlHud.showVolume(appPlaybackVolume)
+        lifecycleScope.launch {
+            services.playbackController.setVolume(appPlaybackVolume)
+        }
+        return true
+    }
+
+    private fun isPlayerVolumeKey(keyCode: Int): Boolean =
+        keyCode == KeyEvent.KEYCODE_VOLUME_UP || keyCode == KeyEvent.KEYCODE_VOLUME_DOWN
+
+    private fun isPlayerLocalControlActive(): Boolean =
+        PlayerLocalControlPolicy.canHandlePlayerControls(
+            target = playbackSnapshot.activeTarget,
+            mediaId = playbackSnapshot.mediaId,
+        )
+
+    private fun resetOwnPlayBrightness() {
+        if (window.attributes.screenBrightness == WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE) {
+            return
+        }
+        val attributes = window.attributes
+        attributes.screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+        window.attributes = attributes
+    }
+
+    private fun handleContentFullscreenChanged(fullscreen: Boolean) {
+        contentFullscreen = fullscreen
+        updatePictureInPictureParams()
+        window.decorView.postOnAnimation {
+            if (contentFullscreen != fullscreen || isFinishing || isDestroyed) {
+                return@postOnAnimation
+            }
+            setContentOrientation(fullscreen)
+            setImmersiveFullscreen(fullscreen)
+        }
+    }
+
+    private fun setContentOrientation(fullscreen: Boolean) {
+        requestedOrientation = if (fullscreen) {
+            ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        } else {
+            ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        }
+    }
+
+    private fun setImmersiveFullscreen(fullscreen: Boolean) {
+        val controller = WindowCompat.getInsetsController(window, window.decorView)
+        if (fullscreen) {
+            controller.systemBarsBehavior =
+                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            controller.hide(WindowInsetsCompat.Type.systemBars())
+        } else {
+            controller.show(WindowInsetsCompat.Type.systemBars())
+        }
     }
 
     private fun canEnterPictureInPicture(): Boolean = PictureInPicturePolicy.canEnter(

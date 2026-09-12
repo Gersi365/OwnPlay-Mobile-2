@@ -1,13 +1,17 @@
 package app.ownplay.mobile.feature.live.ui
 
+import android.graphics.BitmapFactory
+import android.view.OrientationEventListener
 import android.view.SurfaceView
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -18,9 +22,12 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -30,6 +37,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -37,6 +45,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -50,8 +61,11 @@ import app.ownplay.mobile.design.OwnPlayStatePanel
 import app.ownplay.mobile.design.OwnPlayTopBar
 import app.ownplay.mobile.design.OwnPlayWordmark
 import app.ownplay.mobile.feature.live.domain.LiveCatalog
+import app.ownplay.mobile.feature.live.domain.LiveCategory
 import app.ownplay.mobile.feature.live.domain.LiveChannel
 import app.ownplay.mobile.feature.live.domain.LiveEffect
+import app.ownplay.mobile.feature.live.domain.LiveNowNext
+import app.ownplay.mobile.feature.live.domain.LiveProgram
 import app.ownplay.mobile.feature.live.domain.LiveIntent
 import app.ownplay.mobile.feature.live.domain.LivePlaybackResolution
 import app.ownplay.mobile.feature.live.domain.LivePresentation
@@ -59,19 +73,37 @@ import app.ownplay.mobile.feature.live.domain.LivePresentationReducer
 import app.ownplay.mobile.feature.live.domain.LivePresentationState
 import app.ownplay.mobile.feature.live.domain.LiveRepository
 import app.ownplay.mobile.playback.PlaybackController
+import app.ownplay.mobile.playback.domain.AudioFormatLabelPolicy
+import app.ownplay.mobile.playback.domain.PlaybackAudioTrack
 import app.ownplay.mobile.playback.domain.PlaybackKind
 import app.ownplay.mobile.playback.domain.PlaybackLoadRequest
 import app.ownplay.mobile.playback.domain.PlaybackMedia
 import app.ownplay.mobile.playback.domain.PlaybackPhase
+import app.ownplay.mobile.playback.domain.PlaybackSnapshot
 import app.ownplay.mobile.playback.domain.VideoTarget
+import app.ownplay.mobile.playback.ui.AudioTrackSelectorPanel
+import app.ownplay.mobile.playback.ui.PlayerGlassCircleAction
+import app.ownplay.mobile.playback.ui.PlayerGlassPillAction
+import app.ownplay.mobile.playback.ui.PlayerGlassScrims
+import app.ownplay.mobile.playback.ui.PlayerLocalControlHudOverlay
+import app.ownplay.mobile.playback.ui.playerLocalVerticalControls
+import java.io.ByteArrayOutputStream
+import java.net.HttpURLConnection
+import java.net.URL
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
 fun LiveShell(
     liveRepository: LiveRepository,
     playbackController: PlaybackController,
+    showChannelLogos: Boolean,
     onFullscreenChanged: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -79,9 +111,13 @@ fun LiveShell(
     val catalog by catalogFlow.collectAsState(initial = null)
     val playback by playbackController.state.collectAsState()
     val scope = rememberCoroutineScope()
+    val browseListState = rememberLazyListState()
 
     var presentationState by remember { mutableStateOf(LivePresentationState()) }
     var resolutionError by remember { mutableStateOf<String?>(null) }
+    var fallbackLoadRequest by remember { mutableStateOf<PlaybackLoadRequest?>(null) }
+    var waitingForInitialChannels by remember(catalog?.activeSourceId) { mutableStateOf(false) }
+    var orientationFullscreenArmed by remember { mutableStateOf(true) }
 
     fun applyEffect(effect: LiveEffect) {
         when (effect) {
@@ -89,6 +125,17 @@ fun LiveShell(
                 resolutionError = null
                 when (val resolved = liveRepository.resolvePlayback(effect.channelId)) {
                     is LivePlaybackResolution.Success -> {
+                        fallbackLoadRequest = resolved.value.fallbackUri?.let { fallbackUri ->
+                            PlaybackLoadRequest(
+                                media = PlaybackMedia(
+                                    id = resolved.value.channel.channelId,
+                                    uri = fallbackUri,
+                                    title = resolved.value.channel.name,
+                                    kind = PlaybackKind.LIVE,
+                                    streamFormat = resolved.value.fallbackStreamFormat ?: resolved.value.streamFormat,
+                                ),
+                            )
+                        }
                         playbackController.load(
                             PlaybackLoadRequest(
                                 media = PlaybackMedia(
@@ -103,6 +150,7 @@ fun LiveShell(
                     }
 
                     is LivePlaybackResolution.Failure -> {
+                        fallbackLoadRequest = null
                         playbackController.stop(clearMedia = true)
                         resolutionError = resolved.safeMessage
                     }
@@ -111,6 +159,7 @@ fun LiveShell(
 
             LiveEffect.StopPlayback -> scope.launch {
                 resolutionError = null
+                fallbackLoadRequest = null
                 playbackController.stop(clearMedia = true)
             }
         }
@@ -118,15 +167,69 @@ fun LiveShell(
 
     fun dispatch(intent: LiveIntent) {
         val transition = LivePresentationReducer.reduce(presentationState, intent)
+        val wasFullscreen = presentationState.presentation == LivePresentation.FULLSCREEN
+        val isFullscreen = transition.state.presentation == LivePresentation.FULLSCREEN
+        if (wasFullscreen != isFullscreen) {
+            onFullscreenChanged(isFullscreen)
+        }
         presentationState = transition.state
         transition.effects.forEach(::applyEffect)
     }
 
     val channels = catalog?.channels.orEmpty()
+    val rawCategories = catalog?.categories.orEmpty()
+    val categories = LiveBrowsePolicy.visibleCategories(rawCategories)
+    var selectedCategoryKey by remember(catalog?.activeSourceId) { mutableStateOf<String?>(null) }
+    val activeCategoryKey = LiveBrowsePolicy.activeCategoryKey(categories, selectedCategoryKey)
+    val visibleChannels = activeCategoryKey?.let { key ->
+        channels.filter { channel -> channel.categoryKey == key }
+    } ?: channels
     val selectedChannel = channels.firstOrNull { it.channelId == presentationState.selectedChannelId }
+    val selectedGuide = rememberLiveGuide(liveRepository, selectedChannel?.channelId)
+    val audioCompatibilityMessage = when {
+        fallbackLoadRequest != null -> null
+        playback.phase == PlaybackPhase.READY &&
+            playback.audioTrackPresent == true &&
+            playback.audioTrackSupported == false ->
+            "Unsupported audio: ${AudioFormatLabelPolicy.describe(playback.audioMimeType, playback.audioCodecs)}."
+        playback.phase == PlaybackPhase.READY &&
+            playback.audioTrackPresent == true &&
+            playback.audioTrackSelected == false ->
+            "Audio track could not be selected: ${AudioFormatLabelPolicy.describe(playback.audioMimeType, playback.audioCodecs)}."
+        else -> null
+    }
 
-    LaunchedEffect(presentationState.presentation) {
-        onFullscreenChanged(presentationState.presentation == LivePresentation.FULLSCREEN)
+    LaunchedEffect(categories, selectedCategoryKey) {
+        val resolvedCategoryKey = LiveBrowsePolicy.activeCategoryKey(categories, selectedCategoryKey)
+        if (selectedCategoryKey != resolvedCategoryKey) {
+            selectedCategoryKey = resolvedCategoryKey
+        }
+    }
+
+    LaunchedEffect(catalog?.activeSourceId, catalog?.channels?.size) {
+        val hasActiveSource = catalog?.activeSourceId != null
+        val hasNoProviderChannels = catalog?.channels?.isEmpty() == true
+        if (hasActiveSource && hasNoProviderChannels) {
+            waitingForInitialChannels = true
+            delay(12_000)
+            waitingForInitialChannels = false
+        } else {
+            waitingForInitialChannels = false
+        }
+    }
+
+    LaunchedEffect(
+        playback.phase,
+        playback.audioTrackPresent,
+        playback.audioTrackSupported,
+        playback.audioTrackSelected,
+        fallbackLoadRequest,
+    ) {
+        if (LivePlaybackFallbackPolicy.shouldUseFallback(playback)) {
+            val fallback = fallbackLoadRequest ?: return@LaunchedEffect
+            fallbackLoadRequest = null
+            playbackController.load(fallback)
+        }
     }
 
     DisposableEffect(Unit) {
@@ -140,7 +243,45 @@ fun LiveShell(
         }
     }
 
+    val orientationContext = LocalContext.current
+    DisposableEffect(
+        orientationContext,
+        presentationState.presentation,
+        presentationState.selectedChannelId,
+    ) {
+        val selectedId = presentationState.selectedChannelId
+        if (presentationState.presentation != LivePresentation.PREVIEW || selectedId == null) {
+            onDispose { }
+        } else {
+            var landscapeTriggered = false
+            val listener = object : OrientationEventListener(orientationContext) {
+                override fun onOrientationChanged(orientation: Int) {
+                    if (orientation == ORIENTATION_UNKNOWN) return
+                    when {
+                        LiveOrientationPolicy.isPortrait(orientation) -> {
+                            landscapeTriggered = false
+                            orientationFullscreenArmed = true
+                        }
+                        LiveOrientationPolicy.shouldAutoEnterFullscreen(
+                            orientationDegrees = orientation,
+                            armed = orientationFullscreenArmed,
+                        ) && !landscapeTriggered -> {
+                            landscapeTriggered = true
+                            orientationFullscreenArmed = false
+                            dispatch(LiveIntent.ChannelTapped(selectedId))
+                        }
+                    }
+                }
+            }
+            if (listener.canDetectOrientation()) listener.enable()
+            onDispose { listener.disable() }
+        }
+    }
+
     BackHandler(enabled = presentationState.presentation != LivePresentation.BROWSE) {
+        if (presentationState.presentation == LivePresentation.FULLSCREEN) {
+            orientationFullscreenArmed = false
+        }
         dispatch(LiveIntent.BackPressed)
     }
 
@@ -151,19 +292,43 @@ fun LiveShell(
             channelNumber = channelNumber,
             playbackController = playbackController,
             controllerScope = scope,
-            playbackPhase = playback.phase,
+            playbackSnapshot = playback,
             resolutionError = resolutionError,
+            guide = selectedGuide,
+            audioCompatibilityMessage = audioCompatibilityMessage,
+            audioTracks = playback.audioTracks,
+            onBackToPreview = {
+                orientationFullscreenArmed = false
+                dispatch(LiveIntent.BackPressed)
+            },
             modifier = modifier,
         )
     } else {
         LiveBrowseAndPreview(
             catalog = catalog,
-            channels = channels,
+            waitingForInitialChannels = waitingForInitialChannels,
+            channels = visibleChannels,
+            categories = categories,
+            liveRepository = liveRepository,
+            selectedCategoryKey = activeCategoryKey,
+            onCategorySelected = { categoryKey ->
+                selectedCategoryKey = categoryKey
+                if (
+                    presentationState.presentation == LivePresentation.PREVIEW &&
+                    selectedChannel?.categoryKey != categoryKey
+                ) {
+                    dispatch(LiveIntent.BackPressed)
+                }
+            },
             selectedChannel = selectedChannel,
             playbackController = playbackController,
             controllerScope = scope,
             playbackPhase = playback.phase,
             resolutionError = resolutionError,
+            selectedGuide = selectedGuide,
+            audioCompatibilityMessage = audioCompatibilityMessage,
+            showChannelLogos = showChannelLogos,
+            listState = browseListState,
             onChannelTapped = { channel ->
                 dispatch(LiveIntent.ChannelTapped(channel.channelId))
             },
@@ -175,75 +340,224 @@ fun LiveShell(
 @Composable
 private fun LiveBrowseAndPreview(
     catalog: LiveCatalog?,
+    waitingForInitialChannels: Boolean,
     channels: List<LiveChannel>,
+    categories: List<LiveCategory>,
+    liveRepository: LiveRepository,
+    selectedCategoryKey: String?,
+    onCategorySelected: (String?) -> Unit,
     selectedChannel: LiveChannel?,
     playbackController: PlaybackController,
     controllerScope: CoroutineScope,
     playbackPhase: PlaybackPhase,
     resolutionError: String?,
+    selectedGuide: LiveNowNext,
+    audioCompatibilityMessage: String?,
+    showChannelLogos: Boolean,
+    listState: LazyListState,
     onChannelTapped: (LiveChannel) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState()),
+    LaunchedEffect(selectedChannel?.channelId, selectedCategoryKey, channels, categories) {
+        val selectedId = selectedChannel?.channelId ?: return@LaunchedEffect
+        val selectedIndex = channels.indexOfFirst { it.channelId == selectedId }
+        if (selectedIndex < 0) return@LaunchedEffect
+
+        val fixedItemsBeforeChannels = 2 + if (categories.isNotEmpty()) 1 else 0
+        val previewItemIndex = fixedItemsBeforeChannels + selectedIndex
+        repeat(4) {
+            if (listState.layoutInfo.totalItemsCount > previewItemIndex) {
+                listState.animateScrollToItem(previewItemIndex)
+                return@LaunchedEffect
+            }
+            delay(16)
+        }
+    }
+
+    LazyColumn(
+        modifier = modifier.fillMaxSize(),
+        state = listState,
     ) {
-        OwnPlayTopBar(showTagline = false)
+        item {
+            OwnPlayTopBar(showTagline = false)
+        }
 
-        Column(
-            modifier = Modifier.padding(horizontal = OwnPlaySpacing.Lg),
-            verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Lg),
-        ) {
-            PreviewSurface(
-                selectedChannel = selectedChannel,
-                playbackController = playbackController,
-                controllerScope = controllerScope,
-                playbackPhase = playbackPhase,
-                resolutionError = resolutionError,
-            )
-
-            NowPlayingPanel(selectedChannel = selectedChannel)
-
-            OwnPlaySectionHeader(
-                title = "All Channels",
-                actionLabel = if (selectedChannel == null) {
-                    "Tap a channel to preview"
-                } else {
-                    "Tap the selected channel for fullscreen"
-                },
-            )
-
-            when {
-                catalog == null -> OwnPlayStatePanel(
-                    title = "Loading Live",
-                    message = "Reading the active source and cached channels.",
+        item {
+            Box(modifier = Modifier.padding(horizontal = OwnPlaySpacing.Lg)) {
+                OwnPlaySectionHeader(
+                    title = "Channels",
+                    actionLabel = if (selectedChannel == null) {
+                        "Tap a channel to preview"
+                    } else {
+                        "Tap the selected channel again for fullscreen"
+                    },
                 )
+            }
+        }
 
-                catalog.activeSourceId == null -> OwnPlayStatePanel(
-                    title = "No active source",
-                    message = "Add or select a source in Settings to populate Live channels.",
+        if (categories.isNotEmpty()) {
+            item {
+                LiveCategoryStrip(
+                    categories = categories,
+                    selectedCategoryKey = selectedCategoryKey,
+                    onSelected = onCategorySelected,
                 )
+            }
+        }
 
-                channels.isEmpty() -> OwnPlayStatePanel(
-                    title = "No channels available",
-                    message = "Refresh ${catalog.activeSourceName ?: "the active source"} to load Live channels.",
-                )
+        when {
+            catalog == null -> item {
+                Box(modifier = Modifier.padding(horizontal = OwnPlaySpacing.Lg, vertical = OwnPlaySpacing.Sm)) {
+                    OwnPlayStatePanel(
+                        title = "Loading Live",
+                        message = "Reading the active source and cached channels.",
+                    )
+                }
+            }
 
-                else -> Column(verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm)) {
-                    channels.forEachIndexed { index, channel ->
+            catalog.activeSourceId == null -> item {
+                Box(modifier = Modifier.padding(horizontal = OwnPlaySpacing.Lg, vertical = OwnPlaySpacing.Sm)) {
+                    OwnPlayStatePanel(
+                        title = "No active source",
+                        message = "Add or select a source in Settings to populate Live channels.",
+                    )
+                }
+            }
+
+            catalog.channels.isEmpty() && waitingForInitialChannels -> item {
+                Box(modifier = Modifier.padding(horizontal = OwnPlaySpacing.Lg, vertical = OwnPlaySpacing.Sm)) {
+                    OwnPlayStatePanel(
+                        title = "Loading Live channels…",
+                        message = "Connecting to ${catalog.activeSourceName ?: "the active source"}. Large provider catalogs can take a moment to appear.",
+                    )
+                }
+            }
+
+            catalog.channels.isEmpty() -> item {
+                Box(modifier = Modifier.padding(horizontal = OwnPlaySpacing.Lg, vertical = OwnPlaySpacing.Sm)) {
+                    OwnPlayStatePanel(
+                        title = "Live channels are not ready",
+                        message = "Channels will appear automatically if the source is still refreshing. Otherwise refresh ${catalog.activeSourceName ?: "the active source"} in Settings > Sources.",
+                    )
+                }
+            }
+
+            channels.isEmpty() -> item {
+                Box(modifier = Modifier.padding(horizontal = OwnPlaySpacing.Lg, vertical = OwnPlaySpacing.Sm)) {
+                    OwnPlayStatePanel(
+                        title = "No channels in this category",
+                        message = "Choose another provider category.",
+                    )
+                }
+            }
+
+            else -> channels.forEachIndexed { index, channel ->
+                val selectedPreviewChannel = selectedChannel?.takeIf { it.channelId == channel.channelId }
+                val selected = selectedPreviewChannel != null
+                if (selectedPreviewChannel != null) {
+                    item(key = "live-preview-${channel.channelId}") {
+                        LivePreviewBlock(
+                            selectedChannel = selectedPreviewChannel,
+                            playbackController = playbackController,
+                            controllerScope = controllerScope,
+                            playbackPhase = playbackPhase,
+                            resolutionError = resolutionError,
+                            guide = selectedGuide,
+                            audioCompatibilityMessage = audioCompatibilityMessage,
+                        )
+                    }
+                }
+
+                item(key = channel.channelId) {
+                    val guide = if (selected) selectedGuide else rememberLiveGuide(liveRepository, channel.channelId)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = OwnPlaySpacing.Lg, vertical = OwnPlaySpacing.Xs),
+                    ) {
                         ChannelRow(
                             number = (index + 1).toString().padStart(3, '0'),
                             channel = channel,
-                            selected = channel.channelId == selectedChannel?.channelId,
+                            selected = selected,
+                            guide = guide,
+                            showChannelLogos = showChannelLogos,
                             onClick = { onChannelTapped(channel) },
                         )
                     }
                 }
             }
+        }
 
+        item {
             Spacer(modifier = Modifier.height(OwnPlaySpacing.Xl))
         }
+    }
+}
+
+@Composable
+private fun LivePreviewBlock(
+    selectedChannel: LiveChannel,
+    playbackController: PlaybackController,
+    controllerScope: CoroutineScope,
+    playbackPhase: PlaybackPhase,
+    resolutionError: String?,
+    guide: LiveNowNext,
+    audioCompatibilityMessage: String?,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = OwnPlaySpacing.Lg, vertical = OwnPlaySpacing.Sm),
+        verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm),
+    ) {
+        PreviewSurface(
+            selectedChannel = selectedChannel,
+            playbackController = playbackController,
+            controllerScope = controllerScope,
+            playbackPhase = playbackPhase,
+            resolutionError = resolutionError,
+            audioCompatibilityMessage = audioCompatibilityMessage,
+        )
+        NowPlayingPanel(selectedChannel = selectedChannel, guide = guide)
+    }
+}
+
+@Composable
+private fun LiveCategoryStrip(
+    categories: List<LiveCategory>,
+    selectedCategoryKey: String?,
+    onSelected: (String?) -> Unit,
+) {
+    LazyRow(
+        contentPadding = PaddingValues(horizontal = OwnPlaySpacing.Lg),
+        horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm),
+    ) {
+        items(categories, key = { it.categoryKey }) { category ->
+            ProviderCategoryChip(category.name, selectedCategoryKey == category.categoryKey) {
+                onSelected(category.categoryKey)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProviderCategoryChip(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier.clickable(onClick = onClick),
+        shape = OwnPlayShapeTokens.Small,
+        color = if (selected) OwnPlayColors.AccentSoft else OwnPlayColors.SurfaceElevated,
+        border = BorderStroke(1.dp, if (selected) OwnPlayColors.Accent else Color.Transparent),
+    ) {
+        Text(
+            text = label,
+            modifier = Modifier.padding(horizontal = OwnPlaySpacing.Md, vertical = OwnPlaySpacing.Sm),
+            style = MaterialTheme.typography.labelLarge,
+            color = if (selected) OwnPlayColors.TextPrimary else OwnPlayColors.TextSecondary,
+        )
     }
 }
 
@@ -254,11 +568,13 @@ private fun PreviewSurface(
     controllerScope: CoroutineScope,
     playbackPhase: PlaybackPhase,
     resolutionError: String?,
+    audioCompatibilityMessage: String?,
 ) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .aspectRatio(16f / 9f)
+            .playerLocalVerticalControls(playbackController, controllerScope)
             .clip(OwnPlayShapeTokens.Medium)
             .background(Color.Black),
         contentAlignment = Alignment.Center,
@@ -285,6 +601,10 @@ private fun PreviewSurface(
                 modifier = Modifier.fillMaxSize(),
             )
 
+            PlayerLocalControlHudOverlay(
+                modifier = Modifier.align(Alignment.Center),
+            )
+
             LiveBadge(
                 modifier = Modifier
                     .align(Alignment.TopStart)
@@ -294,6 +614,7 @@ private fun PreviewSurface(
             val statusMessage = when {
                 resolutionError != null -> resolutionError
                 playbackPhase == PlaybackPhase.ERROR -> "Playback unavailable"
+                audioCompatibilityMessage != null -> audioCompatibilityMessage
                 playbackPhase == PlaybackPhase.BUFFERING -> "Loading ${selectedChannel.name}…"
                 else -> null
             }
@@ -315,50 +636,48 @@ private fun PreviewSurface(
 }
 
 @Composable
-private fun NowPlayingPanel(selectedChannel: LiveChannel?) {
+private fun NowPlayingPanel(selectedChannel: LiveChannel, guide: LiveNowNext) {
     OwnPlayPanel(modifier = Modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier.padding(OwnPlaySpacing.Lg),
-            horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Lg),
+        Column(
+            modifier = Modifier.padding(horizontal = OwnPlaySpacing.Md, vertical = OwnPlaySpacing.Sm),
+            verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Xs),
         ) {
-            Column(modifier = Modifier.weight(1f)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm),
+            ) {
                 Text(
-                    text = "Now Playing",
-                    style = MaterialTheme.typography.bodyMedium,
+                    text = "NOW",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = OwnPlayColors.Accent,
+                    fontWeight = FontWeight.Bold,
+                )
+                Text(
+                    text = guide.now?.let(::programTimeRange)?.takeIf { it.isNotBlank() } ?: "LIVE",
+                    style = MaterialTheme.typography.labelSmall,
                     color = OwnPlayColors.TextSecondary,
                 )
                 Text(
-                    text = selectedChannel?.name ?: "Select a channel",
-                    style = MaterialTheme.typography.titleLarge,
-                    color = OwnPlayColors.TextPrimary,
-                )
-                Text(
-                    text = if (selectedChannel == null) "Live preview is idle" else "Live channel",
-                    style = MaterialTheme.typography.bodyMedium,
+                    text = selectedChannel.name,
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.labelMedium,
                     color = OwnPlayColors.TextSecondary,
+                    maxLines = 1,
                 )
             }
-            Box(
-                modifier = Modifier
-                    .width(1.dp)
-                    .height(86.dp)
-                    .background(OwnPlayColors.Divider),
+            Text(
+                text = guide.now?.title ?: "Guide unavailable",
+                style = MaterialTheme.typography.titleMedium,
+                color = OwnPlayColors.TextPrimary,
+                maxLines = 1,
             )
-            Column(modifier = Modifier.weight(1f)) {
+            guide.next?.let { next ->
                 Text(
-                    text = "Next",
-                    style = MaterialTheme.typography.bodyMedium,
+                    text = "NEXT ${programTimeRange(next)} • ${next.title}",
+                    style = MaterialTheme.typography.bodySmall,
                     color = OwnPlayColors.TextSecondary,
-                )
-                Text(
-                    text = "Guide unavailable",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = OwnPlayColors.TextPrimary,
-                )
-                Text(
-                    text = "EPG is optional and never blocks playback",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = OwnPlayColors.TextSecondary,
+                    maxLines = 1,
                 )
             }
         }
@@ -370,6 +689,8 @@ private fun ChannelRow(
     number: String,
     channel: LiveChannel,
     selected: Boolean,
+    guide: LiveNowNext,
+    showChannelLogos: Boolean,
     onClick: () -> Unit,
 ) {
     Surface(
@@ -393,21 +714,10 @@ private fun ChannelRow(
                 color = OwnPlayColors.TextSecondary,
                 modifier = Modifier.width(44.dp),
             )
-            Box(
-                modifier = Modifier
-                    .size(46.dp)
-                    .clip(OwnPlayShapeTokens.Small)
-                    .background(if (selected) OwnPlayColors.AccentStrong else OwnPlayColors.SurfaceElevated),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = channel.name.firstOrNull()?.uppercaseChar()?.toString() ?: "•",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = OwnPlayColors.TextPrimary,
-                    fontWeight = FontWeight.Bold,
-                )
+            if (showChannelLogos) {
+                ChannelLogoIdentity(channel = channel, selected = selected)
+                Spacer(modifier = Modifier.width(OwnPlaySpacing.Md))
             }
-            Spacer(modifier = Modifier.width(OwnPlaySpacing.Md))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = channel.name,
@@ -415,10 +725,20 @@ private fun ChannelRow(
                     color = OwnPlayColors.TextPrimary,
                 )
                 Text(
-                    text = if (selected) "Previewing now" else "Live channel",
+                    text = guide.now?.let { program -> "Now ${programTimeRange(program)} • ${program.title}" }
+                        ?: if (selected) "Previewing now" else "Live channel",
                     style = MaterialTheme.typography.bodyMedium,
                     color = OwnPlayColors.TextSecondary,
+                    maxLines = 1,
                 )
+                guide.next?.let { next ->
+                    Text(
+                        text = "Next ${programTimeRange(next)} • ${next.title}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = OwnPlayColors.TextSecondary,
+                        maxLines = 1,
+                    )
+                }
             }
             Text(
                 text = if (selected) "FULLSCREEN ›" else "›",
@@ -430,23 +750,99 @@ private fun ChannelRow(
 }
 
 @Composable
+private fun ChannelLogoIdentity(channel: LiveChannel, selected: Boolean) {
+    val bitmap by produceState<ImageBitmap?>(initialValue = null, key1 = channel.logoUrl) {
+        value = channel.logoUrl?.takeIf { it.isNotBlank() }?.let { loadChannelLogo(it) }
+    }
+    Box(
+        modifier = Modifier
+            .size(46.dp)
+            .clip(OwnPlayShapeTokens.Small)
+            .background(if (selected) OwnPlayColors.AccentStrong else OwnPlayColors.SurfaceElevated),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (bitmap != null) {
+            Image(
+                bitmap = bitmap!!,
+                contentDescription = "${channel.name} logo",
+                modifier = Modifier.fillMaxSize().padding(4.dp),
+                contentScale = ContentScale.Fit,
+            )
+        } else {
+            Text(
+                text = channel.name.firstOrNull()?.uppercaseChar()?.toString() ?: "•",
+                style = MaterialTheme.typography.titleMedium,
+                color = OwnPlayColors.TextPrimary,
+                fontWeight = FontWeight.Bold,
+            )
+        }
+    }
+}
+
+private suspend fun loadChannelLogo(locator: String) = withContext(Dispatchers.IO) {
+    runCatching {
+        val connection = URL(locator).openConnection() as? HttpURLConnection ?: return@runCatching null
+        connection.connectTimeout = 4_000
+        connection.readTimeout = 5_000
+        connection.instanceFollowRedirects = true
+        try {
+            if (connection.responseCode !in 200..299) return@runCatching null
+            val output = ByteArrayOutputStream()
+            connection.inputStream.use { input ->
+                val buffer = ByteArray(8_192)
+                var total = 0
+                while (true) {
+                    val count = input.read(buffer)
+                    if (count <= 0) break
+                    total += count
+                    if (total > MAX_CHANNEL_LOGO_BYTES) return@runCatching null
+                    output.write(buffer, 0, count)
+                }
+            }
+            val bytes = output.toByteArray()
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
+        } finally {
+            connection.disconnect()
+        }
+    }.getOrNull()
+}
+
+private const val MAX_CHANNEL_LOGO_BYTES = 2 * 1024 * 1024
+
+@Composable
 private fun FullscreenLive(
     channel: LiveChannel,
     channelNumber: String,
     playbackController: PlaybackController,
     controllerScope: CoroutineScope,
-    playbackPhase: PlaybackPhase,
+    playbackSnapshot: PlaybackSnapshot,
     resolutionError: String?,
+    guide: LiveNowNext,
+    audioCompatibilityMessage: String?,
+    audioTracks: List<PlaybackAudioTrack>,
+    onBackToPreview: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var overlayVisible by remember(channel.channelId) { mutableStateOf(true) }
+    var audioSelectorVisible by remember(channel.channelId) { mutableStateOf(false) }
     val interactionSource = remember { MutableInteractionSource() }
 
-    LaunchedEffect(overlayVisible, channel.channelId) {
-        if (overlayVisible) {
+    LaunchedEffect(
+        overlayVisible,
+        channel.channelId,
+        playbackSnapshot.phase,
+        playbackSnapshot.isPlaying,
+    ) {
+        if (overlayVisible && LivePlayerControlsPolicy.shouldAutoHide(playbackSnapshot)) {
             delay(4_000)
-            overlayVisible = false
+            if (LivePlayerControlsPolicy.shouldAutoHide(playbackController.currentSnapshot())) {
+                overlayVisible = false
+            }
         }
+    }
+
+    LaunchedEffect(overlayVisible) {
+        if (!overlayVisible) audioSelectorVisible = false
     }
 
     Box(
@@ -464,6 +860,7 @@ private fun FullscreenLive(
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                .playerLocalVerticalControls(playbackController, controllerScope)
                 .clickable(
                     interactionSource = interactionSource,
                     indication = null,
@@ -472,61 +869,99 @@ private fun FullscreenLive(
                 },
         )
 
+        PlayerLocalControlHudOverlay(
+            modifier = Modifier.align(Alignment.Center),
+        )
+
         if (overlayVisible) {
+            PlayerGlassScrims()
+
             Row(
                 modifier = Modifier
                     .align(Alignment.TopStart)
-                    .padding(horizontal = OwnPlaySpacing.Xl, vertical = OwnPlaySpacing.Lg),
+                    .fillMaxWidth()
+                    .padding(horizontal = OwnPlaySpacing.Lg, vertical = OwnPlaySpacing.Md),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),
             ) {
-                OwnPlayWordmark(showTagline = false)
+                PlayerGlassCircleAction(
+                    label = "‹",
+                    onClick = onBackToPreview,
+                )
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    Text(
+                        text = channel.name,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = Color.White,
+                        maxLines = 1,
+                    )
+                    Text(
+                        text = "Channel $channelNumber",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.White.copy(alpha = 0.70f),
+                    )
+                }
                 LiveBadge()
             }
 
-            Surface(
+            Row(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
-                    .padding(OwnPlaySpacing.Xl),
-                color = OwnPlayColors.Surface.copy(alpha = 0.94f),
-                shape = OwnPlayShapeTokens.Medium,
-                border = BorderStroke(1.dp, OwnPlayColors.Divider),
-                tonalElevation = 0.dp,
+                    .padding(horizontal = OwnPlaySpacing.Xl, vertical = OwnPlaySpacing.Lg),
+                verticalAlignment = Alignment.Bottom,
+                horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),
             ) {
-                Row(
-                    modifier = Modifier.padding(OwnPlaySpacing.Lg),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Lg),
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(3.dp),
                 ) {
                     Text(
-                        text = channelNumber,
-                        style = MaterialTheme.typography.titleMedium,
-                        color = OwnPlayColors.TextSecondary,
+                        text = when {
+                            resolutionError != null -> resolutionError
+                            playbackSnapshot.phase == PlaybackPhase.ERROR -> "Playback unavailable"
+                            audioCompatibilityMessage != null -> audioCompatibilityMessage
+                            playbackSnapshot.phase == PlaybackPhase.BUFFERING -> "Buffering live stream…"
+                            guide.now != null -> "Now ${programTimeRange(guide.now)} • ${guide.now.title}"
+                            else -> "Live • Guide unavailable"
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color.White,
+                        maxLines = 1,
                     )
-                    Column(modifier = Modifier.weight(1f)) {
+                    guide.next?.let { next ->
                         Text(
-                            text = channel.name,
-                            style = MaterialTheme.typography.titleLarge,
-                            color = OwnPlayColors.TextPrimary,
-                        )
-                        Text(
-                            text = when {
-                                resolutionError != null -> resolutionError
-                                playbackPhase == PlaybackPhase.ERROR -> "Playback unavailable"
-                                playbackPhase == PlaybackPhase.BUFFERING -> "Buffering live stream…"
-                                else -> "Live • Guide unavailable"
-                            },
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = OwnPlayColors.TextSecondary,
+                            text = "Next ${programTimeRange(next)} • ${next.title}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.White.copy(alpha = 0.70f),
+                            maxLines = 1,
                         )
                     }
-                    Text(
-                        text = "BACK TO PREVIEW",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = OwnPlayColors.Accent,
+                }
+                if (audioTracks.isNotEmpty()) {
+                    PlayerGlassPillAction(
+                        text = "Audio",
+                        emphasized = audioSelectorVisible,
+                        onClick = { audioSelectorVisible = !audioSelectorVisible },
                     )
                 }
+            }
+
+            if (audioSelectorVisible && audioTracks.isNotEmpty()) {
+                AudioTrackSelectorPanel(
+                    tracks = audioTracks,
+                    onSelect = { selectionId ->
+                        controllerScope.launch { playbackController.selectAudioTrack(selectionId) }
+                        audioSelectorVisible = false
+                    },
+                    onDismiss = { audioSelectorVisible = false },
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .padding(OwnPlaySpacing.Xl),
+                )
             }
         }
     }
@@ -579,6 +1014,34 @@ private fun LivePlaybackSurface(
         }
     }
 }
+
+@Composable
+private fun rememberLiveGuide(
+    liveRepository: LiveRepository,
+    channelId: String?,
+): LiveNowNext {
+    var guide by remember(liveRepository, channelId) { mutableStateOf(LiveNowNext()) }
+    LaunchedEffect(liveRepository, channelId) {
+        guide = channelId?.let { liveRepository.loadNowNext(it) } ?: LiveNowNext()
+    }
+    return guide
+}
+
+private fun programTimeRange(program: LiveProgram): String {
+    val start = program.startEpochSeconds?.let(::formatEpgTime)
+    val end = program.endEpochSeconds?.let(::formatEpgTime)
+    return when {
+        start != null && end != null -> "$start–$end"
+        start != null -> start
+        end != null -> "until $end"
+        else -> ""
+    }
+}
+
+private fun formatEpgTime(epochSeconds: Long): String = Instant
+    .ofEpochSecond(epochSeconds)
+    .atZone(ZoneId.systemDefault())
+    .format(DateTimeFormatter.ofPattern("HH:mm"))
 
 private fun channelNumber(
     channels: List<LiveChannel>,

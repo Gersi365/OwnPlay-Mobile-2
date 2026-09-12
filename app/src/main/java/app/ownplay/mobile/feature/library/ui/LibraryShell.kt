@@ -1,11 +1,12 @@
 package app.ownplay.mobile.feature.library.ui
 
+import android.graphics.BitmapFactory
 import android.view.SurfaceView
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -18,10 +19,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -30,6 +34,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -37,6 +42,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -50,7 +58,6 @@ import app.ownplay.mobile.design.OwnPlayShapeTokens
 import app.ownplay.mobile.design.OwnPlaySpacing
 import app.ownplay.mobile.design.OwnPlayStatePanel
 import app.ownplay.mobile.design.OwnPlayTopBar
-import app.ownplay.mobile.design.OwnPlayWordmark
 import app.ownplay.mobile.downloads.domain.DownloadAction
 import app.ownplay.mobile.downloads.domain.DownloadItem
 import app.ownplay.mobile.downloads.domain.DownloadOperationResult
@@ -58,6 +65,7 @@ import app.ownplay.mobile.downloads.domain.DownloadRepository
 import app.ownplay.mobile.downloads.ui.DownloadControls
 import app.ownplay.mobile.feature.library.domain.ContinueWatchingItem
 import app.ownplay.mobile.feature.library.domain.LibraryCatalog
+import app.ownplay.mobile.feature.library.domain.LibraryCategory
 import app.ownplay.mobile.feature.library.domain.LibraryDownloadedMedia
 import app.ownplay.mobile.feature.library.domain.LibraryEpisode
 import app.ownplay.mobile.feature.library.domain.LibraryMediaKind
@@ -77,16 +85,28 @@ import app.ownplay.mobile.playback.domain.PlaybackMedia
 import app.ownplay.mobile.playback.domain.PlaybackPhase
 import app.ownplay.mobile.playback.domain.PlaybackSnapshot
 import app.ownplay.mobile.playback.domain.VideoTarget
+import app.ownplay.mobile.playback.ui.AudioTrackSelectorPanel
+import app.ownplay.mobile.playback.ui.PlayerGlassCircleAction
+import app.ownplay.mobile.playback.ui.PlayerGlassPillAction
+import app.ownplay.mobile.playback.ui.PlayerGlassScrims
+import app.ownplay.mobile.playback.ui.PlayerLocalControlHudOverlay
+import app.ownplay.mobile.playback.ui.playerLocalVerticalControls
+import java.io.ByteArrayOutputStream
+import java.net.HttpURLConnection
+import java.net.URL
 import kotlin.math.roundToLong
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
 fun LibraryShell(
     libraryRepository: LibraryRepository,
     downloadRepository: DownloadRepository,
     playbackController: PlaybackController,
+    resumePlaybackEnabled: Boolean,
     onFullscreenChanged: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -244,6 +264,7 @@ fun LibraryShell(
                 movie = selectedMovie,
                 downloadItem = downloadItem,
                 errorMessage = resolutionError,
+                preferResume = resumePlaybackEnabled,
                 onBack = {
                     selectedMovieId = null
                     resolutionError = null
@@ -269,6 +290,7 @@ fun LibraryShell(
             detail = seriesDetail,
             warning = seriesWarning,
             errorMessage = detailError ?: resolutionError,
+            preferResume = resumePlaybackEnabled,
             onBack = {
                 selectedSeriesId = null
                 seriesDetail = null
@@ -345,6 +367,34 @@ private fun LibraryHome(
     onDownloadedAction: (LibraryDownloadedMedia, DownloadItem, DownloadAction) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    var selectedMovieCategoryKey by remember(catalog?.activeSourceId) { mutableStateOf<String?>(null) }
+    var selectedSeriesCategoryKey by remember(catalog?.activeSourceId) { mutableStateOf<String?>(null) }
+    val rawMovieCategories = catalog?.movieCategories.orEmpty()
+    val rawSeriesCategories = catalog?.seriesCategories.orEmpty()
+    val movieCategories = LibraryBrowsePolicy.visibleCategories(rawMovieCategories)
+    val seriesCategories = LibraryBrowsePolicy.visibleCategories(rawSeriesCategories)
+    val activeMovieCategoryKey = LibraryBrowsePolicy.activeCategoryKey(movieCategories, selectedMovieCategoryKey)
+    val activeSeriesCategoryKey = LibraryBrowsePolicy.activeCategoryKey(seriesCategories, selectedSeriesCategoryKey)
+    val visibleMovies = catalog?.movies.orEmpty().let { movies ->
+        activeMovieCategoryKey?.let { key -> movies.filter { it.categoryKey == key } } ?: movies
+    }
+    val visibleSeries = catalog?.series.orEmpty().let { series ->
+        activeSeriesCategoryKey?.let { key -> series.filter { it.categoryKey == key } } ?: series
+    }
+
+    LaunchedEffect(movieCategories, selectedMovieCategoryKey) {
+        val resolvedCategoryKey = LibraryBrowsePolicy.activeCategoryKey(movieCategories, selectedMovieCategoryKey)
+        if (selectedMovieCategoryKey != resolvedCategoryKey) {
+            selectedMovieCategoryKey = resolvedCategoryKey
+        }
+    }
+    LaunchedEffect(seriesCategories, selectedSeriesCategoryKey) {
+        val resolvedCategoryKey = LibraryBrowsePolicy.activeCategoryKey(seriesCategories, selectedSeriesCategoryKey)
+        if (selectedSeriesCategoryKey != resolvedCategoryKey) {
+            selectedSeriesCategoryKey = resolvedCategoryKey
+        }
+    }
+
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -360,7 +410,10 @@ private fun LibraryHome(
                 OwnPlayStatePanel(title = "Action unavailable", message = errorMessage)
             }
 
-            OwnPlaySectionHeader(title = "Continue Watching")
+            OwnPlaySectionHeader(
+                title = "Continue Watching",
+                actionLabel = catalog?.continueWatching?.size?.takeIf { it > 0 }?.let { "$it in progress" },
+            )
             when {
                 catalog == null -> OwnPlayStatePanel(
                     title = "Loading Library",
@@ -377,29 +430,38 @@ private fun LibraryHome(
                     message = "Movies and episodes with saved progress will appear here.",
                 )
 
-                else -> {
-                    val item = catalog.continueWatching.first()
-                    ContinueWatchingCard(
-                        item = item,
-                        onResume = { onContinueResume(item) },
-                        onBeginning = { onContinueBeginning(item) },
-                    )
-                }
+                else -> ContinueWatchingRow(
+                    items = catalog.continueWatching,
+                    onResume = onContinueResume,
+                    onBeginning = onContinueBeginning,
+                )
             }
 
             OwnPlaySectionHeader(
                 title = "Movies",
                 actionLabel = catalog?.movies?.size?.takeIf { it > 0 }?.let { "$it titles" },
             )
+            if (movieCategories.isNotEmpty()) {
+                LibraryCategoryStrip(
+                    categories = movieCategories,
+                    selectedCategoryKey = activeMovieCategoryKey,
+                    onSelected = { selectedMovieCategoryKey = it },
+                )
+            }
             when {
                 catalog != null && catalog.activeSourceId != null && catalog.movies.isEmpty() -> OwnPlayStatePanel(
                     title = "No movies available",
                     message = "Refresh ${catalog.activeSourceName ?: "the active source"} to load movie metadata.",
                 )
 
-                !catalog?.movies.isNullOrEmpty() -> MovieRow(
-                    items = catalog?.movies.orEmpty(),
+                visibleMovies.isNotEmpty() -> MovieRow(
+                    movies = visibleMovies,
                     onMovieSelected = onMovieSelected,
+                )
+
+                catalog != null && catalog.movies.isNotEmpty() -> OwnPlayStatePanel(
+                    title = "No movies in this category",
+                    message = "Choose another provider category.",
                 )
             }
 
@@ -407,15 +469,27 @@ private fun LibraryHome(
                 title = "Series",
                 actionLabel = catalog?.series?.size?.takeIf { it > 0 }?.let { "$it titles" },
             )
+            if (seriesCategories.isNotEmpty()) {
+                LibraryCategoryStrip(
+                    categories = seriesCategories,
+                    selectedCategoryKey = activeSeriesCategoryKey,
+                    onSelected = { selectedSeriesCategoryKey = it },
+                )
+            }
             when {
                 catalog != null && catalog.activeSourceId != null && catalog.series.isEmpty() -> OwnPlayStatePanel(
                     title = "No series available",
                     message = "Refresh ${catalog.activeSourceName ?: "the active source"} to load series metadata.",
                 )
 
-                !catalog?.series.isNullOrEmpty() -> SeriesRow(
-                    items = catalog?.series.orEmpty(),
+                visibleSeries.isNotEmpty() -> SeriesRow(
+                    seriesItems = visibleSeries,
                     onSeriesSelected = onSeriesSelected,
+                )
+
+                catalog != null && catalog.series.isNotEmpty() -> OwnPlayStatePanel(
+                    title = "No series in this category",
+                    message = "Choose another provider category.",
                 )
             }
 
@@ -427,13 +501,69 @@ private fun LibraryHome(
                 )
             } else if (!catalog?.downloadedMedia.isNullOrEmpty()) {
                 DownloadedRow(
-                    items = catalog?.downloadedMedia.orEmpty(),
+                    mediaItems = catalog?.downloadedMedia.orEmpty(),
                     downloads = downloads,
                     onAction = onDownloadedAction,
                 )
             }
 
             Spacer(modifier = Modifier.height(OwnPlaySpacing.Xl))
+        }
+    }
+}
+
+@Composable
+private fun LibraryCategoryStrip(
+    categories: List<LibraryCategory>,
+    selectedCategoryKey: String?,
+    onSelected: (String?) -> Unit,
+) {
+    LazyRow(horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm)) {
+        items(categories, key = { it.categoryKey }) { category ->
+            LibraryCategoryChip(category.name, selectedCategoryKey == category.categoryKey) {
+                onSelected(category.categoryKey)
+            }
+        }
+    }
+}
+
+@Composable
+private fun LibraryCategoryChip(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier.clickable(onClick = onClick),
+        shape = OwnPlayShapeTokens.Small,
+        color = if (selected) OwnPlayColors.AccentSoft else OwnPlayColors.SurfaceElevated,
+        border = BorderStroke(1.dp, if (selected) OwnPlayColors.Accent else Color.Transparent),
+    ) {
+        Text(
+            text = label,
+            modifier = Modifier.padding(horizontal = OwnPlaySpacing.Md, vertical = OwnPlaySpacing.Sm),
+            style = MaterialTheme.typography.labelLarge,
+            color = if (selected) OwnPlayColors.TextPrimary else OwnPlayColors.TextSecondary,
+        )
+    }
+}
+
+@Composable
+private fun ContinueWatchingRow(
+    items: List<ContinueWatchingItem>,
+    onResume: (ContinueWatchingItem) -> Unit,
+    onBeginning: (ContinueWatchingItem) -> Unit,
+) {
+    LazyRow(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),
+    ) {
+        items(items, key = { "${it.mediaKind}:${it.contentId}" }) { item ->
+            ContinueWatchingCard(
+                item = item,
+                onResume = { onResume(item) },
+                onBeginning = { onBeginning(item) },
+            )
         }
     }
 }
@@ -449,17 +579,29 @@ private fun ContinueWatchingCard(
     } else {
         0f
     }
-    OwnPlayPanel(modifier = Modifier.fillMaxWidth()) {
+    OwnPlayPanel(modifier = Modifier.width(320.dp)) {
         Column {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(190.dp)
-                    .background(OwnPlayColors.SurfaceElevated)
-                    .padding(OwnPlaySpacing.Lg),
+                    .height(176.dp)
+                    .clip(OwnPlayShapeTokens.Medium)
+                    .background(OwnPlayColors.SurfaceElevated),
                 contentAlignment = Alignment.BottomStart,
             ) {
-                Column(verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Xs)) {
+                RemoteArtwork(
+                    locator = item.artworkUrl,
+                    contentDescription = "${item.title} artwork",
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop,
+                )
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(OwnPlayColors.Background.copy(alpha = 0.78f))
+                        .padding(OwnPlaySpacing.Md),
+                    verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Xs),
+                ) {
                     Text(
                         text = item.mediaKind.name,
                         style = MaterialTheme.typography.labelMedium,
@@ -467,21 +609,23 @@ private fun ContinueWatchingCard(
                     )
                     Text(
                         text = item.title,
-                        style = MaterialTheme.typography.headlineMedium,
+                        style = MaterialTheme.typography.titleLarge,
                         color = OwnPlayColors.TextPrimary,
+                        maxLines = 2,
                     )
                     item.subtitle?.let { subtitle ->
                         Text(
                             text = subtitle,
-                            style = MaterialTheme.typography.bodyLarge,
+                            style = MaterialTheme.typography.bodyMedium,
                             color = OwnPlayColors.TextSecondary,
+                            maxLines = 1,
                         )
                     }
                 }
             }
             Column(
-                modifier = Modifier.padding(OwnPlaySpacing.Lg),
-                verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),
+                modifier = Modifier.padding(OwnPlaySpacing.Md),
+                verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm),
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(
@@ -506,18 +650,18 @@ private fun ContinueWatchingCard(
                     )
                 }
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),
+                    horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
                     OwnPlayPrimaryButton(
                         text = "Resume",
                         onClick = onResume,
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.height(40.dp),
                     )
                     OwnPlaySecondaryButton(
-                        text = "Play from Beginning",
+                        text = "Start Over",
                         onClick = onBeginning,
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.height(40.dp),
                     )
                 }
             }
@@ -526,16 +670,18 @@ private fun ContinueWatchingCard(
 }
 
 @Composable
-private fun MovieRow(items: List<LibraryMovie>, onMovieSelected: (LibraryMovie) -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState()),
+private fun MovieRow(movies: List<LibraryMovie>, onMovieSelected: (LibraryMovie) -> Unit) {
+    LazyRow(
+        modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),
     ) {
-        items.forEach { movie ->
+        items(
+            items = movies,
+            key = { movie -> movie.movieId },
+        ) { movie ->
             PosterCard(
                 title = movie.name,
+                artworkUrl = movie.posterUrl,
                 eyebrow = movie.rating?.let { "★ $it" } ?: "MOVIE",
                 onClick = { onMovieSelected(movie) },
             )
@@ -544,16 +690,18 @@ private fun MovieRow(items: List<LibraryMovie>, onMovieSelected: (LibraryMovie) 
 }
 
 @Composable
-private fun SeriesRow(items: List<LibrarySeries>, onSeriesSelected: (LibrarySeries) -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState()),
+private fun SeriesRow(seriesItems: List<LibrarySeries>, onSeriesSelected: (LibrarySeries) -> Unit) {
+    LazyRow(
+        modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),
     ) {
-        items.forEach { series ->
+        items(
+            items = seriesItems,
+            key = { series -> series.seriesId },
+        ) { series ->
             PosterCard(
                 title = series.name,
+                artworkUrl = series.posterUrl,
                 eyebrow = series.rating?.let { "★ $it" } ?: "SERIES",
                 onClick = { onSeriesSelected(series) },
             )
@@ -562,10 +710,15 @@ private fun SeriesRow(items: List<LibrarySeries>, onSeriesSelected: (LibrarySeri
 }
 
 @Composable
-private fun PosterCard(title: String, eyebrow: String, onClick: () -> Unit) {
+private fun PosterCard(
+    title: String,
+    artworkUrl: String?,
+    eyebrow: String,
+    onClick: () -> Unit,
+) {
     Surface(
         onClick = onClick,
-        modifier = Modifier.width(132.dp),
+        modifier = Modifier.width(148.dp),
         color = OwnPlayColors.Surface,
         shape = OwnPlayShapeTokens.Small,
         border = BorderStroke(1.dp, OwnPlayColors.Divider),
@@ -576,42 +729,61 @@ private fun PosterCard(title: String, eyebrow: String, onClick: () -> Unit) {
                 modifier = Modifier
                     .fillMaxWidth()
                     .aspectRatio(0.68f)
-                    .background(OwnPlayColors.SurfaceElevated)
-                    .padding(OwnPlaySpacing.Sm),
-                contentAlignment = Alignment.BottomStart,
+                    .clip(OwnPlayShapeTokens.Small)
+                    .background(OwnPlayColors.SurfaceElevated),
+                contentAlignment = Alignment.Center,
             ) {
+                if (artworkUrl.isNullOrBlank()) {
+                    Text(
+                        text = title,
+                        modifier = Modifier.padding(OwnPlaySpacing.Sm),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = OwnPlayColors.TextSecondary,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 3,
+                    )
+                } else {
+                    RemoteArtwork(
+                        locator = artworkUrl,
+                        contentDescription = "$title poster",
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop,
+                    )
+                }
+            }
+            Column(modifier = Modifier.padding(OwnPlaySpacing.Sm)) {
                 Text(
                     text = title,
                     style = MaterialTheme.typography.labelLarge,
                     color = OwnPlayColors.TextPrimary,
                     fontWeight = FontWeight.SemiBold,
-                    maxLines = 3,
+                    maxLines = 2,
+                )
+                Text(
+                    text = eyebrow,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = OwnPlayColors.TextSecondary,
                 )
             }
-            Text(
-                text = eyebrow,
-                modifier = Modifier.padding(OwnPlaySpacing.Sm),
-                style = MaterialTheme.typography.labelMedium,
-                color = OwnPlayColors.TextSecondary,
-            )
         }
     }
 }
 
 @Composable
 private fun DownloadedRow(
-    items: List<LibraryDownloadedMedia>,
+    mediaItems: List<LibraryDownloadedMedia>,
     downloads: List<DownloadItem>,
     onAction: (LibraryDownloadedMedia, DownloadItem, DownloadAction) -> Unit,
 ) {
     val byId = remember(downloads) { downloads.associateBy { it.downloadId } }
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState()),
+    LazyRow(
+        modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),
     ) {
-        items.forEach { media ->
+        items(
+            items = mediaItems,
+            key = { media -> media.downloadId },
+        ) { media ->
             OwnPlayPanel(modifier = Modifier.width(250.dp)) {
                 Column(
                     modifier = Modifier.padding(OwnPlaySpacing.Md),
@@ -638,6 +810,7 @@ private fun DownloadedRow(
                         DownloadControls(
                             item = item,
                             onAction = { action -> onAction(media, item, action) },
+                            compact = true,
                         )
                     }
                 }
@@ -651,6 +824,7 @@ private fun MovieDetail(
     movie: LibraryMovie,
     downloadItem: DownloadItem?,
     errorMessage: String?,
+    preferResume: Boolean,
     onBack: () -> Unit,
     onResume: () -> Unit,
     onBeginning: () -> Unit,
@@ -674,42 +848,35 @@ private fun MovieDetail(
                 style = MaterialTheme.typography.labelLarge,
                 color = OwnPlayColors.Accent,
             )
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .aspectRatio(16f / 9f)
-                    .clip(OwnPlayShapeTokens.Medium)
-                    .background(OwnPlayColors.SurfaceElevated)
-                    .padding(OwnPlaySpacing.Xl),
-                contentAlignment = Alignment.BottomStart,
-            ) {
-                Column(verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Xs)) {
-                    Text("MOVIE", style = MaterialTheme.typography.labelMedium, color = OwnPlayColors.Accent)
-                    Text(movie.name, style = MaterialTheme.typography.headlineMedium, color = OwnPlayColors.TextPrimary)
-                    movie.rating?.let { rating ->
-                        Text("★ $rating", style = MaterialTheme.typography.bodyMedium, color = OwnPlayColors.TextSecondary)
-                    }
-                }
-            }
+            LibraryHero(
+                title = movie.name,
+                label = "MOVIE",
+                rating = movie.rating,
+                artworkUrl = movie.backdropUrl ?: movie.posterUrl,
+            )
             if (errorMessage != null) {
                 OwnPlayStatePanel(title = "Action unavailable", message = errorMessage)
             }
             if (movie.resumePositionMs != null) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),
-                ) {
-                    OwnPlayPrimaryButton(text = "Resume", onClick = onResume, modifier = Modifier.weight(1f))
-                    OwnPlaySecondaryButton(
-                        text = "Play from Beginning",
-                        onClick = onBeginning,
-                        modifier = Modifier.weight(1f),
-                    )
-                }
+                PlaybackChoiceButtons(
+                    preferResume = preferResume,
+                    onResume = onResume,
+                    onBeginning = onBeginning,
+                )
+                DownloadControls(item = downloadItem, onAction = onDownloadAction, compact = true)
             } else {
-                OwnPlayPrimaryButton(text = "Play", onClick = onBeginning, modifier = Modifier.fillMaxWidth())
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    OwnPlayPrimaryButton(
+                        text = "Play",
+                        onClick = onBeginning,
+                        modifier = Modifier.height(40.dp),
+                    )
+                    DownloadControls(item = downloadItem, onAction = onDownloadAction, compact = true)
+                }
             }
-            DownloadControls(item = downloadItem, onAction = onDownloadAction)
             Spacer(modifier = Modifier.height(OwnPlaySpacing.Xl))
         }
     }
@@ -721,6 +888,7 @@ private fun SeriesDetail(
     detail: LibrarySeriesDetail?,
     warning: String?,
     errorMessage: String?,
+    preferResume: Boolean,
     onBack: () -> Unit,
     onResumeEpisode: (LibraryEpisode) -> Unit,
     onBeginningEpisode: (LibraryEpisode) -> Unit,
@@ -745,23 +913,12 @@ private fun SeriesDetail(
                 style = MaterialTheme.typography.labelLarge,
                 color = OwnPlayColors.Accent,
             )
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .aspectRatio(16f / 9f)
-                    .clip(OwnPlayShapeTokens.Medium)
-                    .background(OwnPlayColors.SurfaceElevated)
-                    .padding(OwnPlaySpacing.Xl),
-                contentAlignment = Alignment.BottomStart,
-            ) {
-                Column(verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Xs)) {
-                    Text("SERIES", style = MaterialTheme.typography.labelMedium, color = OwnPlayColors.Accent)
-                    Text(series.name, style = MaterialTheme.typography.headlineMedium, color = OwnPlayColors.TextPrimary)
-                    series.rating?.let { rating ->
-                        Text("★ $rating", style = MaterialTheme.typography.bodyMedium, color = OwnPlayColors.TextSecondary)
-                    }
-                }
-            }
+            LibraryHero(
+                title = series.name,
+                label = "SERIES",
+                rating = series.rating,
+                artworkUrl = series.backdropUrl ?: series.posterUrl,
+            )
             series.description?.takeIf { it.isNotBlank() }?.let { description ->
                 Text(description, style = MaterialTheme.typography.bodyLarge, color = OwnPlayColors.TextSecondary)
             }
@@ -789,6 +946,7 @@ private fun SeriesDetail(
                         EpisodeRow(
                             episode = episode,
                             downloadItem = downloadItem,
+                            preferResume = preferResume,
                             onResume = { onResumeEpisode(episode) },
                             onBeginning = { onBeginningEpisode(episode) },
                             onDownloadAction = { action -> onDownloadAction(episode, downloadItem, action) },
@@ -802,17 +960,107 @@ private fun SeriesDetail(
 }
 
 @Composable
+private fun LibraryHero(
+    title: String,
+    label: String,
+    rating: String?,
+    artworkUrl: String?,
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .aspectRatio(16f / 9f)
+            .clip(OwnPlayShapeTokens.Medium)
+            .background(OwnPlayColors.SurfaceElevated),
+        contentAlignment = Alignment.BottomStart,
+    ) {
+        RemoteArtwork(
+            locator = artworkUrl,
+            contentDescription = "$title backdrop",
+            modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.Crop,
+        )
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(OwnPlayColors.Background.copy(alpha = 0.76f))
+                .padding(OwnPlaySpacing.Xl),
+            verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Xs),
+        ) {
+            Text(label, style = MaterialTheme.typography.labelMedium, color = OwnPlayColors.Accent)
+            Text(title, style = MaterialTheme.typography.headlineMedium, color = OwnPlayColors.TextPrimary)
+            rating?.let {
+                Text("★ $it", style = MaterialTheme.typography.bodyMedium, color = OwnPlayColors.TextSecondary)
+            }
+        }
+    }
+}
+
+@Composable
+private fun RemoteArtwork(
+    locator: String?,
+    contentDescription: String,
+    modifier: Modifier = Modifier,
+    contentScale: ContentScale = ContentScale.Crop,
+) {
+    val bitmap by produceState<ImageBitmap?>(initialValue = null, key1 = locator) {
+        value = locator?.takeIf { it.isNotBlank() }?.let { loadLibraryArtwork(it) }
+    }
+    if (bitmap != null) {
+        Image(
+            bitmap = bitmap!!,
+            contentDescription = contentDescription,
+            modifier = modifier,
+            contentScale = contentScale,
+        )
+    } else {
+        Box(modifier = modifier.background(OwnPlayColors.SurfaceElevated))
+    }
+}
+
+private suspend fun loadLibraryArtwork(locator: String) = withContext(Dispatchers.IO) {
+    runCatching {
+        val connection = URL(locator).openConnection() as? HttpURLConnection ?: return@runCatching null
+        connection.connectTimeout = 4_000
+        connection.readTimeout = 5_000
+        connection.instanceFollowRedirects = true
+        try {
+            if (connection.responseCode !in 200..299) return@runCatching null
+            val output = ByteArrayOutputStream()
+            connection.inputStream.use { input ->
+                val buffer = ByteArray(8_192)
+                var total = 0
+                while (true) {
+                    val count = input.read(buffer)
+                    if (count <= 0) break
+                    total += count
+                    if (total > MAX_LIBRARY_ARTWORK_BYTES) return@runCatching null
+                    output.write(buffer, 0, count)
+                }
+            }
+            val bytes = output.toByteArray()
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
+        } finally {
+            connection.disconnect()
+        }
+    }.getOrNull()
+}
+
+private const val MAX_LIBRARY_ARTWORK_BYTES = 4 * 1024 * 1024
+
+@Composable
 private fun EpisodeRow(
     episode: LibraryEpisode,
     downloadItem: DownloadItem?,
+    preferResume: Boolean,
     onResume: () -> Unit,
     onBeginning: () -> Unit,
     onDownloadAction: (DownloadAction) -> Unit,
 ) {
     OwnPlayPanel(modifier = Modifier.fillMaxWidth()) {
         Column(
-            modifier = Modifier.padding(OwnPlaySpacing.Lg),
-            verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),
+            modifier = Modifier.padding(OwnPlaySpacing.Md),
+            verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -832,21 +1080,45 @@ private fun EpisodeRow(
                 }
             }
             if (episode.resumePositionMs != null) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),
-                ) {
-                    OwnPlayPrimaryButton(text = "Resume", onClick = onResume, modifier = Modifier.weight(1f))
-                    OwnPlaySecondaryButton(
-                        text = "Play from Beginning",
-                        onClick = onBeginning,
-                        modifier = Modifier.weight(1f),
-                    )
-                }
+                PlaybackChoiceButtons(
+                    preferResume = preferResume,
+                    onResume = onResume,
+                    onBeginning = onBeginning,
+                )
+                DownloadControls(item = downloadItem, onAction = onDownloadAction, compact = true)
             } else {
-                OwnPlayPrimaryButton(text = "Play", onClick = onBeginning, modifier = Modifier.fillMaxWidth())
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    OwnPlayPrimaryButton(
+                        text = "Play",
+                        onClick = onBeginning,
+                        modifier = Modifier.height(40.dp),
+                    )
+                    DownloadControls(item = downloadItem, onAction = onDownloadAction, compact = true)
+                }
             }
-            DownloadControls(item = downloadItem, onAction = onDownloadAction)
+        }
+    }
+}
+
+@Composable
+private fun PlaybackChoiceButtons(
+    preferResume: Boolean,
+    onResume: () -> Unit,
+    onBeginning: () -> Unit,
+) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (preferResume) {
+            OwnPlayPrimaryButton("Resume", onResume, Modifier.height(40.dp))
+            OwnPlaySecondaryButton("Start Over", onBeginning, Modifier.height(40.dp))
+        } else {
+            OwnPlayPrimaryButton("Start Over", onBeginning, Modifier.height(40.dp))
+            OwnPlaySecondaryButton("Resume", onResume, Modifier.height(40.dp))
         }
     }
 }
@@ -863,6 +1135,7 @@ private fun LibraryFullscreenPlayer(
     val scope = rememberCoroutineScope()
     val interactionSource = remember { MutableInteractionSource() }
     var overlayVisible by remember(playback.contentId, playback.offline) { mutableStateOf(true) }
+    var audioSelectorVisible by remember(playback.contentId, playback.offline) { mutableStateOf(false) }
     var pendingSeekMs by remember(playback.contentId, playback.offline) { mutableStateOf<Long?>(null) }
 
     suspend fun persistSnapshot(snapshot: PlaybackSnapshot) {
@@ -895,11 +1168,23 @@ private fun LibraryFullscreenPlayer(
 
     BackHandler(onBack = ::closePlayer)
 
-    LaunchedEffect(playback.contentId, playback.offline, overlayVisible) {
-        if (overlayVisible) {
+    LaunchedEffect(
+        playback.contentId,
+        playback.offline,
+        overlayVisible,
+        playerState.isPlaying,
+        playerState.phase,
+    ) {
+        if (overlayVisible && LibraryPlayerControlsPolicy.shouldAutoHide(playerState)) {
             delay(4_000)
-            overlayVisible = false
+            if (LibraryPlayerControlsPolicy.shouldAutoHide(playbackController.currentSnapshot())) {
+                overlayVisible = false
+            }
         }
+    }
+
+    LaunchedEffect(overlayVisible) {
+        if (!overlayVisible) audioSelectorVisible = false
     }
 
     LaunchedEffect(playback.contentId, playback.offline) {
@@ -937,130 +1222,167 @@ private fun LibraryFullscreenPlayer(
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                .playerLocalVerticalControls(playbackController, scope)
                 .clickable(interactionSource = interactionSource, indication = null) {
                     overlayVisible = !overlayVisible
                 },
         )
 
+        PlayerLocalControlHudOverlay(
+            modifier = Modifier.align(Alignment.Center),
+        )
+
         if (overlayVisible) {
+            PlayerGlassScrims()
+
             Row(
                 modifier = Modifier
                     .align(Alignment.TopStart)
-                    .padding(horizontal = OwnPlaySpacing.Xl, vertical = OwnPlaySpacing.Lg),
+                    .fillMaxWidth()
+                    .padding(horizontal = OwnPlaySpacing.Lg, vertical = OwnPlaySpacing.Md),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),
             ) {
-                OwnPlayWordmark(showTagline = false)
-                Text(
-                    text = if (playback.offline) "OFFLINE" else playback.mediaKind.name,
-                    style = MaterialTheme.typography.labelLarge,
-                    color = OwnPlayColors.Accent,
+                PlayerGlassCircleAction(
+                    label = "‹",
+                    onClick = ::closePlayer,
+                )
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    Text(
+                        text = playback.title,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = Color.White,
+                        maxLines = 1,
+                    )
+                    Text(
+                        text = playback.subtitle
+                            ?: if (playback.offline) "Offline" else playback.mediaKind.name.lowercase().replaceFirstChar { it.uppercase() },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.White.copy(alpha = 0.72f),
+                        maxLines = 1,
+                    )
+                }
+            }
+
+            Row(
+                modifier = Modifier.align(Alignment.Center),
+                horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Lg),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                PlayerGlassCircleAction(
+                    label = "−10",
+                    onClick = {
+                        scope.launch {
+                            playbackController.seekTo((playerState.positionMs - 10_000L).coerceAtLeast(0L))
+                        }
+                    },
+                )
+                PlayerGlassCircleAction(
+                    label = if (playerState.playWhenReady) "Ⅱ" else "▶",
+                    emphasized = true,
+                    onClick = {
+                        scope.launch { playbackController.setPlayWhenReady(!playerState.playWhenReady) }
+                    },
+                )
+                PlayerGlassCircleAction(
+                    label = "+10",
+                    onClick = {
+                        scope.launch {
+                            val upper = playerState.durationMs ?: playback.knownDurationMs ?: Long.MAX_VALUE
+                            playbackController.seekTo((playerState.positionMs + 10_000L).coerceAtMost(upper))
+                        }
+                    },
                 )
             }
 
-            Surface(
+            Column(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
-                    .padding(OwnPlaySpacing.Xl),
-                color = OwnPlayColors.Surface.copy(alpha = 0.94f),
-                shape = OwnPlayShapeTokens.Medium,
-                border = BorderStroke(1.dp, OwnPlayColors.Divider),
-                tonalElevation = 0.dp,
+                    .padding(horizontal = OwnPlaySpacing.Xl, vertical = OwnPlaySpacing.Lg),
+                verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Xs),
             ) {
-                Column(
-                    modifier = Modifier.padding(OwnPlaySpacing.Lg),
-                    verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm),
-                ) {
-                    Text(playback.title, style = MaterialTheme.typography.titleLarge, color = OwnPlayColors.TextPrimary)
-                    playback.subtitle?.let { subtitle ->
-                        Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = OwnPlayColors.TextSecondary)
-                    }
-
-                    val duration = playerState.durationMs ?: playback.knownDurationMs
-                    if (duration != null && duration > 0L) {
-                        val sliderPosition = (pendingSeekMs ?: playerState.positionMs).coerceIn(0L, duration)
-                        Slider(
-                            value = sliderPosition.toFloat(),
-                            onValueChange = { value -> pendingSeekMs = value.roundToLong().coerceIn(0L, duration) },
-                            onValueChangeFinished = {
-                                val destination = pendingSeekMs
-                                pendingSeekMs = null
-                                if (destination != null) {
-                                    scope.launch { playbackController.seekTo(destination) }
-                                }
-                            },
-                            valueRange = 0f..duration.toFloat().coerceAtLeast(1f),
-                        )
-                        Row(modifier = Modifier.fillMaxWidth()) {
-                            Text(
-                                formatDuration(sliderPosition),
-                                modifier = Modifier.weight(1f),
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = OwnPlayColors.TextSecondary,
-                            )
-                            Text(formatDuration(duration), style = MaterialTheme.typography.bodyMedium, color = OwnPlayColors.TextSecondary)
-                        }
-                    } else {
+                val duration = playerState.durationMs ?: playback.knownDurationMs
+                if (duration != null && duration > 0L) {
+                    val sliderPosition = (pendingSeekMs ?: playerState.positionMs).coerceIn(0L, duration)
+                    Slider(
+                        value = sliderPosition.toFloat(),
+                        onValueChange = { value -> pendingSeekMs = value.roundToLong().coerceIn(0L, duration) },
+                        onValueChangeFinished = {
+                            val destination = pendingSeekMs
+                            pendingSeekMs = null
+                            if (destination != null) {
+                                scope.launch { playbackController.seekTo(destination) }
+                            }
+                        },
+                        valueRange = 0f..duration.toFloat().coerceAtLeast(1f),
+                        colors = SliderDefaults.colors(
+                            thumbColor = OwnPlayColors.Accent,
+                            activeTrackColor = OwnPlayColors.Accent,
+                            inactiveTrackColor = Color.White.copy(alpha = 0.22f),
+                        ),
+                    )
+                    Row(modifier = Modifier.fillMaxWidth()) {
                         Text(
-                            text = when (playerState.phase) {
-                                PlaybackPhase.BUFFERING -> "Buffering…"
-                                PlaybackPhase.ERROR -> "Playback unavailable"
-                                else -> "Preparing duration…"
-                            },
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = OwnPlayColors.TextSecondary,
-                        )
-                    }
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm),
-                    ) {
-                        OwnPlaySecondaryButton(
-                            text = "−10s",
-                            onClick = {
-                                scope.launch {
-                                    playbackController.seekTo((playerState.positionMs - 10_000L).coerceAtLeast(0L))
-                                }
-                            },
-                            modifier = Modifier.weight(0.8f),
-                        )
-                        OwnPlayPrimaryButton(
-                            text = if (playerState.playWhenReady) "Pause" else "Play",
-                            onClick = {
-                                scope.launch { playbackController.setPlayWhenReady(!playerState.playWhenReady) }
-                            },
+                            formatDuration(sliderPosition),
                             modifier = Modifier.weight(1f),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.White.copy(alpha = 0.78f),
                         )
-                        OwnPlaySecondaryButton(
-                            text = "+10s",
-                            onClick = {
-                                scope.launch {
-                                    val upper = playerState.durationMs ?: playback.knownDurationMs ?: Long.MAX_VALUE
-                                    playbackController.seekTo((playerState.positionMs + 10_000L).coerceAtMost(upper))
-                                }
-                            },
-                            modifier = Modifier.weight(0.8f),
+                        Text(
+                            formatDuration(duration),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.White.copy(alpha = 0.78f),
                         )
-                        if (playerState.phase == PlaybackPhase.ERROR) {
-                            OwnPlaySecondaryButton(
-                                text = "Retry",
-                                onClick = { scope.launch { playbackController.retry() } },
-                                modifier = Modifier.weight(0.8f),
-                            )
-                        }
                     }
+                } else {
                     Text(
-                        text = "BACK TO LIBRARY",
-                        modifier = Modifier
-                            .align(Alignment.End)
-                            .clickable(onClick = ::closePlayer)
-                            .padding(vertical = OwnPlaySpacing.Sm),
-                        style = MaterialTheme.typography.labelLarge,
-                        color = OwnPlayColors.Accent,
+                        text = when (playerState.phase) {
+                            PlaybackPhase.BUFFERING -> "Buffering…"
+                            PlaybackPhase.ERROR -> "Playback unavailable"
+                            else -> "Preparing duration…"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.White.copy(alpha = 0.78f),
                     )
                 }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm, Alignment.End),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (playerState.phase == PlaybackPhase.ERROR) {
+                        PlayerGlassPillAction(
+                            text = "Retry",
+                            onClick = { scope.launch { playbackController.retry() } },
+                        )
+                    }
+                    if (playerState.audioTracks.isNotEmpty()) {
+                        PlayerGlassPillAction(
+                            text = "Audio",
+                            emphasized = audioSelectorVisible,
+                            onClick = { audioSelectorVisible = !audioSelectorVisible },
+                        )
+                    }
+                }
+            }
+
+            if (audioSelectorVisible && playerState.audioTracks.isNotEmpty()) {
+                AudioTrackSelectorPanel(
+                    tracks = playerState.audioTracks,
+                    onSelect = { selectionId ->
+                        scope.launch { playbackController.selectAudioTrack(selectionId) }
+                        audioSelectorVisible = false
+                    },
+                    onDismiss = { audioSelectorVisible = false },
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .padding(OwnPlaySpacing.Xl),
+                )
             }
         }
     }

@@ -64,12 +64,20 @@ class OkHttpXtreamClient(
     override suspend fun liveStreams(
         baseUrl: String,
         credential: SourceCredential.Xtream,
+        categoryId: String?,
     ): XtreamResult<List<XtreamLiveStream>> {
-        return mapArray(XtreamUrlBuilder.apiUrl(baseUrl, credential, "get_live_streams")) { obj, index ->
+        val extra = categoryId
+            ?.trim()
+            ?.takeIf(String::isNotEmpty)
+            ?.let { mapOf("category_id" to it) }
+            .orEmpty()
+        return mapArray(
+            XtreamUrlBuilder.apiUrl(baseUrl, credential, "get_live_streams", extra = extra),
+        ) { obj, index ->
             val streamId = obj["stream_id"]?.text()?.takeIf(String::isNotBlank) ?: return@mapArray null
             XtreamLiveStream(
                 streamId = streamId,
-                categoryId = obj["category_id"]?.text(),
+                categoryId = obj.liveCategoryId(),
                 name = obj["name"]?.text().orEmpty().ifBlank { "Unnamed channel" },
                 epgChannelId = obj["epg_channel_id"]?.text(),
                 streamIcon = obj["stream_icon"]?.text(),
@@ -86,7 +94,7 @@ class OkHttpXtreamClient(
             val streamId = obj["stream_id"]?.text()?.takeIf(String::isNotBlank) ?: return@mapArray null
             XtreamMovie(
                 streamId = streamId,
-                categoryId = obj["category_id"]?.text(),
+                categoryId = obj["category_id"]?.text()?.trim()?.takeIf(String::isNotEmpty),
                 name = obj["name"]?.text().orEmpty().ifBlank { "Untitled movie" },
                 posterUrl = obj["stream_icon"]?.text(),
                 extension = obj["container_extension"]?.text(),
@@ -105,7 +113,7 @@ class OkHttpXtreamClient(
             val backdrops = obj["backdrop_path"]?.asArray()
             XtreamSeries(
                 seriesId = seriesId,
-                categoryId = obj["category_id"]?.text(),
+                categoryId = obj["category_id"]?.text()?.trim()?.takeIf(String::isNotEmpty),
                 name = obj["name"]?.text().orEmpty().ifBlank { "Untitled series" },
                 posterUrl = obj["cover"]?.text(),
                 backdropUrl = backdrops?.firstOrNull()?.text(),
@@ -178,7 +186,7 @@ class OkHttpXtreamClient(
                     listings.mapNotNull { element ->
                         val obj = element.asObject() ?: return@mapNotNull null
                         XtreamEpgEntry(
-                            title = obj["title"]?.text().orEmpty(),
+                            title = XtreamEpgTextPolicy.decode(obj["title"]?.text().orEmpty()),
                             startEpochSeconds = obj["start_timestamp"]?.text()?.toLongOrNull(),
                             endEpochSeconds = obj["stop_timestamp"]?.text()?.toLongOrNull(),
                         )
@@ -195,7 +203,7 @@ class OkHttpXtreamClient(
     ): XtreamResult<List<XtreamCategory>> = mapArray(
         XtreamUrlBuilder.apiUrl(baseUrl, credential, action),
     ) { obj, index ->
-        val key = obj["category_id"]?.text()?.takeIf(String::isNotBlank) ?: return@mapArray null
+        val key = obj["category_id"]?.text()?.trim()?.takeIf(String::isNotEmpty) ?: return@mapArray null
         XtreamCategory(
             providerKey = key,
             name = obj["category_name"]?.text().orEmpty().ifBlank { "Other" },
@@ -240,6 +248,24 @@ class OkHttpXtreamClient(
             2 -> parts[0] * 60 + parts[1]
             else -> duration.toLongOrNull()
         }
+    }
+
+    private fun JsonObject.liveCategoryId(): String? =
+        XtreamLiveCategoryAttribution.resolveProviderCategoryId(
+            primary = this["category_id"]?.text(),
+            fallbacks = this["category_ids"].categoryIdCandidates(),
+        )
+
+    private fun JsonElement?.categoryIdCandidates(): List<String?> = when (this) {
+        is JsonArray -> map { it.text() }
+        is JsonPrimitive -> text()
+            ?.trim()
+            ?.removePrefix("[")
+            ?.removeSuffix("]")
+            ?.split(',')
+            ?.map { candidate -> candidate.trim().trim('"') }
+            .orEmpty()
+        else -> emptyList()
     }
 
     private fun JsonElement.asObject(): JsonObject? = this as? JsonObject

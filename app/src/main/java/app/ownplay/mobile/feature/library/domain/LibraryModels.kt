@@ -14,9 +14,16 @@ enum class LibraryStartMode {
     BEGINNING,
 }
 
+data class LibraryCategory(
+    val categoryKey: String,
+    val name: String,
+    val providerOrder: Int,
+)
+
 data class LibraryMovie(
     val movieId: String,
     val sourceId: String,
+    val categoryKey: String?,
     val name: String,
     val posterUrl: String?,
     val backdropUrl: String?,
@@ -29,6 +36,7 @@ data class LibraryMovie(
 data class LibrarySeries(
     val seriesId: String,
     val sourceId: String,
+    val categoryKey: String?,
     val name: String,
     val posterUrl: String?,
     val backdropUrl: String?,
@@ -74,7 +82,9 @@ data class LibraryCatalog(
     val activeSourceId: String? = null,
     val activeSourceName: String? = null,
     val continueWatching: List<ContinueWatchingItem> = emptyList(),
+    val movieCategories: List<LibraryCategory> = emptyList(),
     val movies: List<LibraryMovie> = emptyList(),
+    val seriesCategories: List<LibraryCategory> = emptyList(),
     val series: List<LibrarySeries> = emptyList(),
     val downloadedMedia: List<LibraryDownloadedMedia> = emptyList(),
 )
@@ -132,18 +142,8 @@ data class PlaybackProgressUpdate(
 
 interface LibraryRepository {
     fun observeCatalog(): Flow<LibraryCatalog>
-
     suspend fun loadSeriesDetail(seriesId: String): LibrarySeriesDetailResult
-
-    suspend fun resolveMoviePlayback(
-        movieId: String,
-        startMode: LibraryStartMode,
-    ): LibraryPlaybackResolution
-
-    suspend fun resolveEpisodePlayback(
-        episodeId: String,
-        startMode: LibraryStartMode,
-    ): LibraryPlaybackResolution
-
+    suspend fun resolveMoviePlayback(movieId: String, startMode: LibraryStartMode): LibraryPlaybackResolution
+    suspend fun resolveEpisodePlayback(episodeId: String, startMode: LibraryStartMode): LibraryPlaybackResolution
     suspend fun saveProgress(update: PlaybackProgressUpdate)
 }

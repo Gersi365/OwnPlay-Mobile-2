@@ -129,10 +129,12 @@ class OwnPlayServices private constructor(
 
     val liveRepository: LiveRepository by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         LiveRepositoryImpl(
+            database = database,
             sourceRepository = sourceRepository,
             sourceDao = database.sourceDao(),
             catalogDao = database.catalogDao(),
             credentialStore = credentialStore,
+            xtreamClient = xtreamClient,
         )
     }
 

@@ -40,6 +40,27 @@ data class ProviderCategoryEntity(
 )
 
 @Entity(
+    tableName = "category_personalization",
+    primaryKeys = ["sourceId", "kind", "categoryKey"],
+    foreignKeys = [
+        ForeignKey(
+            entity = SourceEntity::class,
+            parentColumns = ["sourceId"],
+            childColumns = ["sourceId"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+    indices = [Index("sourceId")],
+)
+data class CategoryPersonalizationEntity(
+    val sourceId: String,
+    val kind: String,
+    val categoryKey: String,
+    val hidden: Boolean = false,
+    val manualOrder: Int? = null,
+)
+
+@Entity(
     tableName = "live_channels",
     foreignKeys = [
         ForeignKey(

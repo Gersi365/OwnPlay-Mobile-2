@@ -1,0 +1,167 @@
+OwnPlay Mobile 2 — Stage 12 Stabilization Audit
+
+Status
+- Stage: 12 — Stabilization
+- Branch: stage-12-stabilization
+- Base branch: stage-11-qa-candidate-preflight
+- Exact Stage 11 QA candidate source base: 6eed1090b623db6402fcaf53600248a1cda04870
+- Draft PR: #13
+- Stage 12 remains in physical-QA stabilization; source validation is not a physical PASS.
+
+Physical QA findings
+1. Initial provider-refresh failure
+   - The Stage 11 QA candidate built from exact source SHA 6eed1090b623db6402fcaf53600248a1cda04870 could save an Xtream source, while Live and Library remained empty and manual Refresh failed.
+   - Source inspection confirmed that the source contract accepted both http:// and https:// provider locators while the Stage 11 Android manifest did not permit cleartext HTTP traffic.
+2. Large-catalog ANR after the HTTP compatibility correction
+   - The user retested with a legitimate HTTP-only Xtream provider on the Stage 12 replacement QA APK built from exact source SHA 94774775c9cd1760d3a227f3eba3210f268eb5df.
+   - The provider catalog did load, confirming that HTTP transport was usable on-device.
+   - The UI then became unresponsive and Android reported that OwnPlay was not responding.
+   - The user also reported that the HTTP notice read as if HTTP might be unsupported even though this provider does not expose HTTPS.
+- No provider URL, username, password, token, or other source secret is recorded in this audit.
+
+Verified source defects and risk factors
+1. Stage 11 provider-source contract and Android runtime network policy were inconsistent.
+   - OwnPlay source validation intentionally accepted both http:// and https:// Xtream and remote M3U/M3U8 locators.
+   - The Stage 11 Android manifest did not permit cleartext HTTP traffic.
+2. Refresh diagnostics were too lossy.
+   - Provider failures previously collapsed into a generic Refresh failed presentation.
+3. CPU-heavy provider catalog transformation could resume on the caller/Main dispatcher.
+   - ProviderHttpTransport itself uses asynchronous OkHttp callbacks, but JSON parsing and provider-to-domain catalog mapping executed after suspension on the caller context.
+   - A large Xtream response could therefore monopolize the UI thread during parse/map work.
+4. Large provider collections were eagerly composed.
+   - Live used a vertically scrolling Column and channels.forEachIndexed, causing every Live channel row to be composed eagerly.
+   - Library Movies, Series, and Downloaded Media used horizontalScroll Rows with forEach, causing every item in those collections to be composed eagerly.
+   - Large real-world Xtream catalogs can contain thousands of entries, making those structures unsuitable for bounded UI work.
+5. The HTTP warning was technically correct but ambiguous for HTTP-only providers.
+   - It recommended HTTPS when available without explicitly stating that OwnPlay supports HTTP providers.
+
+Corrections
+- AndroidManifest.xml explicitly permits cleartext traffic so runtime behavior matches the supported HTTP/HTTPS source contract.
+- ProviderTransportFailurePolicy and SourceRefreshFailurePolicy retain safe, credential-free diagnostics for cleartext blocks, DNS, timeout, TLS, refused connection, HTTP status, auth-like rejection, malformed/unsupported Xtream payloads, read failures, and fallback failures.
+- Failed refresh continues to preserve the last known catalog.
+- SourceCatalogLoader now performs provider catalog loading, JSON result transformation, and catalog mapping inside Dispatchers.Default rather than allowing CPU-heavy catalog work to run on the Main dispatcher.
+- Live browse rendering now uses LazyColumn with stable channel keys and itemsIndexed; channel rows are composed on demand instead of all at once.
+- Library Movies, Series, and Downloaded Media rows now use keyed LazyRow items; large provider collections are composed on demand instead of eagerly.
+- HTTP provider copy now states explicitly that HTTP is supported when a provider does not offer HTTPS, while retaining the TLS-security warning.
+- Source Management labels the notice as an HTTP provider notice rather than an HTTP connection error-like state.
+- Focused tests continue to cover transport classification and now assert that the HTTP warning states that HTTP is supported.
+
+Security boundary and tradeoff
+- Allowing cleartext traffic is an explicit compatibility tradeoff because OwnPlay accepts user-selected provider endpoints and some legitimate Xtream/M3U providers expose only HTTP.
+- HTTP is supported but is not secure transport: credentials and traffic are not protected by TLS.
+- Xtream credentials remain in Android Keystore-backed credential storage rather than Room.
+- Provider URLs, usernames, passwords, tokens, and runtime credential-bearing stream URLs are not written into diagnostic messages or audit evidence.
+- Transport exception text is not surfaced to the user.
+- Existing URL redaction and runtime-only credential-bearing locator boundaries remain unchanged.
+
+Persistence/data boundary
+- Room remains database version 1 with the existing entity set.
+- No migration or destructive fallback was introduced.
+- No Room schema file changed.
+- Failed refresh still preserves the last known catalog.
+
+Source validation history
+- Stage 12 HTTP/diagnostic implementation HEAD: 64baf1d5825885b0d9c650f84276de0a68d98e25
+  - Android source validation Run #52 / 34464767945, job 102830649835: PASS.
+- Stage 12 HTTP/diagnostic evidence HEAD: 94774775c9cd1760d3a227f3eba3210f268eb5df
+  - Android source validation Run #53 / 34465306708, job 102832373020: PASS.
+- Large-catalog ANR implementation HEAD: 052c2e7791f911e5d87fbebe4c77b4b34482847b
+  - Exact-base patch and source-only validation Run 34470561135, job 102849217046: PASS before the validated commit was fast-forwarded to stage-12-stabilization.
+  - Validation included compileDebugKotlin, testDebugUnitTest, lintDebug, generated Room schema equality, clean schema tree, and the explicit no-APK/AAB artifact guard.
+- The audit evidence commit created after 052c2e7791f911e5d87fbebe4c77b4b34482847b must receive exact-final-HEAD source-only CI before Stage 12 source closure is claimed.
+
+QA APK history and signing boundary
+- Stage 11 QA APK source: 6eed1090b623db6402fcaf53600248a1cda04870.
+- Stage 12 replacement QA APK source: 94774775c9cd1760d3a227f3eba3210f268eb5df.
+- Replacement APK SHA-256: 89dc51ed5c7cda40e6a6935672884194a4998db4d5b52e7c8c36986ec8aabaf1.
+- Package: app.ownplay.mobile; versionCode 1; versionName 0.1.0-dev.
+- Replacement signer certificate SHA-256: e47aa8bfac74d9b62ec2758ebce120e9ee279e83cb494a1c91aa1dc1bc6341df.
+- The replacement QA signer was generated ephemerally on a hosted runner after explicit user authorization. Its private key was deliberately not committed or uploaded, so that signer cannot provide future update continuity.
+- The user has now required that future QA APKs install as updates. Meeting that requirement requires one stable QA signing identity whose private key is stored outside the repository in an authorized secret store and reused for future QA builds, together with monotonically increasing versionCode values.
+- No new stable signing identity is created by this source stabilization work. Creating/persisting one remains a restricted signing change requiring explicit authorization.
+
+Physical QA boundary
+- Source/CI PASS cannot prove that the ANR is eliminated on the user's real device or provider catalog.
+- The replacement APK built from 94774775c9cd1760d3a227f3eba3210f268eb5df does not contain the large-catalog ANR corrections recorded after that SHA.
+- A later QA APK containing the final Stage 12 source must be installed and the same HTTP-only Xtream provider retested.
+- Real-provider catalog size, rendering responsiveness, playback, downloads/offline, PiP, surface continuity, background/rotation behavior, accessibility, performance, and visual-reference acceptance remain physical-device evidence.
+
+Restricted-action record
+- No merge performed.
+- PR #13 remains Draft and unmerged.
+- No ready-for-review transition performed.
+- No release, publication, or deployment performed.
+- No production/release signing change performed.
+- No reset, rebase, force-push, or history rewrite performed.
+- No destructive repository/database operation performed.
+- No APK/AAB was generated by the large-catalog source stabilization change or its source-only validation.
+
+Physical QA round 2 findings and corrections
+- The user confirmed that the stable-signer v2 installation required the documented one-time uninstall because the immediately prior QA APK used an unrecoverable ephemeral signer. This is not a new defect. From stable-signer v2 onward, every QA build must reuse signer certificate SHA-256 b92596cb233b42995775f9fe9d5b3bb8c3d3b72700626a8937326aa804c4a0f5 and use a monotonically increasing versionCode.
+- New source/list add previously persisted connection data but required a separate manual Refresh. New Xtream and M3U source adds now select the new source and start provider refresh automatically; manual Refresh remains available.
+- Provider LIVE/MOVIE/SERIES categories were already persisted in Room but were not projected through the Live/Library domain and presentation layers. Category observation and source-aware category filters are now wired without changing the Room schema.
+- Live Xtream playback previously produced an extensionless /live/<redacted>/<redacted>/id locator. The resolver now emits the common transport-stream .ts candidate and a runtime-only .m3u8 fallback candidate. Live presentation performs at most one automatic HLS fallback after a primary player error, without creating a second player/session.
+- No source URL, username, password, token, stream URL, signing password, or private key is recorded here.
+- These corrections require exact-head source validation and later physical retest. Source PASS cannot establish provider playback compatibility or physical responsiveness.
+
+Physical QA round 3 findings and corrections
+- Physical QA of stable-signer QA v4 reported remaining provider utility category labels (including Account Information variants), synthetic All chips in Movies/Series, browse UI rotation instead of Preview -> fullscreen rotation behavior, silent audio on some provider channels, and missing provider EPG in Live rows.
+- Provider category presentation now normalizes punctuation/case, removes known utility-only All/Account Information labels without altering persisted provider metadata, and Library no longer synthesizes an All chip. The first real provider category becomes active deterministically.
+- Normal application browsing is portrait-locked. While a Live Preview is open, physical landscape orientation is detected and transitions the existing selected channel into fullscreen without issuing a second channel load. Fullscreen requests sensor-landscape; leaving fullscreen returns to portrait.
+- Media3 now enables lower-priority decoder fallback and extension-renderer discovery. Playback state records whether an audio track is present, supported, and selected. Live uses the existing one-shot .m3u8 candidate if the primary .ts stream errors or reaches READY with an unusable audio track; no second player/session is created.
+- Existing Xtream get_short_epg support is now connected to Live presentation. EPG is loaded lazily for composed channel rows, cached briefly in memory, and rendered as Now/Next in rows plus selected preview/fullscreen context. EPG failure remains non-blocking and does not prevent playback.
+- No Room schema change or migration is required: stable channel identity and provider stream ids already support EPG association at runtime.
+- No provider URL, username, password, token, stream URL, signing password, private key, or other secret is recorded here.
+- Exact final source validation and physical-device verification remain required. This source correction does not authorize or produce a new QA APK.
+
+Player-local HUD refinement
+- The user explicitly requested visible feedback while changing OwnPlay-local volume and brightness in Preview/fullscreen.
+- A compact transient HUD now displays VOLUME or BRIGHTNESS plus the current percentage for approximately 1.2 seconds after the latest adjustment. Continuous gestures refresh the timeout rather than stacking overlays.
+- The HUD is non-interactive and does not add Play/Pause, seek, fullscreen, close, generic Media3 controls, or persistent chrome to Live Preview.
+- Touch brightness continues to use only the activity Window brightness override; touch and physical +/- volume continue to use only ExoPlayer gain. No system volume or system brightness value is modified.
+- The same HUD is rendered in Live Preview, Live fullscreen, and unified Movie/Series/Offline fullscreen playback. PiP remains outside this control surface.
+- This is source-only evidence. Exact-head source validation is required, and physical-device behavior remains unverified until a later explicitly authorized QA APK is tested.
+
+
+ROUND 4 PHYSICAL-QA FOLLOW-UP
+- Physical QA on v5 still exposed a provider utility category labelled Account Information.
+- Utility-label normalization is now Unicode compatibility-aware (NFKC/NFKD), strips combining/format characters, folds common small-cap Latin forms, and checks compact account-information tokens.
+- Xtream and M3U category ingestion now excludes labels classified as provider utility categories; UI filtering remains in place for already-cached catalogs.
+- Unsupported Live audio now records and displays safe sample MIME/codec diagnostics (plus channel/sample-rate in state) without provider locators or credentials.
+- No third-party FFmpeg binary or GPL decoder dependency is added in this source round. Software decoding remains a separate, evidence-led integration after physical QA reports the exact unsupported sample format.
+- No database schema, credential storage, package ID, signing identity, or auth architecture changes.
+
+
+Physical QA round 4 audio decoder integration
+- User required unsupported provider audio to be fixed before further feature work.
+- Added pinned Media3 1.11.0 FFmpeg audio decoder AAR, SHA-256 3997eab5910483a4b7ab2928def2894379b2d9664ac54291c488669380f98734.
+- Media3 source commit: 2bc207851df311340767e913931ca7b28cab1794.
+- FFmpeg 6.0 source commit: ea3d24bbe3c58b171e55fe2151fc7ffaca3ab3d2.
+- Enabled audio decoders: aac, MPEG Layer I/II/III, AC-3, E-AC-3, TrueHD, DTS family, Vorbis, Opus, AMR-NB/WB, FLAC, ALAC, mu-law, A-law.
+- Platform MediaCodec stays preferred; FFmpeg is fallback through existing EXTENSION_RENDERER_MODE_ON.
+- Added runtime availability probe, reproducible build script, upstream license assets and provenance documentation.
+- No database/auth/provider credential/signing architecture change. No APK/AAB authorized or produced by this source integration workflow.
+- Helper workflow run: 34515232359. Validation result is recorded externally after the exact candidate completes.
+
+
+Round 4 physical-QA critical corrections
+- System utility labels are now filtered when a provider exposes them as Live streams/channels, while raw provider rows remain persisted.
+- Xtream short-EPG titles are decoded at the provider boundary when Base64/HTML-encoded.
+- Android Back gesture now returns Settings child pages to Settings main and root Back opens an explicit OwnPlay exit confirmation instead of silently finishing the Activity.
+- No APK/AAB generated by source validation.
+
+
+## Live personalization and functional Settings refinement
+
+- Added source-stable Live category personalization (`sourceId + kind + categoryKey`) for hide/show and manual order.
+- Reused existing stable channel personalization for individual channel hide/show and manual order, preserving favorite/local name/local logo fields.
+- Category/channel personalization is applied at repository/DAO presentation queries so provider refresh does not overwrite it.
+- Added long-press vertical drag handles in Settings > Manage Live channels for categories and channels.
+- Hidden categories suppress their channels at runtime without erasing individual channel hidden/order state.
+- Settings interactive rows now have real actions; fixed build constraints are presented as read-only status rather than fake controls.
+- `Show channel logos` is wired to Live rows and loads bounded provider artwork with a text fallback.
+- `Resume playback` changes which saved-progress action is primary while retaining explicit Resume and Play from Beginning choices.
+- Settings > Manage downloads provides real pause/resume/retry/remove/open-Library actions. Help and Privacy open real internal information pages.
+- Room schema moves additively from v1 to v2 through explicit `MIGRATION_1_2`; no existing table is dropped or rewritten.
+- Existing backup format remains v1 unchanged. Its decoder rejects unknown fields, so exporting category personalization would be a breaking backup-format change and is intentionally deferred pending explicit approval. Existing backup features remain functional for their documented v1 scope.
+- This is source engineering only. No APK/AAB, signing, release, merge, auth cutover, destructive migration, or user-data deletion is authorized by this refinement.
