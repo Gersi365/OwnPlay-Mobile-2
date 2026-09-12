@@ -435,7 +435,7 @@ private fun LibraryHome(
             Spacer(modifier = Modifier.height(OwnPlaySpacing.Sm))
             LibraryShelfHeader(
                 title = "Movies",
-                actionLabel = catalog?.movies?.size?.takeIf { it > 0 }?.let { "$it titles" },
+                actionLabel = catalog?.movies?.size?.takeIf { it > 0 }?.let { "${compactLibraryCount(it)} titles" },
             )
             if (movieCategories.isNotEmpty()) {
                 LibraryCategoryStrip(
@@ -464,7 +464,7 @@ private fun LibraryHome(
             Spacer(modifier = Modifier.height(OwnPlaySpacing.Sm))
             LibraryShelfHeader(
                 title = "Series",
-                actionLabel = catalog?.series?.size?.takeIf { it > 0 }?.let { "$it titles" },
+                actionLabel = catalog?.series?.size?.takeIf { it > 0 }?.let { "${compactLibraryCount(it)} titles" },
             )
             if (seriesCategories.isNotEmpty()) {
                 LibraryCategoryStrip(
@@ -516,7 +516,7 @@ private fun LibraryCategoryStrip(
     selectedCategoryKey: String?,
     onSelected: (String?) -> Unit,
 ) {
-    LazyRow(horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Xs)) {
+    LazyRow(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
         items(categories, key = { it.categoryKey }) { category ->
             LibraryFilterTab(
                 label = category.name,
@@ -535,7 +535,7 @@ private fun ContinueWatchingRow(
 ) {
     LazyRow(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         items(items, key = { "${it.mediaKind}:${it.contentId}" }) { item ->
             ContinueWatchingCard(
@@ -562,7 +562,7 @@ private fun ContinueWatchingCard(
 
     Surface(
         modifier = Modifier
-            .width(292.dp)
+            .width(284.dp)
             .clickable(onClick = onResume),
         color = Color.Transparent,
         shape = OwnPlayShapeTokens.Medium,
@@ -571,7 +571,7 @@ private fun ContinueWatchingCard(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .aspectRatio(1.72f)
+                .aspectRatio(1.78f)
                 .clip(OwnPlayShapeTokens.Medium)
                 .background(OwnPlayColors.SurfaceElevated),
         ) {
@@ -596,6 +596,7 @@ private fun ContinueWatchingCard(
             LibraryIconAction(
                 glyph = LibraryActionGlyph.RESTART,
                 contentDescription = "Start ${item.title} over",
+                visualSize = 32.dp,
                 onClick = onBeginning,
                 modifier = Modifier
                     .align(Alignment.TopEnd)
@@ -605,7 +606,7 @@ private fun ContinueWatchingCard(
             Column(
                 modifier = Modifier
                     .align(Alignment.BottomStart)
-                    .padding(start = 14.dp, end = 68.dp, bottom = 15.dp),
+                    .padding(start = 14.dp, end = 60.dp, bottom = 13.dp),
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
                 Text(
@@ -646,10 +647,11 @@ private fun ContinueWatchingCard(
                 glyph = LibraryActionGlyph.PLAY,
                 contentDescription = "Resume ${item.title}",
                 emphasized = true,
+                visualSize = 36.dp,
                 onClick = onResume,
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
-                    .padding(end = 10.dp, bottom = 10.dp),
+                    .padding(end = 8.dp, bottom = 8.dp),
             )
 
             Box(
@@ -749,8 +751,8 @@ private fun PosterCard(
                 .background(
                     Brush.verticalGradient(
                         0f to Color.Transparent,
-                        0.58f to Color.Transparent,
-                        1f to Color.Black.copy(alpha = 0.90f),
+                        0.52f to Color.Transparent,
+                        1f to Color.Black.copy(alpha = 0.94f),
                     ),
                 ),
         )
@@ -762,8 +764,9 @@ private fun PosterCard(
         ) {
             Text(
                 text = eyebrow,
-                style = MaterialTheme.typography.labelMedium,
-                color = OwnPlayColors.Accent,
+                style = MaterialTheme.typography.labelSmall,
+                color = OwnPlayColors.Accent.copy(alpha = 0.88f),
+                fontWeight = FontWeight.Medium,
                 maxLines = 1,
             )
             Text(
@@ -1530,6 +1533,22 @@ private fun ResolvedLibraryPlayback.toLoadRequest(): PlaybackLoadRequest = Playb
     ),
     start = start,
 )
+
+private fun compactLibraryCount(count: Int): String = when {
+    count >= 1_000_000 -> {
+        val whole = count / 1_000_000
+        val decimal = (count % 1_000_000) / 100_000
+        if (decimal == 0) "${whole}M" else "${whole}.${decimal}M"
+    }
+
+    count >= 1_000 -> {
+        val whole = count / 1_000
+        val decimal = (count % 1_000) / 100
+        if (decimal == 0) "${whole}K" else "${whole}.${decimal}K"
+    }
+
+    else -> count.toString()
+}
 
 private fun formatDuration(durationMs: Long): String {
     val totalSeconds = durationMs.coerceAtLeast(0L) / 1_000L
