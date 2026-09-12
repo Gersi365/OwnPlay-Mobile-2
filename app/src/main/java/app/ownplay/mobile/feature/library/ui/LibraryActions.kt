@@ -9,6 +9,7 @@ import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -40,6 +41,13 @@ internal enum class LibraryActionGlyph {
     PLAY,
     RESTART,
     BACK,
+}
+
+internal enum class LibraryStateTone {
+    LOADING,
+    EMPTY,
+    WARNING,
+    ERROR,
 }
 
 @Composable
@@ -201,6 +209,27 @@ internal fun LibraryIconAction(
 }
 
 @Composable
+internal fun LibraryShelfSection(
+    title: String,
+    actionLabel: String? = null,
+    modifier: Modifier = Modifier,
+    prominent: Boolean = false,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        LibraryShelfHeader(
+            title = title,
+            actionLabel = actionLabel,
+            prominent = prominent,
+        )
+        content()
+    }
+}
+
+@Composable
 internal fun LibraryShelfHeader(
     title: String,
     actionLabel: String? = null,
@@ -238,12 +267,18 @@ internal fun LibraryShelfState(
     title: String,
     message: String,
     modifier: Modifier = Modifier,
-    loading: Boolean = false,
+    tone: LibraryStateTone = LibraryStateTone.EMPTY,
 ) {
+    val railColor = when (tone) {
+        LibraryStateTone.LOADING -> OwnPlayColors.Accent.copy(alpha = 0.66f)
+        LibraryStateTone.WARNING -> OwnPlayColors.Accent.copy(alpha = 0.40f)
+        LibraryStateTone.ERROR -> OwnPlayColors.AccentStrong.copy(alpha = 0.82f)
+        LibraryStateTone.EMPTY -> OwnPlayColors.Divider.copy(alpha = 0.82f)
+    }
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(vertical = 6.dp),
+            .padding(vertical = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -252,11 +287,7 @@ internal fun LibraryShelfState(
                 .width(2.dp)
                 .height(34.dp)
                 .background(
-                    color = if (loading) {
-                        OwnPlayColors.Accent.copy(alpha = 0.64f)
-                    } else {
-                        OwnPlayColors.Divider.copy(alpha = 0.82f)
-                    },
+                    color = railColor,
                     shape = OwnPlayShapeTokens.Small,
                 ),
         )
@@ -267,7 +298,11 @@ internal fun LibraryShelfState(
             Text(
                 text = title,
                 style = MaterialTheme.typography.labelLarge,
-                color = OwnPlayColors.TextSecondary,
+                color = if (tone == LibraryStateTone.ERROR) {
+                    OwnPlayColors.TextPrimary
+                } else {
+                    OwnPlayColors.TextSecondary
+                },
                 fontWeight = FontWeight.SemiBold,
             )
             Text(

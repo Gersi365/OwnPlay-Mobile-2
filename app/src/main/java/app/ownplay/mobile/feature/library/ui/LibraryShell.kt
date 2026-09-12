@@ -405,115 +405,146 @@ private fun LibraryHome(
 
         Column(
             modifier = Modifier.padding(horizontal = OwnPlaySpacing.Lg),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Lg),
         ) {
             if (errorMessage != null) {
-                OwnPlayStatePanel(title = "Action unavailable", message = errorMessage)
-            }
-
-            LibraryShelfHeader(
-                title = "Continue Watching",
-                actionLabel = catalog?.continueWatching?.size?.takeIf { it > 0 }?.let { "$it in progress" },
-                prominent = true,
-            )
-            when {
-                catalog == null -> LibraryShelfState(
-                    title = "Loading Library",
-                    message = "Reading the active source and saved progress.",
-                    loading = true,
-                )
-
-                catalog.activeSourceId == null -> LibraryShelfState(
-                    title = "No active source",
-                    message = "Add or select a source in Settings to populate your Library.",
-                )
-
-                catalog.continueWatching.isEmpty() -> LibraryShelfState(
-                    title = "Nothing to resume yet",
-                    message = "Movies and episodes with saved progress will appear here.",
-                )
-
-                else -> ContinueWatchingRow(
-                    items = catalog.continueWatching,
-                    onResume = onContinueResume,
-                    onBeginning = onContinueBeginning,
-                )
-            }
-
-            Spacer(modifier = Modifier.height(OwnPlaySpacing.Sm))
-            LibraryShelfHeader(
-                title = "Movies",
-                actionLabel = catalog?.movies?.size?.takeIf { it > 0 }?.let { "${compactLibraryCount(it)} titles" },
-            )
-            if (movieCategories.isNotEmpty()) {
-                LibraryCategoryStrip(
-                    categories = movieCategories,
-                    selectedCategoryKey = activeMovieCategoryKey,
-                    onSelected = { selectedMovieCategoryKey = it },
-                )
-            }
-            when {
-                catalog != null && catalog.activeSourceId != null && catalog.movies.isEmpty() -> LibraryShelfState(
-                    title = "No movies available",
-                    message = "Refresh ${catalog.activeSourceName ?: "the active source"} to load movie metadata.",
-                )
-
-                visibleMovies.isNotEmpty() -> MovieRow(
-                    movies = visibleMovies,
-                    onMovieSelected = onMovieSelected,
-                )
-
-                catalog != null && catalog.movies.isNotEmpty() -> LibraryShelfState(
-                    title = "No movies in this category",
-                    message = "Choose another provider category.",
-                )
-            }
-
-            Spacer(modifier = Modifier.height(OwnPlaySpacing.Sm))
-            LibraryShelfHeader(
-                title = "Series",
-                actionLabel = catalog?.series?.size?.takeIf { it > 0 }?.let { "${compactLibraryCount(it)} titles" },
-            )
-            if (seriesCategories.isNotEmpty()) {
-                LibraryCategoryStrip(
-                    categories = seriesCategories,
-                    selectedCategoryKey = activeSeriesCategoryKey,
-                    onSelected = { selectedSeriesCategoryKey = it },
-                )
-            }
-            when {
-                catalog != null && catalog.activeSourceId != null && catalog.series.isEmpty() -> LibraryShelfState(
-                    title = "No series available",
-                    message = "Refresh ${catalog.activeSourceName ?: "the active source"} to load series metadata.",
-                )
-
-                visibleSeries.isNotEmpty() -> SeriesRow(
-                    seriesItems = visibleSeries,
-                    onSeriesSelected = onSeriesSelected,
-                )
-
-                catalog != null && catalog.series.isNotEmpty() -> LibraryShelfState(
-                    title = "No series in this category",
-                    message = "Choose another provider category.",
-                )
-            }
-
-            Spacer(modifier = Modifier.height(OwnPlaySpacing.Sm))
-            LibraryShelfHeader(
-                title = "Downloaded Media",
-                actionLabel = catalog?.downloadedMedia?.size?.takeIf { it > 0 }?.let { "$it offline" },
-            )
-            if (catalog != null && catalog.activeSourceId != null && catalog.downloadedMedia.isEmpty()) {
                 LibraryShelfState(
-                    title = "No completed downloads",
-                    message = "Completed media appears here after its offline file passes integrity verification.",
+                    title = "Action unavailable",
+                    message = errorMessage,
+                    tone = LibraryStateTone.ERROR,
                 )
-            } else if (!catalog?.downloadedMedia.isNullOrEmpty()) {
-                DownloadedRow(
-                    mediaItems = catalog?.downloadedMedia.orEmpty(),
-                    downloads = downloads,
-                    onAction = onDownloadedAction,
-                )
+            }
+
+            when {
+                catalog == null -> {
+                    LibraryShelfSection(
+                        title = "Library",
+                        prominent = true,
+                    ) {
+                        LibraryShelfState(
+                            title = "Loading Library",
+                            message = "Reading the active source and saved progress.",
+                            tone = LibraryStateTone.LOADING,
+                        )
+                    }
+                }
+
+                catalog.activeSourceId == null -> {
+                    LibraryShelfSection(
+                        title = "Library",
+                        prominent = true,
+                    ) {
+                        LibraryShelfState(
+                            title = "No active source",
+                            message = "Add or select a source in Settings to populate your Library.",
+                        )
+                    }
+                }
+
+                else -> {
+                    LibraryShelfSection(
+                        title = "Continue Watching",
+                        actionLabel = catalog.continueWatching.size
+                            .takeIf { it > 0 }
+                            ?.let { "${compactLibraryCount(it)} in progress" },
+                        prominent = true,
+                    ) {
+                        if (catalog.continueWatching.isEmpty()) {
+                            LibraryShelfState(
+                                title = "Nothing to resume yet",
+                                message = "Movies and episodes with saved progress will appear here.",
+                            )
+                        } else {
+                            ContinueWatchingRow(
+                                items = catalog.continueWatching,
+                                onResume = onContinueResume,
+                                onBeginning = onContinueBeginning,
+                            )
+                        }
+                    }
+
+                    LibraryShelfSection(
+                        title = "Movies",
+                        actionLabel = catalog.movies.size
+                            .takeIf { it > 0 }
+                            ?.let { "${compactLibraryCount(it)} titles" },
+                    ) {
+                        if (movieCategories.isNotEmpty()) {
+                            LibraryCategoryStrip(
+                                categories = movieCategories,
+                                selectedCategoryKey = activeMovieCategoryKey,
+                                onSelected = { selectedMovieCategoryKey = it },
+                            )
+                        }
+                        when {
+                            catalog.movies.isEmpty() -> LibraryShelfState(
+                                title = "No movies available",
+                                message = "Refresh ${catalog.activeSourceName ?: "the active source"} to load movie metadata.",
+                            )
+
+                            visibleMovies.isNotEmpty() -> MovieRow(
+                                movies = visibleMovies,
+                                onMovieSelected = onMovieSelected,
+                            )
+
+                            else -> LibraryShelfState(
+                                title = "No movies in this category",
+                                message = "Choose another provider category.",
+                            )
+                        }
+                    }
+
+                    LibraryShelfSection(
+                        title = "Series",
+                        actionLabel = catalog.series.size
+                            .takeIf { it > 0 }
+                            ?.let { "${compactLibraryCount(it)} titles" },
+                    ) {
+                        if (seriesCategories.isNotEmpty()) {
+                            LibraryCategoryStrip(
+                                categories = seriesCategories,
+                                selectedCategoryKey = activeSeriesCategoryKey,
+                                onSelected = { selectedSeriesCategoryKey = it },
+                            )
+                        }
+                        when {
+                            catalog.series.isEmpty() -> LibraryShelfState(
+                                title = "No series available",
+                                message = "Refresh ${catalog.activeSourceName ?: "the active source"} to load series metadata.",
+                            )
+
+                            visibleSeries.isNotEmpty() -> SeriesRow(
+                                seriesItems = visibleSeries,
+                                onSeriesSelected = onSeriesSelected,
+                            )
+
+                            else -> LibraryShelfState(
+                                title = "No series in this category",
+                                message = "Choose another provider category.",
+                            )
+                        }
+                    }
+
+                    LibraryShelfSection(
+                        title = "Downloaded Media",
+                        actionLabel = catalog.downloadedMedia.size
+                            .takeIf { it > 0 }
+                            ?.let { "${compactLibraryCount(it)} offline" },
+                    ) {
+                        if (catalog.downloadedMedia.isEmpty()) {
+                            LibraryShelfState(
+                                title = "No completed downloads",
+                                message = "Completed media appears here after its offline file passes integrity verification.",
+                            )
+                        } else {
+                            DownloadedRow(
+                                mediaItems = catalog.downloadedMedia,
+                                downloads = downloads,
+                                onAction = onDownloadedAction,
+                            )
+                        }
+                    }
+                }
             }
 
             Spacer(modifier = Modifier.height(OwnPlaySpacing.Xl))
@@ -705,13 +736,13 @@ private fun ContinueWatchingCard(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
-                    .height(3.dp)
+                    .height(2.dp)
                     .background(Color.White.copy(alpha = 0.16f)),
             ) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth(progress)
-                        .height(3.dp)
+                        .height(2.dp)
                         .background(OwnPlayColors.Accent),
                 )
             }
@@ -973,7 +1004,11 @@ private fun MovieDetail(
             verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),
         ) {
             if (errorMessage != null) {
-                LibraryShelfState(title = "Action unavailable", message = errorMessage)
+                LibraryShelfState(
+                    title = "Action unavailable",
+                    message = errorMessage,
+                    tone = LibraryStateTone.ERROR,
+                )
             }
             if (movie.resumePositionMs != null) {
                 PlaybackChoiceButtons(
@@ -1035,10 +1070,18 @@ private fun SeriesDetail(
                 )
             }
             if (warning != null) {
-                LibraryShelfState(title = "Using cached episodes", message = warning)
+                LibraryShelfState(
+                    title = "Using cached episodes",
+                    message = warning,
+                    tone = LibraryStateTone.WARNING,
+                )
             }
             if (errorMessage != null) {
-                LibraryShelfState(title = "Action unavailable", message = errorMessage)
+                LibraryShelfState(
+                    title = "Action unavailable",
+                    message = errorMessage,
+                    tone = LibraryStateTone.ERROR,
+                )
             }
             LibraryShelfHeader(
                 title = "Episodes",
@@ -1048,7 +1091,7 @@ private fun SeriesDetail(
                 detail == null && errorMessage == null -> LibraryShelfState(
                     title = "Loading episodes",
                     message = "Refreshing episode metadata for ${series.name}.",
-                    loading = true,
+                    tone = LibraryStateTone.LOADING,
                 )
 
                 detail?.episodes.isNullOrEmpty() -> LibraryShelfState(
@@ -1308,6 +1351,7 @@ private fun PlaybackChoiceButtons(
     onBeginning: () -> Unit,
 ) {
     Row(
+        modifier = Modifier.fillMaxWidth(0.92f),
         horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Xs),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -1315,22 +1359,26 @@ private fun PlaybackChoiceButtons(
             LibraryPrimaryAction(
                 text = "Resume",
                 onClick = onResume,
+                modifier = Modifier.weight(1.15f),
                 glyph = LibraryActionGlyph.PLAY,
             )
             LibrarySecondaryAction(
                 text = "Start Over",
                 onClick = onBeginning,
+                modifier = Modifier.weight(0.85f),
                 glyph = LibraryActionGlyph.RESTART,
             )
         } else {
             LibraryPrimaryAction(
                 text = "Start Over",
                 onClick = onBeginning,
+                modifier = Modifier.weight(1.15f),
                 glyph = LibraryActionGlyph.RESTART,
             )
             LibrarySecondaryAction(
                 text = "Resume",
                 onClick = onResume,
+                modifier = Modifier.weight(0.85f),
                 glyph = LibraryActionGlyph.PLAY,
             )
         }
