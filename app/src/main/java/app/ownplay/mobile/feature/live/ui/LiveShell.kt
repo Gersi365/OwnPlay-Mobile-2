@@ -4,15 +4,14 @@ import android.graphics.BitmapFactory
 import android.view.OrientationEventListener
 import android.view.SurfaceView
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
@@ -27,7 +26,6 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -53,24 +51,23 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import app.ownplay.mobile.design.OwnPlayColors
-import app.ownplay.mobile.design.OwnPlayPanel
+import app.ownplay.mobile.design.OwnPlayFilterChip
 import app.ownplay.mobile.design.OwnPlaySectionHeader
 import app.ownplay.mobile.design.OwnPlayShapeTokens
 import app.ownplay.mobile.design.OwnPlaySpacing
 import app.ownplay.mobile.design.OwnPlayStatePanel
 import app.ownplay.mobile.design.OwnPlayTopBar
-import app.ownplay.mobile.design.OwnPlayWordmark
 import app.ownplay.mobile.feature.live.domain.LiveCatalog
 import app.ownplay.mobile.feature.live.domain.LiveCategory
 import app.ownplay.mobile.feature.live.domain.LiveChannel
 import app.ownplay.mobile.feature.live.domain.LiveEffect
-import app.ownplay.mobile.feature.live.domain.LiveNowNext
-import app.ownplay.mobile.feature.live.domain.LiveProgram
 import app.ownplay.mobile.feature.live.domain.LiveIntent
+import app.ownplay.mobile.feature.live.domain.LiveNowNext
 import app.ownplay.mobile.feature.live.domain.LivePlaybackResolution
 import app.ownplay.mobile.feature.live.domain.LivePresentation
 import app.ownplay.mobile.feature.live.domain.LivePresentationReducer
 import app.ownplay.mobile.feature.live.domain.LivePresentationState
+import app.ownplay.mobile.feature.live.domain.LiveProgram
 import app.ownplay.mobile.feature.live.domain.LiveRepository
 import app.ownplay.mobile.playback.PlaybackController
 import app.ownplay.mobile.playback.domain.AudioFormatLabelPolicy
@@ -82,7 +79,8 @@ import app.ownplay.mobile.playback.domain.PlaybackPhase
 import app.ownplay.mobile.playback.domain.PlaybackSnapshot
 import app.ownplay.mobile.playback.domain.VideoTarget
 import app.ownplay.mobile.playback.ui.AudioTrackSelectorPanel
-import app.ownplay.mobile.playback.ui.PlayerGlassCircleAction
+import app.ownplay.mobile.playback.ui.PlayerGlassGlyph
+import app.ownplay.mobile.playback.ui.PlayerGlassIconAction
 import app.ownplay.mobile.playback.ui.PlayerGlassPillAction
 import app.ownplay.mobile.playback.ui.PlayerGlassScrims
 import app.ownplay.mobile.playback.ui.PlayerLocalControlHudOverlay
@@ -329,9 +327,7 @@ fun LiveShell(
             audioCompatibilityMessage = audioCompatibilityMessage,
             showChannelLogos = showChannelLogos,
             listState = browseListState,
-            onChannelTapped = { channel ->
-                dispatch(LiveIntent.ChannelTapped(channel.channelId))
-            },
+            onChannelTapped = { channel -> dispatch(LiveIntent.ChannelTapped(channel.channelId)) },
             modifier = modifier,
         )
     }
@@ -378,19 +374,13 @@ private fun LiveBrowseAndPreview(
         modifier = modifier.fillMaxSize(),
         state = listState,
     ) {
-        item {
-            OwnPlayTopBar(showTagline = false)
-        }
+        item { OwnPlayTopBar(showTagline = false) }
 
         item {
             Box(modifier = Modifier.padding(horizontal = OwnPlaySpacing.Lg)) {
                 OwnPlaySectionHeader(
-                    title = "Channels",
-                    actionLabel = if (selectedChannel == null) {
-                        "Tap a channel to preview"
-                    } else {
-                        "Tap the selected channel again for fullscreen"
-                    },
+                    title = "Live",
+                    actionLabel = catalog?.channels?.size?.takeIf { it > 0 }?.let { "$it channels" },
                 )
             }
         }
@@ -473,7 +463,7 @@ private fun LiveBrowseAndPreview(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = OwnPlaySpacing.Lg, vertical = OwnPlaySpacing.Xs),
+                            .padding(horizontal = OwnPlaySpacing.Lg, vertical = 3.dp),
                     ) {
                         ChannelRow(
                             number = (index + 1).toString().padStart(3, '0'),
@@ -488,9 +478,7 @@ private fun LiveBrowseAndPreview(
             }
         }
 
-        item {
-            Spacer(modifier = Modifier.height(OwnPlaySpacing.Xl))
-        }
+        item { Spacer(modifier = Modifier.height(OwnPlaySpacing.Xl)) }
     }
 }
 
@@ -530,34 +518,15 @@ private fun LiveCategoryStrip(
 ) {
     LazyRow(
         contentPadding = PaddingValues(horizontal = OwnPlaySpacing.Lg),
-        horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm),
+        horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Xs),
     ) {
         items(categories, key = { it.categoryKey }) { category ->
-            ProviderCategoryChip(category.name, selectedCategoryKey == category.categoryKey) {
-                onSelected(category.categoryKey)
-            }
+            OwnPlayFilterChip(
+                label = category.name,
+                selected = selectedCategoryKey == category.categoryKey,
+                onClick = { onSelected(category.categoryKey) },
+            )
         }
-    }
-}
-
-@Composable
-private fun ProviderCategoryChip(
-    label: String,
-    selected: Boolean,
-    onClick: () -> Unit,
-) {
-    Surface(
-        modifier = Modifier.clickable(onClick = onClick),
-        shape = OwnPlayShapeTokens.Small,
-        color = if (selected) OwnPlayColors.AccentSoft else OwnPlayColors.SurfaceElevated,
-        border = BorderStroke(1.dp, if (selected) OwnPlayColors.Accent else Color.Transparent),
-    ) {
-        Text(
-            text = label,
-            modifier = Modifier.padding(horizontal = OwnPlaySpacing.Md, vertical = OwnPlaySpacing.Sm),
-            style = MaterialTheme.typography.labelLarge,
-            color = if (selected) OwnPlayColors.TextPrimary else OwnPlayColors.TextSecondary,
-        )
     }
 }
 
@@ -575,7 +544,7 @@ private fun PreviewSurface(
             .fillMaxWidth()
             .aspectRatio(16f / 9f)
             .playerLocalVerticalControls(playbackController, controllerScope)
-            .clip(OwnPlayShapeTokens.Medium)
+            .clip(OwnPlayShapeTokens.Large)
             .background(Color.Black),
         contentAlignment = Alignment.Center,
     ) {
@@ -601,9 +570,7 @@ private fun PreviewSurface(
                 modifier = Modifier.fillMaxSize(),
             )
 
-            PlayerLocalControlHudOverlay(
-                modifier = Modifier.align(Alignment.Center),
-            )
+            PlayerLocalControlHudOverlay(modifier = Modifier.align(Alignment.Center))
 
             LiveBadge(
                 modifier = Modifier
@@ -620,7 +587,7 @@ private fun PreviewSurface(
             }
             if (statusMessage != null) {
                 Surface(
-                    color = OwnPlayColors.Background.copy(alpha = 0.88f),
+                    color = OwnPlayColors.Background.copy(alpha = 0.84f),
                     shape = OwnPlayShapeTokens.Small,
                 ) {
                     Text(
@@ -637,10 +604,22 @@ private fun PreviewSurface(
 
 @Composable
 private fun NowPlayingPanel(selectedChannel: LiveChannel, guide: LiveNowNext) {
-    OwnPlayPanel(modifier = Modifier.fillMaxWidth()) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = OwnPlaySpacing.Xs),
+        horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier = Modifier
+                .width(3.dp)
+                .height(54.dp)
+                .background(OwnPlayColors.Accent, OwnPlayShapeTokens.Small),
+        )
         Column(
-            modifier = Modifier.padding(horizontal = OwnPlaySpacing.Md, vertical = OwnPlaySpacing.Sm),
-            verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Xs),
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -649,20 +628,20 @@ private fun NowPlayingPanel(selectedChannel: LiveChannel, guide: LiveNowNext) {
             ) {
                 Text(
                     text = "NOW",
-                    style = MaterialTheme.typography.labelSmall,
+                    style = MaterialTheme.typography.labelMedium,
                     color = OwnPlayColors.Accent,
                     fontWeight = FontWeight.Bold,
                 )
                 Text(
                     text = guide.now?.let(::programTimeRange)?.takeIf { it.isNotBlank() } ?: "LIVE",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = OwnPlayColors.TextSecondary,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = OwnPlayColors.TextMuted,
                 )
                 Text(
                     text = selectedChannel.name,
                     modifier = Modifier.weight(1f),
                     style = MaterialTheme.typography.labelMedium,
-                    color = OwnPlayColors.TextSecondary,
+                    color = OwnPlayColors.TextMuted,
                     maxLines = 1,
                 )
             }
@@ -696,23 +675,29 @@ private fun ChannelRow(
     Surface(
         onClick = onClick,
         modifier = Modifier.fillMaxWidth(),
-        color = if (selected) OwnPlayColors.SurfaceSelected else OwnPlayColors.Surface,
-        shape = RoundedCornerShape(12.dp),
-        border = BorderStroke(
-            width = 1.dp,
-            color = if (selected) OwnPlayColors.Accent else OwnPlayColors.Divider,
-        ),
+        color = if (selected) OwnPlayColors.SurfaceSelected.copy(alpha = 0.78f) else Color.Transparent,
+        shape = OwnPlayShapeTokens.Small,
         tonalElevation = 0.dp,
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = OwnPlaySpacing.Lg, vertical = OwnPlaySpacing.Md),
+            modifier = Modifier.padding(horizontal = OwnPlaySpacing.Sm, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            Box(
+                modifier = Modifier
+                    .width(3.dp)
+                    .height(42.dp)
+                    .background(
+                        color = if (selected) OwnPlayColors.Accent else Color.Transparent,
+                        shape = OwnPlayShapeTokens.Small,
+                    ),
+            )
+            Spacer(modifier = Modifier.width(OwnPlaySpacing.Sm))
             Text(
                 text = number,
-                style = MaterialTheme.typography.bodyMedium,
-                color = OwnPlayColors.TextSecondary,
-                modifier = Modifier.width(44.dp),
+                style = MaterialTheme.typography.labelMedium,
+                color = OwnPlayColors.TextMuted,
+                modifier = Modifier.width(36.dp),
             )
             if (showChannelLogos) {
                 ChannelLogoIdentity(channel = channel, selected = selected)
@@ -723,27 +708,30 @@ private fun ChannelRow(
                     text = channel.name,
                     style = MaterialTheme.typography.titleMedium,
                     color = OwnPlayColors.TextPrimary,
+                    maxLines = 1,
                 )
                 Text(
-                    text = guide.now?.let { program -> "Now ${programTimeRange(program)} • ${program.title}" }
+                    text = guide.now?.let { program -> "${programTimeRange(program)} • ${program.title}" }
                         ?: if (selected) "Previewing now" else "Live channel",
                     style = MaterialTheme.typography.bodyMedium,
                     color = OwnPlayColors.TextSecondary,
                     maxLines = 1,
                 )
-                guide.next?.let { next ->
-                    Text(
-                        text = "Next ${programTimeRange(next)} • ${next.title}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = OwnPlayColors.TextSecondary,
-                        maxLines = 1,
-                    )
+                if (selected) {
+                    guide.next?.let { next ->
+                        Text(
+                            text = "Next ${programTimeRange(next)} • ${next.title}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = OwnPlayColors.TextMuted,
+                            maxLines = 1,
+                        )
+                    }
                 }
             }
             Text(
-                text = if (selected) "FULLSCREEN ›" else "›",
-                style = MaterialTheme.typography.labelLarge,
-                color = if (selected) OwnPlayColors.Accent else OwnPlayColors.TextSecondary,
+                text = "›",
+                style = MaterialTheme.typography.titleLarge,
+                color = if (selected) OwnPlayColors.Accent else OwnPlayColors.TextMuted,
             )
         }
     }
@@ -756,9 +744,9 @@ private fun ChannelLogoIdentity(channel: LiveChannel, selected: Boolean) {
     }
     Box(
         modifier = Modifier
-            .size(46.dp)
+            .size(40.dp)
             .clip(OwnPlayShapeTokens.Small)
-            .background(if (selected) OwnPlayColors.AccentStrong else OwnPlayColors.SurfaceElevated),
+            .background(if (selected) OwnPlayColors.AccentStrong.copy(alpha = 0.72f) else OwnPlayColors.SurfaceElevated),
         contentAlignment = Alignment.Center,
     ) {
         if (bitmap != null) {
@@ -869,9 +857,7 @@ private fun FullscreenLive(
                 },
         )
 
-        PlayerLocalControlHudOverlay(
-            modifier = Modifier.align(Alignment.Center),
-        )
+        PlayerLocalControlHudOverlay(modifier = Modifier.align(Alignment.Center))
 
         if (overlayVisible) {
             PlayerGlassScrims()
@@ -880,17 +866,18 @@ private fun FullscreenLive(
                 modifier = Modifier
                     .align(Alignment.TopStart)
                     .fillMaxWidth()
-                    .padding(horizontal = OwnPlaySpacing.Lg, vertical = OwnPlaySpacing.Md),
+                    .padding(horizontal = OwnPlaySpacing.Lg, vertical = OwnPlaySpacing.Sm),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),
+                horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm),
             ) {
-                PlayerGlassCircleAction(
-                    label = "‹",
+                PlayerGlassIconAction(
+                    glyph = PlayerGlassGlyph.BACK,
+                    contentDescription = "Back to Live preview",
                     onClick = onBackToPreview,
                 )
                 Column(
                     modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                    verticalArrangement = Arrangement.spacedBy(1.dp),
                 ) {
                     Text(
                         text = channel.name,
@@ -901,7 +888,7 @@ private fun FullscreenLive(
                     Text(
                         text = "Channel $channelNumber",
                         style = MaterialTheme.typography.bodySmall,
-                        color = Color.White.copy(alpha = 0.70f),
+                        color = Color.White.copy(alpha = 0.66f),
                     )
                 }
                 LiveBadge()
@@ -910,14 +897,14 @@ private fun FullscreenLive(
             Row(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .padding(horizontal = OwnPlaySpacing.Xl, vertical = OwnPlaySpacing.Lg),
+                    .fillMaxWidth(0.92f)
+                    .padding(bottom = OwnPlaySpacing.Md),
                 verticalAlignment = Alignment.Bottom,
                 horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),
             ) {
                 Column(
                     modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(3.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
                     Text(
                         text = when {
@@ -936,7 +923,7 @@ private fun FullscreenLive(
                         Text(
                             text = "Next ${programTimeRange(next)} • ${next.title}",
                             style = MaterialTheme.typography.bodySmall,
-                            color = Color.White.copy(alpha = 0.70f),
+                            color = Color.White.copy(alpha = 0.66f),
                             maxLines = 1,
                         )
                     }
@@ -960,7 +947,7 @@ private fun FullscreenLive(
                     onDismiss = { audioSelectorVisible = false },
                     modifier = Modifier
                         .align(Alignment.CenterEnd)
-                        .padding(OwnPlaySpacing.Xl),
+                        .padding(OwnPlaySpacing.Lg),
                 )
             }
         }
@@ -971,13 +958,14 @@ private fun FullscreenLive(
 private fun LiveBadge(modifier: Modifier = Modifier) {
     Surface(
         modifier = modifier,
-        color = Color(0xFFE53935),
-        shape = RoundedCornerShape(4.dp),
+        color = OwnPlayColors.AccentStrong.copy(alpha = 0.90f),
+        shape = OwnPlayShapeTokens.Small,
+        tonalElevation = 0.dp,
     ) {
         Text(
             text = "LIVE",
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-            style = MaterialTheme.typography.labelSmall,
+            style = MaterialTheme.typography.labelMedium,
             fontWeight = FontWeight.Bold,
             color = Color.White,
         )
@@ -993,9 +981,7 @@ private fun LivePlaybackSurface(
 ) {
     val context = LocalContext.current
     val surfaceView = remember(context, target) {
-        SurfaceView(context).apply {
-            keepScreenOn = true
-        }
+        SurfaceView(context).apply { keepScreenOn = true }
     }
 
     AndroidView(

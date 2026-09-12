@@ -33,63 +33,63 @@ fun AudioTrackSelectorPanel(
     modifier: Modifier = Modifier,
 ) {
     Surface(
-        modifier = modifier.width(320.dp),
-        color = OwnPlayColors.Background.copy(alpha = 0.86f),
+        modifier = modifier.width(280.dp),
+        color = Color.Black.copy(alpha = 0.74f),
         shape = OwnPlayShapeTokens.Medium,
-        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.14f)),
+        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.10f)),
         tonalElevation = 0.dp,
-        shadowElevation = 10.dp,
+        shadowElevation = 0.dp,
     ) {
         Column(
-  modifier = Modifier.padding(OwnPlaySpacing.Md),
-  verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm),
+            modifier = Modifier.padding(OwnPlaySpacing.Md),
+            verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm),
         ) {
-  Row(
-      modifier = Modifier.fillMaxWidth(),
-      horizontalArrangement = Arrangement.SpaceBetween,
-      verticalAlignment = Alignment.CenterVertically,
-  ) {
-      Text(
-text = "Audio tracks",
-style = MaterialTheme.typography.titleMedium,
-color = OwnPlayColors.TextPrimary,
-      )
-      Text(
-text = "Done",
-modifier = Modifier
-    .clickable(onClick = onDismiss)
-    .padding(horizontal = OwnPlaySpacing.Sm, vertical = OwnPlaySpacing.Xs),
-style = MaterialTheme.typography.labelLarge,
-color = OwnPlayColors.Accent,
-      )
-  }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "Audio",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = OwnPlayColors.TextPrimary,
+                )
+                Text(
+                    text = "Done",
+                    modifier = Modifier
+                        .clickable(onClick = onDismiss)
+                        .padding(horizontal = OwnPlaySpacing.Sm, vertical = OwnPlaySpacing.Xs),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = OwnPlayColors.Accent,
+                )
+            }
 
-  LazyColumn(
-      modifier = Modifier.heightIn(max = 320.dp),
-      verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Xs),
-  ) {
-      item(key = "auto") {
-AudioTrackRow(
-    title = "Auto",
-    detail = "Use player default selection",
-    selected = false,
-    supported = true,
-    onClick = { onSelect(null) },
-)
-      }
-      itemsIndexed(
-items = tracks,
-key = { _, track -> track.selectionId },
-      ) { index, track ->
-AudioTrackRow(
-    title = AudioTrackPolicy.primaryLabel(track, index + 1),
-    detail = AudioTrackPolicy.detailLabel(track),
-    selected = track.selected,
-    supported = track.supported,
-    onClick = { onSelect(track.selectionId) },
-)
-      }
-  }
+            LazyColumn(
+                modifier = Modifier.heightIn(max = 280.dp),
+                verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Xs),
+            ) {
+                item(key = "auto") {
+                    AudioTrackRow(
+                        title = "Auto",
+                        detail = "Player default",
+                        selected = false,
+                        supported = true,
+                        onClick = { onSelect(null) },
+                    )
+                }
+                itemsIndexed(
+                    items = tracks,
+                    key = { _, track -> track.selectionId },
+                ) { index, track ->
+                    AudioTrackRow(
+                        title = AudioTrackPolicy.primaryLabel(track, index + 1),
+                        detail = AudioTrackPolicy.detailLabel(track),
+                        selected = track.selected,
+                        supported = track.supported,
+                        onClick = { onSelect(track.selectionId) },
+                    )
+                }
+            }
         }
     }
 }
@@ -104,51 +104,48 @@ private fun AudioTrackRow(
 ) {
     Surface(
         modifier = Modifier
-  .fillMaxWidth()
-  .clickable(enabled = supported, onClick = onClick),
+            .fillMaxWidth()
+            .clickable(enabled = supported, onClick = onClick),
         color = if (selected) {
-  OwnPlayColors.Accent.copy(alpha = 0.18f)
+            OwnPlayColors.Accent.copy(alpha = 0.14f)
         } else {
-  Color.White.copy(alpha = 0.04f)
+            Color.White.copy(alpha = 0.025f)
         },
         shape = OwnPlayShapeTokens.Small,
         border = BorderStroke(
-  width = 1.dp,
-  color = if (selected) {
-      OwnPlayColors.Accent.copy(alpha = 0.58f)
-  } else {
-      Color.White.copy(alpha = 0.08f)
-  },
+            width = 1.dp,
+            color = if (selected) OwnPlayColors.Accent.copy(alpha = 0.40f) else Color.Transparent,
         ),
         tonalElevation = 0.dp,
     ) {
         Row(
-  modifier = Modifier.padding(horizontal = OwnPlaySpacing.Md, vertical = OwnPlaySpacing.Sm),
-  horizontalArrangement = Arrangement.SpaceBetween,
-  verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(horizontal = OwnPlaySpacing.Md, vertical = OwnPlaySpacing.Sm),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-  Column(
-      modifier = Modifier.weight(1f),
-      verticalArrangement = Arrangement.spacedBy(2.dp),
-  ) {
-      Text(
-text = title,
-style = MaterialTheme.typography.bodyLarge,
-color = if (supported) OwnPlayColors.TextPrimary else OwnPlayColors.TextSecondary,
-      )
-      Text(
-text = detail,
-style = MaterialTheme.typography.bodySmall,
-color = OwnPlayColors.TextSecondary,
-      )
-  }
-  if (selected) {
-      Text(
-text = "Selected",
-style = MaterialTheme.typography.labelSmall,
-color = OwnPlayColors.Accent,
-      )
-  }
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(1.dp),
+            ) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = if (supported) OwnPlayColors.TextPrimary else OwnPlayColors.TextSecondary,
+                )
+                Text(
+                    text = detail,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = OwnPlayColors.TextSecondary,
+                    maxLines = 1,
+                )
+            }
+            if (selected) {
+                Text(
+                    text = "●",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = OwnPlayColors.Accent,
+                )
+            }
         }
     }
 }
