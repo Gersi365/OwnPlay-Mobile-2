@@ -1,0 +1,111 @@
+name: Stage 19 source apply and validate
+
+on:
+  push:
+    branches:
+      - stage-19-search-downloads-seasons-helper
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout helper commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Extract deterministic patch
+        shell: bash
+        run: |
+          git show "${GITHUB_SHA}:tools/apply_stage19_search_downloads_seasons.py" > /tmp/apply_stage19.py
+          python -m py_compile /tmp/apply_stage19.py
+
+      - name: Verify base and apply to target
+        shell: bash
+        env:
+          EXPECTED_BASE: 67c52776261ba6f431006b3d3734ab4ad7a6a903
+          TARGET_BRANCH: stage-19-search-downloads-seasons
+        run: |
+          git fetch origin "${TARGET_BRANCH}" stage-18-public-download-storage
+          git checkout "${TARGET_BRANCH}"
+          test "$(git rev-parse HEAD)" = "${EXPECTED_BASE}"
+          test "$(git merge-base HEAD origin/stage-18-public-download-storage)" = "${EXPECTED_BASE}"
+          python /tmp/apply_stage19.py
+
+          python - <<'PY'
+          import subprocess
+          expected = {
+              "app/src/main/java/app/ownplay/mobile/app/OwnPlayApp.kt",
+              "app/src/main/java/app/ownplay/mobile/design/OwnPlayComponents.kt",
+              "app/src/main/java/app/ownplay/mobile/design/OwnPlaySearchField.kt",
+              "app/src/main/java/app/ownplay/mobile/downloads/ui/DownloadControls.kt",
+              "app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryShell.kt",
+              "app/src/main/java/app/ownplay/mobile/feature/live/ui/LiveShell.kt",
+              "app/src/main/java/app/ownplay/mobile/feature/settings/ui/DownloadManagementScreen.kt",
+              "app/src/main/java/app/ownplay/mobile/feature/settings/ui/SettingsShell.kt",
+              "app/src/main/java/app/ownplay/mobile/feature/settings/ui/SourceManagementScreen.kt",
+              "docs/audit/STAGE19_SEARCH_DOWNLOADS_SEASONS_SOURCE_AUDIT.md",
+          }
+          status = subprocess.check_output(["git", "status", "--porcelain"], text=True).splitlines()
+          actual = {line[3:] for line in status}
+          if actual != expected:
+              raise SystemExit(f"unexpected changed files: {sorted(actual)}")
+          PY
+
+          git config user.name "Gersi365"
+          git config user.email "Gersi365@outlook.com"
+          git add \
+            app/src/main/java/app/ownplay/mobile/app/OwnPlayApp.kt \
+            app/src/main/java/app/ownplay/mobile/design/OwnPlayComponents.kt \
+            app/src/main/java/app/ownplay/mobile/design/OwnPlaySearchField.kt \
+            app/src/main/java/app/ownplay/mobile/downloads/ui/DownloadControls.kt \
+            app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryShell.kt \
+            app/src/main/java/app/ownplay/mobile/feature/live/ui/LiveShell.kt \
+            app/src/main/java/app/ownplay/mobile/feature/settings/ui/DownloadManagementScreen.kt \
+            app/src/main/java/app/ownplay/mobile/feature/settings/ui/SettingsShell.kt \
+            app/src/main/java/app/ownplay/mobile/feature/settings/ui/SourceManagementScreen.kt \
+            docs/audit/STAGE19_SEARCH_DOWNLOADS_SEASONS_SOURCE_AUDIT.md
+          git commit -m "Add search and compact media management"
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK 36
+        shell: bash
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Set up Gradle 9.6.0
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.6.0'
+
+      - name: Validate source without APK generation
+        shell: bash
+        run: bash tools/validate-source-no-apk.sh
+
+      - name: Verify no package artifacts
+        shell: bash
+        run: |
+          test -z "$(find . -type f \( -name '*.apk' -o -name '*.aab' \) -print -quit)"
+          test -z "$(git status --porcelain)"
+
+      - name: Push exact validated target HEAD
+        shell: bash
+        env:
+          TARGET_BRANCH: stage-19-search-downloads-seasons
+        run: |
+          final_sha="$(git rev-parse HEAD)"
+          git push origin "HEAD:${TARGET_BRANCH}"
+          echo "Validated Stage 19 HEAD: ${final_sha}"
