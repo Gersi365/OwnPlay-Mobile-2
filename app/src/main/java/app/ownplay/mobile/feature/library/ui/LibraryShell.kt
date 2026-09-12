@@ -386,18 +386,24 @@ private fun LibraryHome(
     val searchActive = normalizedSearchQuery.isNotEmpty()
     val rawMovieCategories = catalog?.movieCategories.orEmpty()
     val rawSeriesCategories = catalog?.seriesCategories.orEmpty()
-    val movieCategories = LibraryBrowsePolicy.visibleCategories(rawMovieCategories)
-    val seriesCategories = LibraryBrowsePolicy.visibleCategories(rawSeriesCategories)
+    val movieCategories = remember(rawMovieCategories) {
+        LibraryBrowsePolicy.visibleCategories(rawMovieCategories)
+    }
+    val seriesCategories = remember(rawSeriesCategories) {
+        LibraryBrowsePolicy.visibleCategories(rawSeriesCategories)
+    }
     val activeMovieCategoryKey = LibraryBrowsePolicy.activeCategoryKey(movieCategories, selectedMovieCategoryKey)
     val activeSeriesCategoryKey = LibraryBrowsePolicy.activeCategoryKey(seriesCategories, selectedSeriesCategoryKey)
-    val visibleMovies = catalog?.movies.orEmpty().let { movies ->
+    val movies = catalog?.movies.orEmpty()
+    val series = catalog?.series.orEmpty()
+    val visibleMovies = remember(movies, searchActive, normalizedSearchQuery, activeMovieCategoryKey) {
         if (searchActive) {
             movies.filter { it.name.contains(normalizedSearchQuery, ignoreCase = true) }
         } else {
             activeMovieCategoryKey?.let { key -> movies.filter { it.categoryKey == key } } ?: movies
         }
     }
-    val visibleSeries = catalog?.series.orEmpty().let { series ->
+    val visibleSeries = remember(series, searchActive, normalizedSearchQuery, activeSeriesCategoryKey) {
         if (searchActive) {
             series.filter { it.name.contains(normalizedSearchQuery, ignoreCase = true) }
         } else {

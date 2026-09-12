@@ -43,80 +43,103 @@ class SourceCatalogLoader(
         val xtreamCredential = credential as? SourceCredential.Xtream
             ?: return failedPayload("CREDENTIAL_TYPE")
 
-        val liveCategoriesResult = xtreamClient.liveCategories(source.baseLocator, xtreamCredential)
-        val globalLiveStreamsResult = xtreamClient.liveStreams(source.baseLocator, xtreamCredential)
-        val vodCategoriesResult = xtreamClient.vodCategories(source.baseLocator, xtreamCredential)
-        val vodStreamsResult = xtreamClient.vodStreams(source.baseLocator, xtreamCredential)
-        val seriesCategoriesResult = xtreamClient.seriesCategories(source.baseLocator, xtreamCredential)
-        val seriesResult = xtreamClient.series(source.baseLocator, xtreamCredential)
+        return coroutineScope {
+            // These six catalog sections are independent. Launch them together and let the
+            // shared OkHttp dispatcher enforce the existing per-host request ceiling.
+            val liveCategoriesDeferred = async {
+                xtreamClient.liveCategories(source.baseLocator, xtreamCredential)
+            }
+            val globalLiveStreamsDeferred = async {
+                xtreamClient.liveStreams(source.baseLocator, xtreamCredential)
+            }
+            val vodCategoriesDeferred = async {
+                xtreamClient.vodCategories(source.baseLocator, xtreamCredential)
+            }
+            val vodStreamsDeferred = async {
+                xtreamClient.vodStreams(source.baseLocator, xtreamCredential)
+            }
+            val seriesCategoriesDeferred = async {
+                xtreamClient.seriesCategories(source.baseLocator, xtreamCredential)
+            }
+            val seriesDeferred = async {
+                xtreamClient.series(source.baseLocator, xtreamCredential)
+            }
 
-        val liveStreamsResult = recoverLiveCategoryAttribution(
-            source = source,
-            credential = xtreamCredential,
-            categoriesResult = liveCategoriesResult,
-            streamsResult = globalLiveStreamsResult,
-        )
-        val liveCategoryMap = categoryIdMap(source.sourceId, "LIVE", liveCategoriesResult)
-        val vodCategoryMap = categoryIdMap(source.sourceId, "MOVIE", vodCategoriesResult)
-        val seriesCategoryMap = categoryIdMap(source.sourceId, "SERIES", seriesCategoriesResult)
+            val liveCategoriesResult = liveCategoriesDeferred.await()
+            val globalLiveStreamsResult = globalLiveStreamsDeferred.await()
+            val vodCategoriesResult = vodCategoriesDeferred.await()
+            val vodStreamsResult = vodStreamsDeferred.await()
+            val seriesCategoriesResult = seriesCategoriesDeferred.await()
+            val seriesResult = seriesDeferred.await()
 
-        return ProviderRefreshPayload(
-            liveCategories = mapCategories(source.sourceId, "LIVE", liveCategoriesResult),
-            liveChannels = mapXtreamResult(liveStreamsResult) { streams ->
-                streams.map { stream ->
-                    ProviderLiveChannelRecord(
-                        channelId = StableIdentity.xtreamContentId(source.sourceId, "live", stream.streamId),
-                        providerKey = stream.streamId,
-                        providerStreamId = stream.streamId,
-                        categoryKey = XtreamLiveCategoryAttribution
-                            .normalizeProviderCategoryId(stream.categoryId)
-                            ?.let(liveCategoryMap::get),
-                        name = stream.name,
-                        tvgId = stream.epgChannelId,
-                        tvgName = stream.name,
-                        logoUrl = stream.streamIcon,
-                        streamLocator = "xtream://live/${stream.streamId}",
-                        providerOrder = stream.providerOrder,
-                    )
-                }
-            },
-            vodCategories = mapCategories(source.sourceId, "MOVIE", vodCategoriesResult),
-            movies = mapXtreamResult(vodStreamsResult) { movies ->
-                movies.map { movie ->
-                    ProviderMovieRecord(
-                        movieId = StableIdentity.xtreamContentId(source.sourceId, "movie", movie.streamId),
-                        providerStreamId = movie.streamId,
-                        categoryKey = XtreamLiveCategoryAttribution
-                            .normalizeProviderCategoryId(movie.categoryId)
-                            ?.let(vodCategoryMap::get),
-                        name = movie.name,
-                        posterUrl = movie.posterUrl,
-                        backdropUrl = null,
-                        extension = movie.extension,
-                        rating = movie.rating,
-                        providerOrder = movie.providerOrder,
-                    )
-                }
-            },
-            seriesCategories = mapCategories(source.sourceId, "SERIES", seriesCategoriesResult),
-            series = mapXtreamResult(seriesResult) { series ->
-                series.map { item ->
-                    ProviderSeriesRecord(
-                        seriesId = StableIdentity.xtreamContentId(source.sourceId, "series", item.seriesId),
-                        providerSeriesId = item.seriesId,
-                        categoryKey = XtreamLiveCategoryAttribution
-                            .normalizeProviderCategoryId(item.categoryId)
-                            ?.let(seriesCategoryMap::get),
-                        name = item.name,
-                        posterUrl = item.posterUrl,
-                        backdropUrl = item.backdropUrl,
-                        description = item.description,
-                        rating = item.rating,
-                        providerOrder = item.providerOrder,
-                    )
-                }
-            },
-        )
+            val liveStreamsResult = recoverLiveCategoryAttribution(
+                source = source,
+                credential = xtreamCredential,
+                categoriesResult = liveCategoriesResult,
+                streamsResult = globalLiveStreamsResult,
+            )
+            val liveCategoryMap = categoryIdMap(source.sourceId, "LIVE", liveCategoriesResult)
+            val vodCategoryMap = categoryIdMap(source.sourceId, "MOVIE", vodCategoriesResult)
+            val seriesCategoryMap = categoryIdMap(source.sourceId, "SERIES", seriesCategoriesResult)
+
+            ProviderRefreshPayload(
+                liveCategories = mapCategories(source.sourceId, "LIVE", liveCategoriesResult),
+                liveChannels = mapXtreamResult(liveStreamsResult) { streams ->
+                    streams.map { stream ->
+                        ProviderLiveChannelRecord(
+                            channelId = StableIdentity.xtreamContentId(source.sourceId, "live", stream.streamId),
+                            providerKey = stream.streamId,
+                            providerStreamId = stream.streamId,
+                            categoryKey = XtreamLiveCategoryAttribution
+                                .normalizeProviderCategoryId(stream.categoryId)
+                                ?.let(liveCategoryMap::get),
+                            name = stream.name,
+                            tvgId = stream.epgChannelId,
+                            tvgName = stream.name,
+                            logoUrl = stream.streamIcon,
+                            streamLocator = "xtream://live/${stream.streamId}",
+                            providerOrder = stream.providerOrder,
+                        )
+                    }
+                },
+                vodCategories = mapCategories(source.sourceId, "MOVIE", vodCategoriesResult),
+                movies = mapXtreamResult(vodStreamsResult) { movies ->
+                    movies.map { movie ->
+                        ProviderMovieRecord(
+                            movieId = StableIdentity.xtreamContentId(source.sourceId, "movie", movie.streamId),
+                            providerStreamId = movie.streamId,
+                            categoryKey = XtreamLiveCategoryAttribution
+                                .normalizeProviderCategoryId(movie.categoryId)
+                                ?.let(vodCategoryMap::get),
+                            name = movie.name,
+                            posterUrl = movie.posterUrl,
+                            backdropUrl = null,
+                            extension = movie.extension,
+                            rating = movie.rating,
+                            providerOrder = movie.providerOrder,
+                        )
+                    }
+                },
+                seriesCategories = mapCategories(source.sourceId, "SERIES", seriesCategoriesResult),
+                series = mapXtreamResult(seriesResult) { series ->
+                    series.map { item ->
+                        ProviderSeriesRecord(
+                            seriesId = StableIdentity.xtreamContentId(source.sourceId, "series", item.seriesId),
+                            providerSeriesId = item.seriesId,
+                            categoryKey = XtreamLiveCategoryAttribution
+                                .normalizeProviderCategoryId(item.categoryId)
+                                ?.let(seriesCategoryMap::get),
+                            name = item.name,
+                            posterUrl = item.posterUrl,
+                            backdropUrl = item.backdropUrl,
+                            description = item.description,
+                            rating = item.rating,
+                            providerOrder = item.providerOrder,
+                        )
+                    }
+                },
+            )
+        }
     }
 
     private suspend fun loadM3u(

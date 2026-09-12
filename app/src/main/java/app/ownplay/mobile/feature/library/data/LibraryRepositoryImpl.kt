@@ -283,9 +283,8 @@ class LibraryRepositoryImpl(
         val coreRows = combine(
             libraryDao.observeAvailableMovies(sourceId),
             libraryDao.observeAvailableSeries(sourceId),
-            libraryDao.observeAvailableEpisodes(sourceId),
-        ) { movies, series, episodes ->
-            CoreRows(movies = movies, series = series, episodes = episodes)
+        ) { movies, series ->
+            CoreRows(movies = movies, series = series)
         }
         val categoryRows = combine(
             catalogDao.observeAvailableCategories(sourceId, "MOVIE"),
@@ -299,10 +298,25 @@ class LibraryRepositoryImpl(
             libraryDao.observeIncompleteProgress(sourceId),
             libraryDao.observeCompletedDownloads(sourceId),
         ) { core, categories, progress, downloads ->
+            // Library home only needs episode metadata for active Continue Watching rows.
+            // Do not materialize every episode in a large provider catalog on each emission.
+            val progressEpisodes = mutableListOf<EpisodeLibraryView>()
+            for (row in progress) {
+                if (
+                    row.mediaKind.equals(LibraryMediaKind.EPISODE.name, ignoreCase = true) &&
+                    !row.completed &&
+                    row.positionMs > 0L &&
+                    row.durationMs > 0L
+                ) {
+                    libraryDao.getEpisode(row.contentId)
+                        ?.takeIf { episode -> episode.sourceId == sourceId }
+                        ?.let(progressEpisodes::add)
+                }
+            }
             LibraryRows(
                 movies = core.movies,
                 series = core.series,
-                episodes = core.episodes,
+                episodes = progressEpisodes,
                 movieCategories = categories.movieCategories,
                 seriesCategories = categories.seriesCategories,
                 progress = progress,
@@ -471,7 +485,6 @@ class LibraryRepositoryImpl(
     private data class CoreRows(
         val movies: List<MovieEntity>,
         val series: List<SeriesEntity>,
-        val episodes: List<EpisodeLibraryView>,
     )
 
     private data class CategoryRows(
