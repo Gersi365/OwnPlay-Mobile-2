@@ -1,0 +1,101 @@
+name: Stage 15 Library media-first apply and validate
+
+on:
+  push:
+    branches:
+      - stage-15-library-media-first-helper
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      EXPECTED_PARENT: 02d74a2278a06f6cdcff7cc8a62fa4f98c6cd51c
+      TARGET_BRANCH: stage-15-library-media-first-redesign
+
+    steps:
+      - name: Checkout isolated helper
+        uses: actions/checkout@v4
+        with:
+          ref: stage-15-library-media-first-helper
+          path: helper
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Checkout exact Stage 15 target
+        uses: actions/checkout@v4
+        with:
+          ref: stage-15-library-media-first-redesign
+          path: work
+          fetch-depth: 0
+
+      - name: Verify exact Stage 14 parent before mutation
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd work
+          actual="$(git rev-parse HEAD)"
+          test "$actual" = "$EXPECTED_PARENT"
+          test -z "$(git status --porcelain)"
+          echo "Validated Stage 15 parent: $actual"
+
+      - name: Apply Library media-first redesign
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 helper/tools/apply_stage15_library_redesign.py work
+          cd work
+          git status --short
+          test -n "$(git status --porcelain)"
+          test -f docs/audit/STAGE15_LIBRARY_MEDIA_FIRST_SOURCE_AUDIT.md
+          grep -q 'LibraryIconAction' app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryShell.kt
+          grep -q 'showTagline = false' app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryShell.kt
+          grep -q 'Library media-first source audit' docs/audit/STAGE15_LIBRARY_MEDIA_FIRST_SOURCE_AUDIT.md
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK 36
+        shell: bash
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Set up Gradle 9.6.0
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.6.0'
+
+      - name: Validate changed source without APK generation
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd work
+          bash tools/validate-source-no-apk.sh
+          if find . -type f \( -name '*.apk' -o -name '*.aab' \) -print -quit | grep -q .; then
+            echo 'Unexpected APK/AAB generated during Stage 15 source validation' >&2
+            exit 1
+          fi
+
+      - name: Commit validated Stage 15 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd work
+          git config user.name 'Gersi365'
+          git config user.email 'Gersi365@outlook.com'
+          git add \
+            app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryActions.kt \
+            app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryShell.kt \
+            docs/audit/STAGE15_LIBRARY_MEDIA_FIRST_SOURCE_AUDIT.md
+          test -n "$(git diff --cached --name-only)"
+          git commit -m 'Redesign Library around media-first shelves'
+          git push origin "HEAD:${TARGET_BRANCH}"
+          echo "Stage 15 final HEAD: $(git rev-parse HEAD)"
