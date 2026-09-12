@@ -32,6 +32,7 @@ jobs:
           test "$actual_base" = "$EXPECTED_BASE"
           git checkout -B "$TARGET_BRANCH" "origin/$TARGET_BRANCH"
           python3 /tmp/apply-stage21.py
+          git add -N docs/audit/STAGE21_STARTUP_REFRESH_SCALABILITY_SOURCE_AUDIT.md
           git diff --check
 
           actual_paths="$(git diff --name-only | sort)"
