@@ -499,7 +499,10 @@ private fun LibraryHome(
             }
 
             Spacer(modifier = Modifier.height(OwnPlaySpacing.Sm))
-            LibraryShelfHeader(title = "Downloaded Media")
+            LibraryShelfHeader(
+                title = "Downloaded Media",
+                actionLabel = catalog?.downloadedMedia?.size?.takeIf { it > 0 }?.let { "$it offline" },
+            )
             if (catalog != null && catalog.activeSourceId != null && catalog.downloadedMedia.isEmpty()) {
                 LibraryShelfState(
                     title = "No completed downloads",
@@ -867,44 +870,58 @@ private fun DownloadedRow(
     onAction: (LibraryDownloadedMedia, DownloadItem, DownloadAction) -> Unit,
 ) {
     val byId = remember(downloads) { downloads.associateBy { it.downloadId } }
-    LazyRow(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm),
-    ) {
-        items(
-            items = mediaItems,
-            key = { media -> media.downloadId },
-        ) { media ->
-            Surface(
-                modifier = Modifier.width(244.dp),
-                color = OwnPlayColors.Surface.copy(alpha = 0.52f),
-                shape = OwnPlayShapeTokens.Medium,
-                tonalElevation = 0.dp,
-            ) {
+    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+        val itemWidth = (maxWidth * 0.84f).coerceIn(244.dp, 292.dp)
+        val listState = rememberLazyListState()
+        val flingBehavior = rememberSnapFlingBehavior(
+            lazyListState = listState,
+            snapPosition = SnapPosition.Start,
+        )
+        LazyRow(
+            modifier = Modifier.fillMaxWidth(),
+            state = listState,
+            flingBehavior = flingBehavior,
+            horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),
+        ) {
+            items(
+                items = mediaItems,
+                key = { media -> media.downloadId },
+            ) { media ->
+                val item = byId[media.downloadId]
                 Column(
-                    modifier = Modifier.padding(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm),
+                    modifier = Modifier
+                        .width(itemWidth)
+                        .padding(vertical = 4.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     Row(
+                        modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
                         Box(
                             modifier = Modifier
-                                .width(38.dp)
-                                .height(38.dp)
-                                .clip(OwnPlayShapeTokens.Action)
-                                .background(OwnPlayColors.Accent.copy(alpha = 0.16f)),
-                            contentAlignment = Alignment.Center,
+                                .width(2.dp)
+                                .height(44.dp)
+                                .background(
+                                    OwnPlayColors.Accent.copy(alpha = 0.76f),
+                                    shape = OwnPlayShapeTokens.Small,
+                                ),
+                        )
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(2.dp),
                         ) {
                             Text(
-                                text = "✓",
-                                style = MaterialTheme.typography.titleMedium,
-                                color = OwnPlayColors.Accent,
-                                fontWeight = FontWeight.Bold,
+                                text = when (media.mediaKind) {
+                                    LibraryMediaKind.MOVIE -> "MOVIE • OFFLINE"
+                                    LibraryMediaKind.EPISODE -> "EPISODE • OFFLINE"
+                                },
+                                style = MaterialTheme.typography.labelSmall,
+                                color = OwnPlayColors.Accent.copy(alpha = 0.88f),
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
                             )
-                        }
-                        Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 text = media.title,
                                 style = MaterialTheme.typography.titleSmall,
@@ -912,18 +929,12 @@ private fun DownloadedRow(
                                 fontWeight = FontWeight.SemiBold,
                                 maxLines = 2,
                             )
-                            Text(
-                                text = "Available offline",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = OwnPlayColors.TextMuted,
-                            )
                         }
                     }
-                    byId[media.downloadId]?.let { item ->
-                        DownloadControls(
+                    if (item != null) {
+                        LibraryOfflineControls(
                             item = item,
                             onAction = { action -> onAction(media, item, action) },
-                            compact = true,
                         )
                     }
                 }
