@@ -1,0 +1,347 @@
+name: Stage 17A responsive Library carousels helper
+
+on:
+  push:
+    branches:
+      - stage-17a-responsive-library-carousels-helper
+    paths:
+      - .github/workflows/stage17a-responsive-library-carousels-helper.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply-validate-push:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      SOURCE_SHA: 3efd1de4f0889c08891e7da7890785c58d9b74e4
+      TARGET_BRANCH: stage-17a-responsive-library-carousels
+
+    steps:
+      - name: Checkout exact Stage 16 source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          fetch-depth: 1
+
+      - name: Verify exact baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          test -z "$(git status --porcelain)"
+
+      - name: Apply deterministic responsive carousel pass
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+
+          shell = Path("app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryShell.kt")
+
+          def replace_exact(old, new, expected=1):
+              text = shell.read_text()
+              count = text.count(old)
+              if count != expected:
+                  raise SystemExit(f"expected {expected}, found {count}: {old!r}")
+              shell.write_text(text.replace(old, new))
+
+          replace_exact(
+              'import androidx.compose.foundation.clickable\n',
+              'import androidx.compose.foundation.clickable\nimport androidx.compose.foundation.gestures.snapping.SnapPosition\nimport androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior\n',
+          )
+          replace_exact(
+              'import androidx.compose.foundation.layout.Box\n',
+              'import androidx.compose.foundation.layout.Box\nimport androidx.compose.foundation.layout.BoxWithConstraints\n',
+          )
+          replace_exact(
+              'import androidx.compose.foundation.lazy.items\n',
+              'import androidx.compose.foundation.lazy.items\nimport androidx.compose.foundation.lazy.rememberLazyListState\n',
+          )
+          replace_exact(
+              'import androidx.compose.ui.unit.dp\n',
+              'import androidx.compose.ui.unit.Dp\nimport androidx.compose.ui.unit.dp\n',
+          )
+
+          old_category = '''@Composable
+          private fun LibraryCategoryStrip(
+              categories: List<LibraryCategory>,
+              selectedCategoryKey: String?,
+              onSelected: (String?) -> Unit,
+          ) {
+              LazyRow(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                  items(categories, key = { it.categoryKey }) { category ->
+                      LibraryFilterTab(
+                          label = category.name,
+                          selected = selectedCategoryKey == category.categoryKey,
+                          onClick = { onSelected(category.categoryKey) },
+                      )
+                  }
+              }
+          }
+          '''.replace('          ', '')
+          new_category = '''@Composable
+          private fun LibraryCategoryStrip(
+              categories: List<LibraryCategory>,
+              selectedCategoryKey: String?,
+              onSelected: (String?) -> Unit,
+          ) {
+              val listState = rememberLazyListState()
+              LaunchedEffect(selectedCategoryKey, categories) {
+                  val selectedIndex = categories.indexOfFirst { it.categoryKey == selectedCategoryKey }
+                  if (selectedIndex >= 0) {
+                      listState.animateScrollToItem((selectedIndex - 1).coerceAtLeast(0))
+                  }
+              }
+              LazyRow(
+                  state = listState,
+                  horizontalArrangement = Arrangement.spacedBy(2.dp),
+              ) {
+                  items(categories, key = { it.categoryKey }) { category ->
+                      LibraryFilterTab(
+                          label = category.name,
+                          selected = selectedCategoryKey == category.categoryKey,
+                          onClick = { onSelected(category.categoryKey) },
+                      )
+                  }
+              }
+          }
+          '''.replace('          ', '')
+          replace_exact(old_category, new_category)
+
+          old_continue = '''@Composable
+          private fun ContinueWatchingRow(
+              items: List<ContinueWatchingItem>,
+              onResume: (ContinueWatchingItem) -> Unit,
+              onBeginning: (ContinueWatchingItem) -> Unit,
+          ) {
+              LazyRow(
+                  modifier = Modifier.fillMaxWidth(),
+                  horizontalArrangement = Arrangement.spacedBy(12.dp),
+              ) {
+                  items(items, key = { "${it.mediaKind}:${it.contentId}" }) { item ->
+                      ContinueWatchingCard(
+                          item = item,
+                          onResume = { onResume(item) },
+                          onBeginning = { onBeginning(item) },
+                      )
+                  }
+              }
+          }
+          '''.replace('          ', '')
+          new_continue = '''@Composable
+          private fun ContinueWatchingRow(
+              items: List<ContinueWatchingItem>,
+              onResume: (ContinueWatchingItem) -> Unit,
+              onBeginning: (ContinueWatchingItem) -> Unit,
+          ) {
+              BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                  val cardWidth = (maxWidth * 0.76f).coerceIn(248.dp, 312.dp)
+                  val listState = rememberLazyListState()
+                  val flingBehavior = rememberSnapFlingBehavior(
+                      lazyListState = listState,
+                      snapPosition = SnapPosition.Start,
+                  )
+                  LazyRow(
+                      modifier = Modifier.fillMaxWidth(),
+                      state = listState,
+                      flingBehavior = flingBehavior,
+                      horizontalArrangement = Arrangement.spacedBy(12.dp),
+                  ) {
+                      items(items, key = { "${it.mediaKind}:${it.contentId}" }) { item ->
+                          ContinueWatchingCard(
+                              item = item,
+                              cardWidth = cardWidth,
+                              onResume = { onResume(item) },
+                              onBeginning = { onBeginning(item) },
+                          )
+                      }
+                  }
+              }
+          }
+          '''.replace('          ', '')
+          replace_exact(old_continue, new_continue)
+
+          replace_exact(
+              '''private fun ContinueWatchingCard(
+              item: ContinueWatchingItem,
+              onResume: () -> Unit,
+              onBeginning: () -> Unit,
+          ) {'''.replace('          ', ''),
+              '''private fun ContinueWatchingCard(
+              item: ContinueWatchingItem,
+              cardWidth: Dp,
+              onResume: () -> Unit,
+              onBeginning: () -> Unit,
+          ) {'''.replace('          ', ''),
+          )
+          replace_exact('.width(284.dp)\n            .clickable(onClick = onResume)', '.width(cardWidth)\n            .clickable(onClick = onResume)')
+
+          old_movie = '''@Composable
+          private fun MovieRow(movies: List<LibraryMovie>, onMovieSelected: (LibraryMovie) -> Unit) {
+              LazyRow(
+                  modifier = Modifier.fillMaxWidth(),
+                  horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),
+              ) {
+                  items(
+                      items = movies,
+                      key = { movie -> movie.movieId },
+                  ) { movie ->
+                      PosterCard(
+                          title = movie.name,
+                          artworkUrl = movie.posterUrl,
+                          eyebrow = movie.rating?.let { "★ $it" } ?: "MOVIE",
+                          onClick = { onMovieSelected(movie) },
+                      )
+                  }
+              }
+          }
+          '''.replace('          ', '')
+          new_movie = '''@Composable
+          private fun MovieRow(movies: List<LibraryMovie>, onMovieSelected: (LibraryMovie) -> Unit) {
+              BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                  val posterWidth = (maxWidth * 0.39f).coerceIn(126.dp, 148.dp)
+                  val listState = rememberLazyListState()
+                  val flingBehavior = rememberSnapFlingBehavior(
+                      lazyListState = listState,
+                      snapPosition = SnapPosition.Start,
+                  )
+                  LazyRow(
+                      modifier = Modifier.fillMaxWidth(),
+                      state = listState,
+                      flingBehavior = flingBehavior,
+                      horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),
+                  ) {
+                      items(
+                          items = movies,
+                          key = { movie -> movie.movieId },
+                      ) { movie ->
+                          PosterCard(
+                              title = movie.name,
+                              artworkUrl = movie.posterUrl,
+                              eyebrow = movie.rating?.let { "★ $it" } ?: "MOVIE",
+                              cardWidth = posterWidth,
+                              onClick = { onMovieSelected(movie) },
+                          )
+                      }
+                  }
+              }
+          }
+          '''.replace('          ', '')
+          replace_exact(old_movie, new_movie)
+
+          old_series = '''@Composable
+          private fun SeriesRow(seriesItems: List<LibrarySeries>, onSeriesSelected: (LibrarySeries) -> Unit) {
+              LazyRow(
+                  modifier = Modifier.fillMaxWidth(),
+                  horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),
+              ) {
+                  items(
+                      items = seriesItems,
+                      key = { series -> series.seriesId },
+                  ) { series ->
+                      PosterCard(
+                          title = series.name,
+                          artworkUrl = series.posterUrl,
+                          eyebrow = series.rating?.let { "★ $it" } ?: "SERIES",
+                          onClick = { onSeriesSelected(series) },
+                      )
+                  }
+              }
+          }
+          '''.replace('          ', '')
+          new_series = '''@Composable
+          private fun SeriesRow(seriesItems: List<LibrarySeries>, onSeriesSelected: (LibrarySeries) -> Unit) {
+              BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                  val posterWidth = (maxWidth * 0.39f).coerceIn(126.dp, 148.dp)
+                  val listState = rememberLazyListState()
+                  val flingBehavior = rememberSnapFlingBehavior(
+                      lazyListState = listState,
+                      snapPosition = SnapPosition.Start,
+                  )
+                  LazyRow(
+                      modifier = Modifier.fillMaxWidth(),
+                      state = listState,
+                      flingBehavior = flingBehavior,
+                      horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),
+                  ) {
+                      items(
+                          items = seriesItems,
+                          key = { series -> series.seriesId },
+                      ) { series ->
+                          PosterCard(
+                              title = series.name,
+                              artworkUrl = series.posterUrl,
+                              eyebrow = series.rating?.let { "★ $it" } ?: "SERIES",
+                              cardWidth = posterWidth,
+                              onClick = { onSeriesSelected(series) },
+                          )
+                      }
+                  }
+              }
+          }
+          '''.replace('          ', '')
+          replace_exact(old_series, new_series)
+
+          replace_exact(
+              '''private fun PosterCard(
+              title: String,
+              artworkUrl: String?,
+              eyebrow: String,
+              onClick: () -> Unit,
+          ) {'''.replace('          ', ''),
+              '''private fun PosterCard(
+              title: String,
+              artworkUrl: String?,
+              eyebrow: String,
+              cardWidth: Dp,
+              onClick: () -> Unit,
+          ) {'''.replace('          ', ''),
+          )
+          replace_exact('.width(138.dp)\n            .aspectRatio(0.68f)', '.width(cardWidth)\n            .aspectRatio(0.68f)')
+
+          actual = set(subprocess.check_output(['git', 'diff', '--name-only'], text=True).splitlines())
+          expected = {str(shell)}
+          if actual != expected:
+              raise SystemExit(f"Unexpected changed files: {actual}; expected {expected}")
+          PY
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK 36
+        shell: bash
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Set up Gradle 9.6.0
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "9.6.0"
+          cache-read-only: true
+
+      - name: Validate source only
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle --no-daemon :app:compileDebugKotlin :app:compileDebugUnitTestKotlin :app:testDebugUnitTest :app:lintDebug
+          test -z "$(find . -type f \( -name '*.apk' -o -name '*.aab' \) -print -quit)"
+          test "$(git diff --name-only)" = "app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryShell.kt"
+
+      - name: Commit validated responsive carousel pass to target branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "Gersi365"
+          git config user.email "Gersi365@outlook.com"
+          git add app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryShell.kt
+          git commit -m "Make Library carousels responsive and snap-aware"
+          git push origin HEAD:refs/heads/$TARGET_BRANCH
