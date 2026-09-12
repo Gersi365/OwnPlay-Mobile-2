@@ -54,6 +54,12 @@ jobs:
             app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryShell.kt | sort)"
           test "$actual" = "$expected"
 
+      - name: Diagnose LibraryHome structure
+        shell: bash
+        run: |
+          nl -ba app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryShell.kt | sed -n '390,570p'
+          exit 1
+
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
