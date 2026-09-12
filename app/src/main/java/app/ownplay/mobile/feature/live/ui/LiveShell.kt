@@ -174,21 +174,24 @@ fun LiveShell(
 
     val channels = catalog?.channels.orEmpty()
     val rawCategories = catalog?.categories.orEmpty()
-    val categories = LiveBrowsePolicy.visibleCategories(rawCategories)
+    val categories = remember(rawCategories) { LiveBrowsePolicy.visibleCategories(rawCategories) }
     var selectedCategoryKey by remember(catalog?.activeSourceId) { mutableStateOf<String?>(null) }
     val activeCategoryKey = LiveBrowsePolicy.activeCategoryKey(categories, selectedCategoryKey)
     val normalizedSearchQuery = searchQuery.trim()
     val searchActive = normalizedSearchQuery.isNotEmpty()
-    val categoryChannels = activeCategoryKey?.let { key ->
-        channels.filter { channel -> channel.categoryKey == key }
-    } ?: channels
-    val visibleChannels = if (searchActive) {
-        channels.filter { channel -> channel.name.contains(normalizedSearchQuery, ignoreCase = true) }
-    } else {
-        categoryChannels
+    val visibleChannels = remember(channels, activeCategoryKey, searchActive, normalizedSearchQuery) {
+        if (searchActive) {
+            channels.filter { channel -> channel.name.contains(normalizedSearchQuery, ignoreCase = true) }
+        } else {
+            activeCategoryKey?.let { key ->
+                channels.filter { channel -> channel.categoryKey == key }
+            } ?: channels
+        }
     }
     val showCategories = categories.isNotEmpty() && !searchActive
-    val selectedChannel = channels.firstOrNull { it.channelId == presentationState.selectedChannelId }
+    val selectedChannel = remember(channels, presentationState.selectedChannelId) {
+        channels.firstOrNull { it.channelId == presentationState.selectedChannelId }
+    }
     val selectedGuide = rememberLiveGuide(liveRepository, selectedChannel?.channelId)
     val audioCompatibilityMessage = when {
         fallbackLoadRequest != null -> null
@@ -290,7 +293,9 @@ fun LiveShell(
     }
 
     if (presentationState.presentation == LivePresentation.FULLSCREEN && selectedChannel != null) {
-        val channelNumber = channelNumber(channels, selectedChannel)
+        val channelNumber = remember(channels, selectedChannel.channelId) {
+            channelNumber(channels, selectedChannel)
+        }
         FullscreenLive(
             channel = selectedChannel,
             channelNumber = channelNumber,
