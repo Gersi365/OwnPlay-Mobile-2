@@ -1,0 +1,120 @@
+name: Stage 16 Library polish helper v2
+
+on:
+  push:
+    branches:
+      - stage-16-library-visual-polish-helper
+    paths:
+      - .github/workflows/stage16-library-polish-helper-v2.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply-validate-push:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      SOURCE_SHA: d98d92710f76b6466f93071df8184d8909c2e98b
+      TARGET_BRANCH: stage-16-library-visual-polish
+
+    steps:
+      - name: Checkout exact Stage 15 source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          fetch-depth: 1
+
+      - name: Verify exact baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          test -z "$(git status --porcelain)"
+
+      - name: Apply deterministic Library polish
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+
+          shell = Path("app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryShell.kt")
+          actions = Path("app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryActions.kt")
+
+          def replace_exact(path, old, new, expected=1):
+              text = path.read_text()
+              count = text.count(old)
+              if count != expected:
+                  raise SystemExit(f"{path}: expected {expected}, found {count}: {old!r}")
+              path.write_text(text.replace(old, new))
+
+          replace_exact(shell, 'actionLabel = catalog?.movies?.size?.takeIf { it > 0 }?.let { "$it titles" },', 'actionLabel = catalog?.movies?.size?.takeIf { it > 0 }?.let { "${compactLibraryCount(it)} titles" },')
+          replace_exact(shell, 'actionLabel = catalog?.series?.size?.takeIf { it > 0 }?.let { "$it titles" },', 'actionLabel = catalog?.series?.size?.takeIf { it > 0 }?.let { "${compactLibraryCount(it)} titles" },')
+          replace_exact(shell, 'LazyRow(horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Xs)) {', 'LazyRow(horizontalArrangement = Arrangement.spacedBy(2.dp)) {')
+          replace_exact(shell, 'horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),\n    ) {\n        items(items, key = { "${it.mediaKind}:${it.contentId}" })', 'horizontalArrangement = Arrangement.spacedBy(12.dp),\n    ) {\n        items(items, key = { "${it.mediaKind}:${it.contentId}" })')
+          replace_exact(shell, '.width(292.dp)\n            .clickable(onClick = onResume)', '.width(284.dp)\n            .clickable(onClick = onResume)')
+          replace_exact(shell, '.aspectRatio(1.72f)', '.aspectRatio(1.78f)')
+          replace_exact(shell, 'contentDescription = "Start ${item.title} over",\n                onClick = onBeginning,', 'contentDescription = "Start ${item.title} over",\n                visualSize = 32.dp,\n                onClick = onBeginning,')
+          replace_exact(shell, '.padding(start = 14.dp, end = 68.dp, bottom = 15.dp)', '.padding(start = 14.dp, end = 60.dp, bottom = 13.dp)')
+          replace_exact(shell, 'contentDescription = "Resume ${item.title}",\n                emphasized = true,\n                onClick = onResume,', 'contentDescription = "Resume ${item.title}",\n                emphasized = true,\n                visualSize = 36.dp,\n                onClick = onResume,')
+          replace_exact(shell, '.padding(end = 10.dp, bottom = 10.dp)', '.padding(end = 8.dp, bottom = 8.dp)')
+          replace_exact(shell, '0.58f to Color.Transparent,\n                        1f to Color.Black.copy(alpha = 0.90f),', '0.52f to Color.Transparent,\n                        1f to Color.Black.copy(alpha = 0.94f),')
+          replace_exact(shell, 'text = eyebrow,\n                style = MaterialTheme.typography.labelMedium,\n                color = OwnPlayColors.Accent,\n                maxLines = 1,', 'text = eyebrow,\n                style = MaterialTheme.typography.labelSmall,\n                color = OwnPlayColors.Accent.copy(alpha = 0.88f),\n                fontWeight = FontWeight.Medium,\n                maxLines = 1,')
+
+          helper = "private fun compactLibraryCount(count: Int): String = when {\n    count >= 1_000_000 -> {\n        val whole = count / 1_000_000\n        val decimal = (count % 1_000_000) / 100_000\n        if (decimal == 0) \"${whole}M\" else \"${whole}.${decimal}M\"\n    }\n\n    count >= 1_000 -> {\n        val whole = count / 1_000\n        val decimal = (count % 1_000) / 100\n        if (decimal == 0) \"${whole}K\" else \"${whole}.${decimal}K\"\n    }\n\n    else -> count.toString()\n}\n\nprivate fun formatDuration(durationMs: Long): String {"
+          replace_exact(shell, 'private fun formatDuration(durationMs: Long): String {', helper)
+
+          replace_exact(actions, 'import androidx.compose.ui.unit.dp', 'import androidx.compose.ui.unit.Dp\nimport androidx.compose.ui.unit.dp\nimport androidx.compose.ui.unit.sp')
+          replace_exact(actions, 'modifier: Modifier = Modifier,\n    emphasized: Boolean = false,\n) {', 'modifier: Modifier = Modifier,\n    emphasized: Boolean = false,\n    visualSize: Dp = 40.dp,\n) {')
+          replace_exact(actions, 'modifier = Modifier\n                .width(40.dp)\n                .height(40.dp),\n            shape = OwnPlayShapeTokens.Action,', 'modifier = Modifier\n                .width(visualSize)\n                .height(visualSize),\n            shape = OwnPlayShapeTokens.Action,')
+          replace_exact(actions, 'style = MaterialTheme.typography.titleLarge,\n            color = OwnPlayColors.TextPrimary,', 'style = MaterialTheme.typography.titleLarge.copy(fontSize = 20.sp, lineHeight = 24.sp),\n            color = OwnPlayColors.TextPrimary,')
+          replace_exact(actions, 'style = MaterialTheme.typography.labelMedium,\n                color = OwnPlayColors.TextMuted,\n                maxLines = 1,', 'style = MaterialTheme.typography.labelMedium,\n                color = OwnPlayColors.TextMuted.copy(alpha = 0.78f),\n                maxLines = 1,')
+          replace_exact(actions, '.height(44.dp)\n            .clickable(role = Role.Tab, onClick = onClick)', '.height(48.dp)\n            .clickable(role = Role.Tab, onClick = onClick)')
+          replace_exact(actions, 'modifier = Modifier.padding(horizontal = 8.dp),', 'modifier = Modifier.padding(horizontal = 6.dp),')
+          replace_exact(actions, 'Spacer(modifier = Modifier.height(4.dp))', 'Spacer(modifier = Modifier.height(3.dp))')
+          replace_exact(actions, '.width(if (selected) 18.dp else 1.dp)', '.width(if (selected) 20.dp else 1.dp)')
+
+          actual = set(subprocess.check_output(['git', 'diff', '--name-only'], text=True).splitlines())
+          expected = {str(shell), str(actions)}
+          if actual != expected:
+              raise SystemExit(f"Unexpected changed files: {actual}; expected {expected}")
+          PY
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK 36
+        shell: bash
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Set up Gradle 9.6.0
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "9.6.0"
+          cache-read-only: true
+
+      - name: Validate source only
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle --no-daemon :app:compileDebugKotlin :app:compileDebugUnitTestKotlin :app:testDebugUnitTest :app:lintDebug
+          test -z "$(find . -type f \( -name '*.apk' -o -name '*.aab' \) -print -quit)"
+          test "$(git diff --name-only | sort)" = $'app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryActions.kt\napp/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryShell.kt'
+
+      - name: Commit validated polish to target branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "Gersi365"
+          git config user.email "Gersi365@outlook.com"
+          git add app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryActions.kt app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryShell.kt
+          git commit -m "Polish Library visual hierarchy after physical QA"
+          git push origin HEAD:refs/heads/$TARGET_BRANCH
