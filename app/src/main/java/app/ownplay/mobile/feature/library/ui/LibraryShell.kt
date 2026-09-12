@@ -48,10 +48,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import app.ownplay.mobile.design.OwnPlayColors
-import app.ownplay.mobile.design.OwnPlayFilterChip
 import app.ownplay.mobile.design.OwnPlayPanel
-import app.ownplay.mobile.design.OwnPlayPrimaryButton
-import app.ownplay.mobile.design.OwnPlaySecondaryButton
 import app.ownplay.mobile.design.OwnPlaySectionHeader
 import app.ownplay.mobile.design.OwnPlayShapeTokens
 import app.ownplay.mobile.design.OwnPlaySpacing
@@ -523,7 +520,7 @@ private fun LibraryCategoryStrip(
 ) {
     LazyRow(horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Xs)) {
         items(categories, key = { it.categoryKey }) { category ->
-            OwnPlayFilterChip(
+            LibraryFilterTab(
                 label = category.name,
                 selected = selectedCategoryKey == category.categoryKey,
                 onClick = { onSelected(category.categoryKey) },
@@ -648,18 +645,20 @@ private fun ContinueWatchingCard(
                 }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm),
+                    horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Xs),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    OwnPlayPrimaryButton(
+                    LibraryPrimaryAction(
                         text = "Resume",
                         onClick = onResume,
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1.25f),
+                        glyph = LibraryActionGlyph.PLAY,
                     )
-                    OwnPlaySecondaryButton(
+                    LibrarySecondaryAction(
                         text = "Start Over",
                         onClick = onBeginning,
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(0.85f),
+                        glyph = LibraryActionGlyph.RESTART,
                     )
                 }
             }
@@ -881,9 +880,10 @@ private fun MovieDetail(
                     horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    OwnPlayPrimaryButton(
+                    LibraryPrimaryAction(
                         text = "Play",
                         onClick = onBeginning,
+                        glyph = LibraryActionGlyph.PLAY,
                     )
                     DownloadControls(item = downloadItem, onAction = onDownloadAction, compact = true)
                 }
@@ -1111,9 +1111,10 @@ private fun EpisodeRow(
                     horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    OwnPlayPrimaryButton(
+                    LibraryPrimaryAction(
                         text = "Play",
                         onClick = onBeginning,
+                        glyph = LibraryActionGlyph.PLAY,
                     )
                     DownloadControls(item = downloadItem, onAction = onDownloadAction, compact = true)
                 }
@@ -1129,15 +1130,31 @@ private fun PlaybackChoiceButtons(
     onBeginning: () -> Unit,
 ) {
     Row(
-        horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm),
+        horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Xs),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (preferResume) {
-            OwnPlayPrimaryButton("Resume", onResume)
-            OwnPlaySecondaryButton("Start Over", onBeginning)
+            LibraryPrimaryAction(
+                text = "Resume",
+                onClick = onResume,
+                glyph = LibraryActionGlyph.PLAY,
+            )
+            LibrarySecondaryAction(
+                text = "Start Over",
+                onClick = onBeginning,
+                glyph = LibraryActionGlyph.RESTART,
+            )
         } else {
-            OwnPlayPrimaryButton("Start Over", onBeginning)
-            OwnPlaySecondaryButton("Resume", onResume)
+            LibraryPrimaryAction(
+                text = "Start Over",
+                onClick = onBeginning,
+                glyph = LibraryActionGlyph.RESTART,
+            )
+            LibrarySecondaryAction(
+                text = "Resume",
+                onClick = onResume,
+                glyph = LibraryActionGlyph.PLAY,
+            )
         }
     }
 }
