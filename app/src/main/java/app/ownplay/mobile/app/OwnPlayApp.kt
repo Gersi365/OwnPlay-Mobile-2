@@ -38,6 +38,7 @@ fun OwnPlayApp(
         }
         var contentFullscreen by rememberSaveable { mutableStateOf(false) }
         var exitConfirmationVisible by rememberSaveable { mutableStateOf(false) }
+        var pendingOfflineDownloadId by rememberSaveable { mutableStateOf<String?>(null) }
         val scope = rememberCoroutineScope()
         val settingsFlow = remember(services.settingsPreferences) { services.settingsPreferences.settings }
         val settings by settingsFlow.collectAsState(initial = SettingsSnapshot())
@@ -102,6 +103,8 @@ fun OwnPlayApp(
                         downloadRepository = services.downloadRepository,
                         playbackController = services.playbackController,
                         resumePlaybackEnabled = settings.resumePlaybackEnabled,
+                        initialOfflineDownloadId = pendingOfflineDownloadId,
+                        onInitialOfflineConsumed = { pendingOfflineDownloadId = null },
                         onFullscreenChanged = ::setContentFullscreen,
                     )
 
@@ -111,7 +114,10 @@ fun OwnPlayApp(
                         backupRepository = services.backupRepository,
                         liveRepository = services.liveRepository,
                         downloadRepository = services.downloadRepository,
-                        onOpenLibrary = { selectedDestination = AppDestination.Library },
+                        onPlayOffline = { downloadId ->
+                            pendingOfflineDownloadId = downloadId
+                            selectedDestination = AppDestination.Library
+                        },
                     )
                 }
             }

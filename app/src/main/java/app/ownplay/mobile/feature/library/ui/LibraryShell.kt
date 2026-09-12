@@ -54,6 +54,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import app.ownplay.mobile.design.OwnPlayColors
+import app.ownplay.mobile.design.OwnPlaySearchField
 import app.ownplay.mobile.design.OwnPlayShapeTokens
 import app.ownplay.mobile.design.OwnPlaySpacing
 import app.ownplay.mobile.design.OwnPlayStatePanel
@@ -108,6 +109,8 @@ fun LibraryShell(
     downloadRepository: DownloadRepository,
     playbackController: PlaybackController,
     resumePlaybackEnabled: Boolean,
+    initialOfflineDownloadId: String? = null,
+    onInitialOfflineConsumed: () -> Unit = {},
     onFullscreenChanged: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -209,6 +212,18 @@ fun LibraryShell(
                 }
             }
         }
+    }
+
+    LaunchedEffect(initialOfflineDownloadId) {
+        val downloadId = initialOfflineDownloadId ?: return@LaunchedEffect
+        resolutionError = null
+        acceptResolution(
+            downloadRepository.resolveOfflinePlayback(
+                downloadId = downloadId,
+                startMode = LibraryStartMode.RESUME,
+            ),
+        )
+        onInitialOfflineConsumed()
     }
 
     LaunchedEffect(selectedSeriesId) {
@@ -370,6 +385,10 @@ private fun LibraryHome(
 ) {
     var selectedMovieCategoryKey by remember(catalog?.activeSourceId) { mutableStateOf<String?>(null) }
     var selectedSeriesCategoryKey by remember(catalog?.activeSourceId) { mutableStateOf<String?>(null) }
+    var searchVisible by remember(catalog?.activeSourceId) { mutableStateOf(false) }
+    var searchQuery by remember(catalog?.activeSourceId) { mutableStateOf("") }
+    val normalizedSearchQuery = searchQuery.trim()
+    val searchActive = normalizedSearchQuery.isNotEmpty()
     val rawMovieCategories = catalog?.movieCategories.orEmpty()
     val rawSeriesCategories = catalog?.seriesCategories.orEmpty()
     val movieCategories = LibraryBrowsePolicy.visibleCategories(rawMovieCategories)
@@ -377,10 +396,18 @@ private fun LibraryHome(
     val activeMovieCategoryKey = LibraryBrowsePolicy.activeCategoryKey(movieCategories, selectedMovieCategoryKey)
     val activeSeriesCategoryKey = LibraryBrowsePolicy.activeCategoryKey(seriesCategories, selectedSeriesCategoryKey)
     val visibleMovies = catalog?.movies.orEmpty().let { movies ->
-        activeMovieCategoryKey?.let { key -> movies.filter { it.categoryKey == key } } ?: movies
+        if (searchActive) {
+            movies.filter { it.name.contains(normalizedSearchQuery, ignoreCase = true) }
+        } else {
+            activeMovieCategoryKey?.let { key -> movies.filter { it.categoryKey == key } } ?: movies
+        }
     }
     val visibleSeries = catalog?.series.orEmpty().let { series ->
-        activeSeriesCategoryKey?.let { key -> series.filter { it.categoryKey == key } } ?: series
+        if (searchActive) {
+            series.filter { it.name.contains(normalizedSearchQuery, ignoreCase = true) }
+        } else {
+            activeSeriesCategoryKey?.let { key -> series.filter { it.categoryKey == key } } ?: series
+        }
     }
 
     LaunchedEffect(movieCategories, selectedMovieCategoryKey) {
@@ -401,12 +428,29 @@ private fun LibraryHome(
             .fillMaxSize()
             .verticalScroll(rememberScrollState()),
     ) {
-        OwnPlayTopBar(showTagline = false)
+        OwnPlayTopBar(
+            showTagline = false,
+            onSearchClick = {
+                searchVisible = !searchVisible
+                if (!searchVisible) searchQuery = ""
+            },
+        )
 
         Column(
             modifier = Modifier.padding(horizontal = OwnPlaySpacing.Lg),
             verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Lg),
         ) {
+            if (searchVisible) {
+                OwnPlaySearchField(
+                    query = searchQuery,
+                    onQueryChange = { searchQuery = it },
+                    onClose = {
+                        searchQuery = ""
+                        searchVisible = false
+                    },
+                    placeholder = "Search movies and series",
+                )
+            }
             if (errorMessage != null) {
                 LibraryShelfState(
                     title = "Action unavailable",
@@ -465,11 +509,15 @@ private fun LibraryHome(
 
                     LibraryShelfSection(
                         title = "Movies",
-                        actionLabel = catalog.movies.size
-                            .takeIf { it > 0 }
-                            ?.let { "${compactLibraryCount(it)} titles" },
+                        actionLabel = if (searchActive) {
+                            "${compactLibraryCount(visibleMovies.size)} matches"
+                        } else {
+                            catalog.movies.size
+                                .takeIf { it > 0 }
+                                ?.let { "${compactLibraryCount(it)} titles" }
+                        },
                     ) {
-                        if (movieCategories.isNotEmpty()) {
+                        if (!searchActive && movieCategories.isNotEmpty()) {
                             LibraryCategoryStrip(
                                 categories = movieCategories,
                                 selectedCategoryKey = activeMovieCategoryKey,
@@ -488,19 +536,27 @@ private fun LibraryHome(
                             )
 
                             else -> LibraryShelfState(
-                                title = "No movies in this category",
-                                message = "Choose another provider category.",
+                                title = if (searchActive) "No movie matches" else "No movies in this category",
+                                message = if (searchActive) {
+                                    "Try another title or close search to browse categories."
+                                } else {
+                                    "Choose another provider category."
+                                },
                             )
                         }
                     }
 
                     LibraryShelfSection(
                         title = "Series",
-                        actionLabel = catalog.series.size
-                            .takeIf { it > 0 }
-                            ?.let { "${compactLibraryCount(it)} titles" },
+                        actionLabel = if (searchActive) {
+                            "${compactLibraryCount(visibleSeries.size)} matches"
+                        } else {
+                            catalog.series.size
+                                .takeIf { it > 0 }
+                                ?.let { "${compactLibraryCount(it)} titles" }
+                        },
                     ) {
-                        if (seriesCategories.isNotEmpty()) {
+                        if (!searchActive && seriesCategories.isNotEmpty()) {
                             LibraryCategoryStrip(
                                 categories = seriesCategories,
                                 selectedCategoryKey = activeSeriesCategoryKey,
@@ -519,8 +575,12 @@ private fun LibraryHome(
                             )
 
                             else -> LibraryShelfState(
-                                title = "No series in this category",
-                                message = "Choose another provider category.",
+                                title = if (searchActive) "No series matches" else "No series in this category",
+                                message = if (searchActive) {
+                                    "Try another title or close search to browse categories."
+                                } else {
+                                    "Choose another provider category."
+                                },
                             )
                         }
                     }
@@ -1045,6 +1105,20 @@ private fun SeriesDetail(
     modifier: Modifier = Modifier,
 ) {
     BackHandler(onBack = onBack)
+    val episodes = detail?.episodes.orEmpty()
+    val seasons = remember(episodes) {
+        episodes.map { it.seasonNumber }.distinct().sorted()
+    }
+    var selectedSeasonNumber by remember(series.seriesId) { mutableStateOf<Int?>(null) }
+    LaunchedEffect(seasons) {
+        if (selectedSeasonNumber !in seasons) {
+            selectedSeasonNumber = seasons.firstOrNull()
+        }
+    }
+    val visibleEpisodes = selectedSeasonNumber?.let { selectedSeason ->
+        episodes.filter { it.seasonNumber == selectedSeason }
+    } ?: episodes
+
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -1085,8 +1159,15 @@ private fun SeriesDetail(
             }
             LibraryShelfHeader(
                 title = "Episodes",
-                actionLabel = detail?.episodes?.size?.takeIf { it > 0 }?.let { "${it} episodes" },
+                actionLabel = visibleEpisodes.size.takeIf { it > 0 }?.let { "${it} episodes" },
             )
+            if (seasons.size > 1) {
+                SeasonStrip(
+                    seasons = seasons,
+                    selectedSeasonNumber = selectedSeasonNumber,
+                    onSelected = { selectedSeasonNumber = it },
+                )
+            }
             when {
                 detail == null && errorMessage == null -> LibraryShelfState(
                     title = "Loading episodes",
@@ -1099,8 +1180,8 @@ private fun SeriesDetail(
                     message = "The source did not return playable episodes for this series.",
                 )
 
-                else -> Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    detail.episodes.forEach { episode ->
+                else -> Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    visibleEpisodes.forEach { episode ->
                         val downloadItem = downloadForEpisode(episode)
                         EpisodeRow(
                             episode = episode,
@@ -1242,6 +1323,43 @@ private suspend fun loadLibraryArtwork(locator: String) = withContext(Dispatcher
 private const val MAX_LIBRARY_ARTWORK_BYTES = 4 * 1024 * 1024
 
 @Composable
+private fun SeasonStrip(
+    seasons: List<Int>,
+    selectedSeasonNumber: Int?,
+    onSelected: (Int) -> Unit,
+) {
+    LazyRow(
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        items(seasons, key = { it }) { seasonNumber ->
+            LibraryFilterTab(
+                label = "Season $seasonNumber",
+                selected = selectedSeasonNumber == seasonNumber,
+                onClick = { onSelected(seasonNumber) },
+            )
+        }
+    }
+}
+
+private fun episodeDisplayTitle(episode: LibraryEpisode): String {
+    val original = episode.title.trim()
+    if (original.isBlank()) return "Episode ${episode.episodeNumber}"
+    val seasonToken = "S${episode.seasonNumber.toString().padStart(2, '0')}" +
+        "E${episode.episodeNumber.toString().padStart(2, '0')}"
+    var candidate = original
+    if (candidate.startsWith(episode.seriesName, ignoreCase = true)) {
+        candidate = candidate.drop(episode.seriesName.length)
+            .trimStart(' ', '-', '–', '—', '•', ':')
+    }
+    val tokenIndex = candidate.indexOf(seasonToken, ignoreCase = true)
+    if (tokenIndex in 0..8) {
+        candidate = candidate.substring(tokenIndex + seasonToken.length)
+            .trimStart(' ', '-', '–', '—', '•', ':')
+    }
+    return candidate.ifBlank { original }
+}
+
+@Composable
 private fun EpisodeRow(
     episode: LibraryEpisode,
     downloadItem: DownloadItem?,
@@ -1254,6 +1372,7 @@ private fun EpisodeRow(
     val primaryIsResume = hasProgress && preferResume
     val primaryLabel = if (primaryIsResume) "Resume" else "Play"
     val primaryAction = if (primaryIsResume) onResume else onBeginning
+    val displayTitle = episodeDisplayTitle(episode)
 
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -1306,7 +1425,7 @@ private fun EpisodeRow(
               }
           }
           Text(
-              text = episode.title,
+              text = displayTitle,
               style = MaterialTheme.typography.titleSmall,
               color = OwnPlayColors.TextPrimary,
               fontWeight = FontWeight.SemiBold,
@@ -1315,7 +1434,7 @@ private fun EpisodeRow(
       }
       LibraryIconAction(
           glyph = LibraryActionGlyph.PLAY,
-          contentDescription = "$primaryLabel ${episode.title}",
+          contentDescription = "$primaryLabel $displayTitle",
           emphasized = true,
           visualSize = 36.dp,
           onClick = primaryAction,

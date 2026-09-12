@@ -77,7 +77,7 @@ fun SettingsShell(
     backupRepository: BackupRepository,
     liveRepository: LiveRepository,
     downloadRepository: DownloadRepository,
-    onOpenLibrary: () -> Unit,
+    onPlayOffline: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var pageName by rememberSaveable { mutableStateOf(SettingsPage.MAIN.name) }
@@ -120,7 +120,7 @@ fun SettingsShell(
 
         SettingsPage.MANAGE_DOWNLOADS -> DownloadManagementScreen(
             downloadRepository = downloadRepository,
-            onOpenLibrary = onOpenLibrary,
+            onPlayOffline = onPlayOffline,
             onBack = { pageName = SettingsPage.MAIN.name },
             modifier = modifier,
         )
