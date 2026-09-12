@@ -61,6 +61,38 @@ class LibraryPlaybackLocatorTest {
     }
 
     @Test
+    fun `progressive movie gets one HLS alternate candidate`() {
+        val fallback = LibraryPlaybackLocator.movieFallbackUri(
+            baseUrl = "https://provider.example",
+            credential = credential,
+            providerStreamId = "42",
+            extension = "mp4",
+        )
+
+        assertEquals(
+            "https://provider.example/movie/viewer%20name/p%40ss%20word/42.m3u8",
+            fallback,
+        )
+        assertEquals(PlaybackStreamFormat.HLS, LibraryPlaybackLocator.streamFormatFor(fallback))
+    }
+
+    @Test
+    fun `HLS episode gets extensionless alternate candidate`() {
+        val fallback = LibraryPlaybackLocator.episodeFallbackUri(
+            baseUrl = "https://provider.example",
+            credential = credential,
+            providerEpisodeId = "84",
+            extension = ".m3u8",
+        )
+
+        assertEquals(
+            "https://provider.example/series/viewer%20name/p%40ss%20word/84",
+            fallback,
+        )
+        assertEquals(PlaybackStreamFormat.AUTO, LibraryPlaybackLocator.streamFormatFor(fallback))
+    }
+
+    @Test
     fun `resolved playback string representation never exposes stream URI`() {
         val uri = LibraryPlaybackLocator.movieUri(
             baseUrl = "https://provider.example",
@@ -76,12 +108,15 @@ class LibraryPlaybackLocatorTest {
             subtitle = "Movie",
             uri = uri,
             streamFormat = PlaybackStreamFormat.AUTO,
+            fallbackUri = "$uri-fallback-secret",
+            fallbackStreamFormat = PlaybackStreamFormat.HLS,
             start = PlaybackStart.Beginning,
             knownDurationMs = null,
         )
 
         val text = resolved.toString()
         assertFalse(text.contains(uri))
+        assertFalse(text.contains("fallback-secret"))
         assertFalse(text.contains("viewer"))
         assertFalse(text.contains("p@ss"))
         assertTrue(text.contains("uri=<redacted>"))

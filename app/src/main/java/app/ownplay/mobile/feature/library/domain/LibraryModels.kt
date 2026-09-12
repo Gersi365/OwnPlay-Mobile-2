@@ -114,12 +114,14 @@ class ResolvedLibraryPlayback(
     val subtitle: String?,
     val uri: String,
     val streamFormat: PlaybackStreamFormat,
+    val fallbackUri: String? = null,
+    val fallbackStreamFormat: PlaybackStreamFormat? = null,
     val start: PlaybackStart,
     val knownDurationMs: Long?,
     val offline: Boolean = false,
 ) {
     override fun toString(): String =
-        "ResolvedLibraryPlayback(sourceId=$sourceId, contentId=$contentId, mediaKind=$mediaKind, uri=<redacted>, streamFormat=$streamFormat, start=$start, offline=$offline)"
+        "ResolvedLibraryPlayback(sourceId=$sourceId, contentId=$contentId, mediaKind=$mediaKind, uri=<redacted>, streamFormat=$streamFormat, fallbackUri=<redacted>, fallbackStreamFormat=$fallbackStreamFormat, start=$start, offline=$offline)"
 }
 
 sealed interface LibraryPlaybackResolution {
