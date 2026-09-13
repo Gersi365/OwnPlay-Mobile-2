@@ -20,6 +20,7 @@ captures/
 .env.*.local
 secrets.properties
 keystore.properties
+qa-signing-secret.txt
 *.jks
 *.keystore
 *.p12

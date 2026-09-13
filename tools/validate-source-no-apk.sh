@@ -15,7 +15,7 @@ verify_public_repo_hygiene() {
   local forbidden_paths
   forbidden_paths="$(
     git ls-files | grep -E \
-      '(^|/)(\.env([.].*)?|secrets\.properties|keystore\.properties)$|[.](jks|keystore|p12|pfx|key)$' \
+      '(^|/)(\.env([.].*)?|secrets\.properties|keystore\.properties|qa-signing-secret\.txt)$|[.](jks|keystore|p12|pfx|key)$' \
       || true
   )"
   if [[ -n "$forbidden_paths" ]]; then
