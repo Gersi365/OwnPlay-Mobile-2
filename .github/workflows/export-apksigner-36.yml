@@ -33,6 +33,6 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: apksigner-36-0-0-linux
-          path: out/apksigner-36.0.0-linux.tar.gz
+          path: apksigner-36.0.0-linux.tar.gz
           if-no-files-found: error
           retention-days: 1
