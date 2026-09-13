@@ -10,8 +10,9 @@ Source-only hardening from Stage 31 exact HEAD `5fab72511e11033778733f63b8bc8932
 - Android system Auto-rotate ON + Live Preview: a stable physical landscape dwell enters fullscreen through the existing Live presentation reducer, preserving the same playback session
 - Android system Auto-rotate ON + Live fullscreen: stable landscape confirmation followed by stable portrait returns to Preview without routing through generic Activity Back handling
 - the orientation classifier uses 500 ms dwell plus dead-zone hysteresis to reject ordinary hand jitter
-- Live and Library/VOD/offline do not share one Boolean-only fullscreen orientation policy
-- Library/VOD/episode/offline playback remains fullscreen when rotating to portrait; with Auto-rotate ON the Activity follows physical orientation without closing playback
+- all OwnPlay fullscreen playback is landscape-only: with Auto-rotate ON it may follow normal/reverse landscape, but it must not render fullscreen in portrait
+- Live is the only playback surface with a separate portrait Preview presentation outside fullscreen
+- Library movie, episode, VOD, and offline playback share the same landscape-only fullscreen orientation contract; offline playback is part of Library
 - PiP suspends rotation-driven presentation transitions and resets orientation latches across PiP ownership changes
 - empty provider categories retain the designed OwnPlay empty state and expose the same horizontal category-swipe gesture, with concise swipe guidance
 - playback Options owns Back before its parent player, so Back dismisses Options rather than exiting playback
@@ -52,9 +53,10 @@ Source-only hardening from Stage 31 exact HEAD `5fab72511e11033778733f63b8bc8932
 ## Presentation invariants
 
 - Live Browse without Preview does not auto-enter fullscreen from rotation
-- Live Preview -> fullscreen may be driven by stable landscape only when Android Auto-rotate is enabled
-- Live fullscreen -> Preview may be driven by stable portrait only when Android Auto-rotate is enabled and the landscape latch has armed
-- Library/VOD/episode/offline playback has no Preview transition; portrait rotation must not invoke Back or close playback
+- Live Preview is a portrait-capable presentation and may enter fullscreen from stable landscape only when Android Auto-rotate is enabled
+- Live fullscreen is landscape-only; stable portrait may return it to Preview only when Android Auto-rotate is enabled and the landscape latch has armed
+- Library movie, episode, VOD, and offline playback have no Preview presentation and all fullscreen playback remains landscape-only
+- with Android Auto-rotate ON, fullscreen may select either landscape direction through `SENSOR_LANDSCAPE`, but portrait fullscreen is not permitted
 - one player / one active video target remains unchanged
 - Touch Lock must not create a second player, media session, or video surface
 - Touch Lock changes interaction ownership only; media playback continues in the same session
@@ -92,11 +94,11 @@ Final code checkpoint `0df9fc68fb5e964251a4079a1dd6977b53874895` passed GitHub A
 - committed Room schema guard: PASS
 - APK/AAB absence guard: PASS
 
+A later physical-QA correction removed the Library/offline `FULL_SENSOR` path after on-device QA exposed portrait fullscreen. The corrected contract is now universal: all fullscreen playback is landscape-only, while Live alone retains a separate portrait Preview state. The correction commit and this audit update require the standard exact-head source-only validation before Stage 32 is reported as SOURCE PASS again.
+
 The build emitted the same two pre-existing non-blocking Kotlin Elvis warnings in `DownloadRepositoryImpl.kt` and `CustomGroupManagementScreen.kt`; neither warning is introduced by the Stage 32 interaction/orientation/playback-control work.
 
-This audit-document commit must also receive the standard exact-head source-only validation before Stage 32 is reported as final SOURCE PASS.
-
-Physical QA remains `NOT_YET_VERIFIED` for orientation timing and OEM Auto-rotate behavior, empty-category gesture ergonomics, PiP transitions and dynamic PiP geometry, portrait Library playback, Touch Lock input leakage/ergonomics, Options interaction behavior, Fit/Fill/Zoom crop and scaling behavior, Stream Info accuracy against real provider streams, one-shot opaque-HLS recovery against a real provider endpoint, and final visual acceptance. Those checks require an explicitly authorized QA APK and on-device testing.
+Physical QA remains `NOT_YET_VERIFIED` for the corrected Library/offline landscape-only fullscreen behavior, orientation timing and OEM Auto-rotate behavior, empty-category gesture ergonomics, PiP transitions and dynamic PiP geometry, Touch Lock input leakage/ergonomics, Options interaction behavior, Fit/Fill/Zoom crop and scaling behavior, Stream Info accuracy against real provider streams, one-shot opaque-HLS recovery against a real provider endpoint, and final visual acceptance. Those checks require an explicitly authorized QA APK and on-device testing.
 
 ## Audit note
 
