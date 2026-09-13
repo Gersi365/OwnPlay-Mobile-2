@@ -9,6 +9,11 @@ PINNED_GRADLE_VERSION="9.6.0"
 FFMPEG_AAR="app/libs/media3-decoder-ffmpeg-1.11.0-ffmpeg6.0.aar"
 FFMPEG_PROVENANCE="docs/third_party/FFMPEG_AUDIO_DECODER.md"
 PINNED_FFMPEG_AAR_SHA256="3997eab5910483a4b7ab2928def2894379b2d9664ac54291c488669380f98734"
+FFMPEG_LICENSE_FILES=(
+  "app/src/main/assets/licenses/ffmpeg/LICENSE.md"
+  "app/src/main/assets/licenses/ffmpeg/COPYING.LGPLv2.1"
+  "app/src/main/assets/licenses/ffmpeg/COPYING.LGPLv3"
+)
 cd "$ROOT_DIR"
 
 find_packaged_artifacts() {
@@ -47,6 +52,18 @@ verify_ffmpeg_aar_integrity() {
     echo "ERROR: Pinned FFmpeg decoder AAR is missing from committed HEAD: $FFMPEG_AAR" >&2
     exit 7
   fi
+  if [[ ! -f "$FFMPEG_PROVENANCE" ]] || ! git cat-file -e "HEAD:$FFMPEG_PROVENANCE"; then
+    echo "ERROR: FFmpeg provenance document is missing from committed HEAD: $FFMPEG_PROVENANCE" >&2
+    exit 7
+  fi
+
+  local license_file
+  for license_file in "${FFMPEG_LICENSE_FILES[@]}"; do
+    if [[ ! -f "$license_file" ]] || ! git cat-file -e "HEAD:$license_file"; then
+      echo "ERROR: Required FFmpeg license asset is missing from committed HEAD: $license_file" >&2
+      exit 7
+    fi
+  done
 
   local documented_sha actual_sha
   documented_sha="$(
@@ -67,6 +84,7 @@ verify_ffmpeg_aar_integrity() {
   fi
 
   echo "Validated FFmpeg decoder AAR SHA-256: $actual_sha"
+  echo "Validated FFmpeg provenance and license assets."
 }
 
 verify_public_repo_hygiene
