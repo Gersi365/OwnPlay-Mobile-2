@@ -73,4 +73,15 @@ class DownloadPermissionPolicyTest {
             ),
         )
     }
+    @Test
+    fun `permission check is limited to download start and restart actions`() {
+        assertEquals(true, DownloadPermissionPolicy.requiresPermissionCheck(DownloadAction.DOWNLOAD))
+        assertEquals(true, DownloadPermissionPolicy.requiresPermissionCheck(DownloadAction.RESUME))
+        assertEquals(true, DownloadPermissionPolicy.requiresPermissionCheck(DownloadAction.RETRY))
+        assertEquals(false, DownloadPermissionPolicy.requiresPermissionCheck(DownloadAction.PAUSE))
+        assertEquals(false, DownloadPermissionPolicy.requiresPermissionCheck(DownloadAction.REMOVE))
+        assertEquals(false, DownloadPermissionPolicy.requiresPermissionCheck(DownloadAction.PLAY_OFFLINE))
+        assertEquals(false, DownloadPermissionPolicy.requiresPermissionCheck(DownloadAction.RESUME_OFFLINE))
+    }
+
 }

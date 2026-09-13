@@ -40,9 +40,12 @@ import app.ownplay.mobile.design.OwnPlayStatePanel
 import app.ownplay.mobile.design.OwnPlayTopBar
 import app.ownplay.mobile.data.prefs.LibraryVisibilityPreferences
 import app.ownplay.mobile.data.prefs.LibraryVisibilitySnapshot
+import app.ownplay.mobile.downloads.domain.DownloadAction
 import app.ownplay.mobile.downloads.domain.DownloadItem
 import app.ownplay.mobile.downloads.domain.DownloadOperationResult
 import app.ownplay.mobile.downloads.domain.DownloadRepository
+import app.ownplay.mobile.downloads.domain.DownloadStatePolicy
+import app.ownplay.mobile.downloads.ui.rememberDownloadPermissionDispatcher
 import app.ownplay.mobile.downloads.domain.DownloadState
 import kotlinx.coroutines.launch
 
@@ -61,6 +64,9 @@ fun DownloadManagementScreen(
     val scope = rememberCoroutineScope()
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var pendingRemoval by remember { mutableStateOf<DownloadItem?>(null) }
+    val permissionDispatcher = rememberDownloadPermissionDispatcher(
+        onBlocked = { message -> errorMessage = message },
+    )
     BackHandler(onBack = onBack)
 
     pendingRemoval?.let { item ->
@@ -140,15 +146,27 @@ fun DownloadManagementScreen(
                         item = item,
                         hiddenFromLibrary = visibility.isDownloadHidden(item.downloadId),
                         onPrimary = {
-                            if (item.state == DownloadState.COMPLETED) {
-                                errorMessage = null
-                                onPlayOffline(item.downloadId)
-                            } else {
-                                scope.launch {
-                                    errorMessage = when (val result = primaryAction(downloadRepository, item)) {
-                                        is DownloadOperationResult.Failure -> result.safeMessage
-                                        is DownloadOperationResult.Success -> null
+                            errorMessage = null
+                            val action = DownloadStatePolicy.primaryAction(item)
+                            permissionDispatcher(action) { allowedAction ->
+                                when (allowedAction) {
+                                    DownloadAction.PLAY_OFFLINE,
+                                    DownloadAction.RESUME_OFFLINE,
+                                    -> onPlayOffline(item.downloadId)
+
+                                    DownloadAction.PAUSE,
+                                    DownloadAction.RESUME,
+                                    DownloadAction.RETRY,
+                                    -> scope.launch {
+                                        errorMessage = when (val result = primaryAction(downloadRepository, item)) {
+                                            is DownloadOperationResult.Failure -> result.safeMessage
+                                            is DownloadOperationResult.Success -> null
+                                        }
                                     }
+
+                                    DownloadAction.DOWNLOAD,
+                                    DownloadAction.REMOVE,
+                                    -> Unit
                                 }
                             }
                         },
