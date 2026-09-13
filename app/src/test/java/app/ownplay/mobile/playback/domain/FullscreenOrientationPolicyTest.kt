@@ -17,6 +17,45 @@ class FullscreenOrientationPolicyTest {
     }
 
     @Test
+    fun `stable landscape latch emits only after dwell and only once`() {
+        val latch = StableOrientationLatch(
+            targetBand = PhysicalOrientationBand.LANDSCAPE,
+            stabilityMillis = 500L,
+        )
+
+        assertFalse(latch.onOrientation(90, 0L))
+        assertFalse(latch.onOrientation(92, 499L))
+        assertTrue(latch.onOrientation(92, 500L))
+        assertFalse(latch.onOrientation(90, 1_000L))
+    }
+
+    @Test
+    fun `stable landscape latch restarts dwell after leaving target band`() {
+        val latch = StableOrientationLatch(
+            targetBand = PhysicalOrientationBand.LANDSCAPE,
+            stabilityMillis = 500L,
+        )
+
+        assertFalse(latch.onOrientation(90, 0L))
+        assertFalse(latch.onOrientation(45, 400L))
+        assertFalse(latch.onOrientation(90, 450L))
+        assertFalse(latch.onOrientation(90, 949L))
+        assertTrue(latch.onOrientation(90, 950L))
+    }
+
+    @Test
+    fun `stable landscape latch ignores stable portrait`() {
+        val latch = StableOrientationLatch(
+            targetBand = PhysicalOrientationBand.LANDSCAPE,
+            stabilityMillis = 500L,
+        )
+
+        assertFalse(latch.onOrientation(0, 0L))
+        assertFalse(latch.onOrientation(5, 1_000L))
+        assertFalse(latch.onOrientation(180, 2_000L))
+    }
+
+    @Test
     fun `portrait cannot exit fullscreen before stable physical landscape was confirmed`() {
         val latch = FullscreenOrientationLatch(stabilityMillis = 500L)
 
