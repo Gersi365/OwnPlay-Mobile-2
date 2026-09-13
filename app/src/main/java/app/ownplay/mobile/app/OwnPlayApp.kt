@@ -55,6 +55,7 @@ fun OwnPlayApp(
         }
         var exitConfirmationVisible by rememberSaveable { mutableStateOf(false) }
         var pendingOfflineDownloadId by rememberSaveable { mutableStateOf<String?>(null) }
+        var destinationTransitionInProgress by remember { mutableStateOf(false) }
         val scope = rememberCoroutineScope()
         val playerInteractionState = rememberPlayerInteractionState()
         val settingsFlow = remember(services.settingsPreferences) { services.settingsPreferences.settings }
@@ -63,6 +64,27 @@ fun OwnPlayApp(
         fun setContentFullscreen(kind: ContentFullscreenKind) {
             contentFullscreenKind = kind
             onFullscreenChanged(kind)
+        }
+
+        fun selectDestination(destination: AppDestination) {
+            if (selectedDestination == destination || destinationTransitionInProgress) {
+                return
+            }
+            if (selectedDestination == AppDestination.Settings) {
+                selectedDestination = destination
+                return
+            }
+
+            destinationTransitionInProgress = true
+            scope.launch {
+                try {
+                    services.playbackController.stop(clearMedia = true)
+                } finally {
+                    setContentFullscreen(ContentFullscreenKind.NONE)
+                    selectedDestination = destination
+                    destinationTransitionInProgress = false
+                }
+            }
         }
 
         LaunchedEffect(contentFullscreenKind, pictureInPictureActive) {
@@ -97,18 +119,7 @@ fun OwnPlayApp(
                         if (!contentFullscreenKind.isFullscreen) {
                             OwnPlayBottomBar(
                                 selectedDestination = selectedDestination,
-                                onDestinationSelected = { destination ->
-                                    if (
-                                        selectedDestination != destination &&
-                                        selectedDestination != AppDestination.Settings
-                                    ) {
-                                        scope.launch {
-                                            services.playbackController.stop(clearMedia = true)
-                                        }
-                                        setContentFullscreen(ContentFullscreenKind.NONE)
-                                    }
-                                    selectedDestination = destination
-                                },
+                                onDestinationSelected = ::selectDestination,
                             )
                         }
                     },
