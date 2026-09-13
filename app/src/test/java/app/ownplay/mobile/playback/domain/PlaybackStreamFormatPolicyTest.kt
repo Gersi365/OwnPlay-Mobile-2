@@ -1,6 +1,8 @@
 package app.ownplay.mobile.playback.domain
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PlaybackStreamFormatPolicyTest {
@@ -42,5 +44,19 @@ class PlaybackStreamFormatPolicyTest {
             PlaybackStreamFormat.AUTO,
             PlaybackStreamFormatPolicy.infer("https://media.example/live/12.ts"),
         )
+    }
+
+    @Test
+    fun extensionlessHttpEndpointsAreEligibleForOneShotRecovery() {
+        assertTrue(PlaybackStreamFormatPolicy.isOpaqueNetworkUri("https://media.example/play?id=12"))
+        assertTrue(PlaybackStreamFormatPolicy.isOpaqueNetworkUri("http://media.example/live/12345"))
+    }
+
+    @Test
+    fun knownExtensionsAndLocalUrisAreNotOpaqueRecoveryCandidates() {
+        assertFalse(PlaybackStreamFormatPolicy.isOpaqueNetworkUri("https://media.example/live/12.ts"))
+        assertFalse(PlaybackStreamFormatPolicy.isOpaqueNetworkUri("https://media.example/movie/video.mp4"))
+        assertFalse(PlaybackStreamFormatPolicy.isOpaqueNetworkUri("content://media/external/video/12"))
+        assertFalse(PlaybackStreamFormatPolicy.isOpaqueNetworkUri("file:///storage/emulated/0/movie"))
     }
 }
