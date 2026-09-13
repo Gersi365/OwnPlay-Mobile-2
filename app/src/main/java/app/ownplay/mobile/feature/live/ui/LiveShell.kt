@@ -100,6 +100,7 @@ fun LiveShell(
     liveRepository: LiveRepository,
     playbackController: PlaybackController,
     showChannelLogos: Boolean,
+    autoFullscreenRequestToken: Int = 0,
     onFullscreenChanged: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -281,6 +282,16 @@ fun LiveShell(
             direction = direction,
         ) ?: return
         dispatch(LiveIntent.ChannelSwitched(nextChannelId))
+    }
+
+    LaunchedEffect(autoFullscreenRequestToken) {
+        if (
+            autoFullscreenRequestToken > 0 &&
+            presentationState.presentation == LivePresentation.PREVIEW
+        ) {
+            val channelId = selectedChannel?.channelId ?: return@LaunchedEffect
+            dispatch(LiveIntent.ChannelTapped(channelId))
+        }
     }
 
     LaunchedEffect(favoriteChannels.isEmpty(), favoritesOnly) {
@@ -581,11 +592,22 @@ private fun LiveBrowseAndPreview(
             }
 
             channels.isEmpty() -> item {
-                Box(modifier = Modifier.padding(horizontal = OwnPlaySpacing.Lg, vertical = OwnPlaySpacing.Sm)) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .liveHorizontalNavigationGestures(
+                            enabled = categorySwipeEnabled,
+                            onPrevious = onPreviousCategoryGesture,
+                            onNext = onNextCategoryGesture,
+                        )
+                        .padding(horizontal = OwnPlaySpacing.Lg, vertical = OwnPlaySpacing.Sm),
+                ) {
                     OwnPlayStatePanel(
                         title = if (searchQuery.isNotBlank()) "No channel matches" else "No channels in this category",
                         message = if (searchQuery.isNotBlank()) {
                             "Try another channel name or close search to browse categories."
+                        } else if (categorySwipeEnabled) {
+                            "Swipe left or right to browse another provider category."
                         } else {
                             "Choose another provider category."
                         },
@@ -997,6 +1019,10 @@ private fun FullscreenLive(
     var overlayVisible by remember(channel.channelId) { mutableStateOf(true) }
     var optionsVisible by remember(channel.channelId) { mutableStateOf(false) }
     val interactionSource = remember { MutableInteractionSource() }
+
+    BackHandler(enabled = optionsVisible) {
+        optionsVisible = false
+    }
 
     LaunchedEffect(
         overlayVisible,
