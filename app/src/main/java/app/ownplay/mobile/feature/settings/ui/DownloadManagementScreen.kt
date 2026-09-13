@@ -74,7 +74,10 @@ fun DownloadManagementScreen(
                 scope.launch {
                     errorMessage = when (val result = downloadRepository.remove(item.downloadId)) {
                         is DownloadOperationResult.Failure -> result.safeMessage
-                        is DownloadOperationResult.Success -> null
+                        is DownloadOperationResult.Success -> {
+                            libraryVisibilityPreferences.showDownload(item.downloadId)
+                            null
+                        }
                     }
                 }
             },
