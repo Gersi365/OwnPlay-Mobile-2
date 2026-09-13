@@ -127,6 +127,7 @@ fun LiveShell(
                 val generation = channelLoadGeneration.incrementAndGet()
                 scope.launch {
                     resolutionError = null
+                    fallbackLoadRequest = null
                     when (val resolved = liveRepository.resolvePlayback(effect.channelId)) {
                         is LivePlaybackResolution.Success -> {
                             if (
