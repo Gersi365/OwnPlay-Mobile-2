@@ -1,6 +1,7 @@
 package app.ownplay.mobile.downloads.domain
 
 import app.ownplay.mobile.feature.library.domain.LibraryMediaKind
+import app.ownplay.mobile.feature.library.domain.LibraryMediaMetadata
 import app.ownplay.mobile.feature.library.domain.LibraryPlaybackResolution
 import app.ownplay.mobile.feature.library.domain.LibraryStartMode
 import kotlinx.coroutines.flow.Flow
@@ -31,6 +32,12 @@ enum class DownloadTransition {
     PLAY_OFFLINE,
 }
 
+enum class OfflineAvailability {
+    AVAILABLE,
+    MISSING,
+    INCOMPLETE,
+}
+
 data class DownloadItem(
     val downloadId: String,
     val sourceId: String,
@@ -43,6 +50,7 @@ data class DownloadItem(
     val createdAt: Long,
     val updatedAt: Long,
     val resumePositionMs: Long?,
+    val metadata: LibraryMediaMetadata? = null,
 ) {
     val progressFraction: Float?
         get() = totalBytes
@@ -88,6 +96,13 @@ interface DownloadRepository {
         downloadId: String,
         startMode: LibraryStartMode,
     ): LibraryPlaybackResolution
+
+    suspend fun saveMetadata(downloadId: String, metadata: LibraryMediaMetadata) = Unit
+
+    suspend fun offlineAvailability(downloadId: String): OfflineAvailability = OfflineAvailability.INCOMPLETE
+
+    suspend fun redownload(downloadId: String): DownloadOperationResult =
+        DownloadOperationResult.Failure("REDOWNLOAD_UNSUPPORTED", "This download cannot be restarted.")
 
     suspend fun executeWork(downloadId: String): DownloadWorkResult
 }
