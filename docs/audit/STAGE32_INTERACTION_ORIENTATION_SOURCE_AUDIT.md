@@ -1,8 +1,8 @@
-# Stage 32 — Interaction & Orientation Contract
+# Stage 32 — Interaction, Orientation & Playback Controls Contract
 
 Source-only hardening from Stage 31 exact HEAD `5fab72511e11033778733f63b8bc8932e3e87565`.
 
-## Corrected scope
+## Corrected interaction and orientation scope
 
 - provider-category swipes keep the active category chip visible in the horizontal strip
 - Live channel browse rows no longer show numeric channel indices
@@ -10,13 +10,25 @@ Source-only hardening from Stage 31 exact HEAD `5fab72511e11033778733f63b8bc8932
 - Android system Auto-rotate ON + Live Preview: a stable physical landscape dwell enters fullscreen through the existing Live presentation reducer, preserving the same playback session
 - Android system Auto-rotate ON + Live fullscreen: stable landscape confirmation followed by stable portrait returns to Preview without routing through generic Activity Back handling
 - the orientation classifier uses 500 ms dwell plus dead-zone hysteresis to reject ordinary hand jitter
-- Live and Library/VOD/offline no longer share one Boolean-only fullscreen orientation policy
-- Library/VOD/episode/offline playback remains fullscreen when rotating to portrait; with Auto-rotate ON the Activity follows full-sensor orientation without closing playback
+- Live and Library/VOD/offline do not share one Boolean-only fullscreen orientation policy
+- Library/VOD/episode/offline playback remains fullscreen when rotating to portrait; with Auto-rotate ON the Activity follows physical orientation without closing playback
 - PiP suspends rotation-driven presentation transitions and resets orientation latches across PiP ownership changes
-- empty provider categories retain the designed OwnPlay empty state and now expose the same horizontal category-swipe gesture, with concise swipe guidance
+- empty provider categories retain the designed OwnPlay empty state and expose the same horizontal category-swipe gesture, with concise swipe guidance
 - playback Options owns Back before its parent player, so Back dismisses Options rather than exiting playback
 - the Options surface remains OwnPlay glass styling and is responsive (`86%` width, capped at `320dp`) for portrait and landscape layouts
-- focused unit coverage now includes stable Live Preview landscape entry as well as fullscreen exit sequencing
+- focused unit coverage includes stable Live Preview landscape entry as well as fullscreen exit sequencing
+
+## Included fullscreen playback enhancements
+
+- fullscreen Touch Lock is shared across Live and Library playback through the player interaction environment
+- activating `Lock touch` dismisses Options and blocks the fullscreen interaction layer from accidental taps/gestures while leaving a compact OwnPlay glass unlock affordance available
+- Back while Touch Lock is active unlocks touch first instead of leaving playback
+- picture presentation modes are available as `Fit`, `Fill`, and `Zoom`
+- picture-mode changes alter only video presentation; they do not reload media, create another player, or transfer ownership to another playback session
+- Stream Info is informational and reads from the active Media3 playback state rather than provider labels or guessed metadata
+- Stream Info exposes the detected/requested stream format plus available video resolution, frame rate, video codec/bitrate, audio codec, channel count, and sample rate
+- Stream Info does not display media URLs, usernames, passwords, tokens, or other provider credentials
+- the shared `PlaybackOptionsPanel` obtains the active playback controller and interaction state from the centralized player composition environment, so Live and Library use the same behavior without duplicate player/control plumbing
 
 ## Presentation invariants
 
@@ -25,19 +37,19 @@ Source-only hardening from Stage 31 exact HEAD `5fab72511e11033778733f63b8bc8932
 - Live fullscreen -> Preview may be driven by stable portrait only when Android Auto-rotate is enabled and the landscape latch has armed
 - Library/VOD/episode/offline playback has no Preview transition; portrait rotation must not invoke Back or close playback
 - one player / one active video target remains unchanged
+- Touch Lock must not create a second player, media session, or video surface
+- Touch Lock changes interaction ownership only; media playback continues in the same session
+- Fit / Fill / Zoom change the active video surface presentation only
 - Live Preview retains no visible transport controls
 - Live fullscreen retains the transient OwnPlay EPG/channel overlay instead of generic player chrome
-- no stock Material dialog or generic preference-style surface was introduced by this correction
+- player options retain the OwnPlay dark-glass / blue-accent visual language; no stock Material dialog or generic preference-style surface is introduced
 
 ## Explicitly deferred
 
-The following playback enhancements are intentionally not folded into this correction stage so physical QA can isolate the reported regressions:
+The following playback enhancements remain separate work so they do not expand this physical-QA boundary:
 
-- touch lock
-- aspect-ratio selector
-- stream diagnostics / stream-info panel
-- Live transport-format preference
-- adaptive quality selector
+- Live transport-format preference (`Prefer MPEG-TS` / `Prefer HLS`)
+- adaptive video-quality selection
 - preferred audio/subtitle language
 - broader smart-retry policy
 
@@ -47,11 +59,11 @@ The following playback enhancements are intentionally not folded into this corre
 - no backup-format changes
 - no provider/source-model changes
 - no signing, release, deployment, or merge action
-- no APK/AAB generation is authorized by this source correction
+- no APK/AAB generation is authorized by this source stage
 
 ## Validation evidence
 
-Code checkpoint `72209d7105d02ba077ecca1fd911091146f81eed` passed GitHub Actions run `34764125016`, job `103741989189`, using `bash tools/validate-source-no-apk.sh`:
+Code checkpoint `114c364d48a2e40d33fd39fddfb4f2f5527e7318` passed GitHub Actions run `34765789891`, job `103746392510`, using `bash tools/validate-source-no-apk.sh`:
 
 - debug source compile: PASS
 - unit tests: PASS
@@ -59,9 +71,11 @@ Code checkpoint `72209d7105d02ba077ecca1fd911091146f81eed` passed GitHub Actions
 - committed Room schema guard: PASS
 - APK/AAB absence guard: PASS
 
-The build emitted two pre-existing non-blocking Kotlin Elvis warnings in `DownloadRepositoryImpl.kt` and `CustomGroupManagementScreen.kt`; neither warning is introduced by the Stage 32 correction.
+The build emitted the same two pre-existing non-blocking Kotlin Elvis warnings in `DownloadRepositoryImpl.kt` and `CustomGroupManagementScreen.kt`; neither warning is introduced by the Stage 32 interaction/orientation/playback-control work.
 
-This audit-document commit must also receive the standard exact-head source-only validation before Stage 32 is reported as final SOURCE PASS. Physical orientation timing, OEM Auto-rotate behavior, gesture ergonomics, PiP transitions, portrait Library playback, and visual acceptance remain PHYSICAL QA / NOT_YET_VERIFIED until an explicitly authorized QA APK is tested on-device.
+This audit-document commit must also receive the standard exact-head source-only validation before Stage 32 is reported as final SOURCE PASS.
+
+Physical QA remains `NOT_YET_VERIFIED` for orientation timing and OEM Auto-rotate behavior, empty-category gesture ergonomics, PiP transitions, portrait Library playback, Touch Lock input leakage/ergonomics, Fit/Fill/Zoom crop and scaling behavior, Stream Info accuracy against real provider streams, and final visual acceptance. Those checks require an explicitly authorized QA APK and on-device testing.
 
 ## Audit note
 
