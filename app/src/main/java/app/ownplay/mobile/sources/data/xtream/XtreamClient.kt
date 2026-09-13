@@ -20,7 +20,7 @@ interface XtreamClient {
         baseUrl: String,
         credential: SourceCredential.Xtream,
         streamId: String,
-    ): XtreamResult<XtreamVodInfo>
+    ): XtreamResult<XtreamVodInfo> = XtreamResult.Failure("XTREAM_VOD_INFO_UNSUPPORTED")
     suspend fun seriesCategories(baseUrl: String, credential: SourceCredential.Xtream): XtreamResult<List<XtreamCategory>>
     suspend fun series(baseUrl: String, credential: SourceCredential.Xtream): XtreamResult<List<XtreamSeries>>
     suspend fun seriesInfo(baseUrl: String, credential: SourceCredential.Xtream, seriesId: String): XtreamResult<XtreamSeriesInfo>
