@@ -1,6 +1,5 @@
 package app.ownplay.mobile.feature.live.ui
 
-import android.view.OrientationEventListener
 import android.view.SurfaceView
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
@@ -101,6 +100,8 @@ fun LiveShell(
     liveRepository: LiveRepository,
     playbackController: PlaybackController,
     showChannelLogos: Boolean,
+    autoFullscreenRequestToken: Int = 0,
+    autoPreviewRequestToken: Int = 0,
     onFullscreenChanged: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -115,8 +116,6 @@ fun LiveShell(
     var resolutionError by remember { mutableStateOf<String?>(null) }
     var fallbackLoadRequest by remember { mutableStateOf<PlaybackLoadRequest?>(null) }
     var waitingForInitialChannels by remember(catalog?.activeSourceId) { mutableStateOf(false) }
-    var orientationFullscreenArmed by remember { mutableStateOf(true) }
-    var lastStableOrientationDegrees by remember { mutableStateOf<Int?>(null) }
     var searchVisible by remember(catalog?.activeSourceId) { mutableStateOf(false) }
     var searchQuery by remember(catalog?.activeSourceId) { mutableStateOf("") }
     var favoritesOnly by remember(catalog?.activeSourceId) { mutableStateOf(false) }
@@ -286,6 +285,25 @@ fun LiveShell(
         dispatch(LiveIntent.ChannelSwitched(nextChannelId))
     }
 
+    LaunchedEffect(autoFullscreenRequestToken) {
+        if (
+            autoFullscreenRequestToken > 0 &&
+            presentationState.presentation == LivePresentation.PREVIEW
+        ) {
+            val channelId = selectedChannel?.channelId ?: return@LaunchedEffect
+            dispatch(LiveIntent.ChannelTapped(channelId))
+        }
+    }
+
+    LaunchedEffect(autoPreviewRequestToken) {
+        if (
+            autoPreviewRequestToken > 0 &&
+            presentationState.presentation == LivePresentation.FULLSCREEN
+        ) {
+            dispatch(LiveIntent.BackPressed)
+        }
+    }
+
     LaunchedEffect(favoriteChannels.isEmpty(), favoritesOnly) {
         if (favoritesOnly && favoriteChannels.isEmpty()) favoritesOnly = false
     }
@@ -340,66 +358,7 @@ fun LiveShell(
         }
     }
 
-    val orientationContext = LocalContext.current
-    DisposableEffect(
-        orientationContext,
-        presentationState.presentation,
-        presentationState.selectedChannelId,
-    ) {
-        val selectedId = presentationState.selectedChannelId
-        if (presentationState.presentation == LivePresentation.BROWSE || selectedId == null) {
-            onDispose { }
-        } else {
-            var landscapeTriggered = false
-            var portraitExitTriggered = false
-            val listener = object : OrientationEventListener(orientationContext) {
-                override fun onOrientationChanged(orientation: Int) {
-                    if (orientation == ORIENTATION_UNKNOWN) return
-                    val previousStableOrientation = lastStableOrientationDegrees
-                    when {
-                        LiveOrientationPolicy.isPortrait(orientation) -> {
-                            lastStableOrientationDegrees = orientation
-                            landscapeTriggered = false
-                            orientationFullscreenArmed = true
-                            if (
-                                presentationState.presentation == LivePresentation.FULLSCREEN &&
-                                LiveOrientationPolicy.shouldAutoExitFullscreen(
-                                    previousOrientationDegrees = previousStableOrientation,
-                                    orientationDegrees = orientation,
-                                ) &&
-                                !portraitExitTriggered
-                            ) {
-                                portraitExitTriggered = true
-                                dispatch(LiveIntent.BackPressed)
-                            }
-                        }
-                        LiveOrientationPolicy.isLandscape(orientation) -> {
-                            lastStableOrientationDegrees = orientation
-                            if (
-                                presentationState.presentation == LivePresentation.PREVIEW &&
-                                LiveOrientationPolicy.shouldAutoEnterFullscreen(
-                                    orientationDegrees = orientation,
-                                    armed = orientationFullscreenArmed,
-                                ) &&
-                                !landscapeTriggered
-                            ) {
-                                landscapeTriggered = true
-                                orientationFullscreenArmed = false
-                                dispatch(LiveIntent.ChannelTapped(selectedId))
-                            }
-                        }
-                    }
-                }
-            }
-            if (listener.canDetectOrientation()) listener.enable()
-            onDispose { listener.disable() }
-        }
-    }
-
     BackHandler(enabled = presentationState.presentation != LivePresentation.BROWSE) {
-        if (presentationState.presentation == LivePresentation.FULLSCREEN) {
-            orientationFullscreenArmed = false
-        }
         dispatch(LiveIntent.BackPressed)
     }
 
@@ -417,10 +376,7 @@ fun LiveShell(
             guide = selectedGuide,
             audioCompatibilityMessage = audioCompatibilityMessage,
             audioTracks = playback.audioTracks,
-            onBackToPreview = {
-                orientationFullscreenArmed = false
-                dispatch(LiveIntent.BackPressed)
-            },
+            onBackToPreview = { dispatch(LiveIntent.BackPressed) },
             onPreviousChannel = { stepFullscreenChannel(LiveNavigationDirection.PREVIOUS) },
             onNextChannel = { stepFullscreenChannel(LiveNavigationDirection.NEXT) },
             modifier = modifier,
@@ -646,11 +602,23 @@ private fun LiveBrowseAndPreview(
             }
 
             channels.isEmpty() -> item {
-                Box(modifier = Modifier.padding(horizontal = OwnPlaySpacing.Lg, vertical = OwnPlaySpacing.Sm)) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .fillParentMaxHeight(0.65f)
+                        .liveHorizontalNavigationGestures(
+                            enabled = categorySwipeEnabled,
+                            onPrevious = onPreviousCategoryGesture,
+                            onNext = onNextCategoryGesture,
+                        )
+                        .padding(horizontal = OwnPlaySpacing.Lg, vertical = OwnPlaySpacing.Sm),
+                ) {
                     OwnPlayStatePanel(
                         title = if (searchQuery.isNotBlank()) "No channel matches" else "No channels in this category",
                         message = if (searchQuery.isNotBlank()) {
                             "Try another channel name or close search to browse categories."
+                        } else if (categorySwipeEnabled) {
+                            "Swipe left or right to browse another provider category."
                         } else {
                             "Choose another provider category."
                         },
@@ -658,7 +626,7 @@ private fun LiveBrowseAndPreview(
                 }
             }
 
-            else -> channels.forEachIndexed { index, channel ->
+            else -> channels.forEach { channel ->
                 val selectedPreviewChannel = selectedChannel?.takeIf { it.channelId == channel.channelId }
                 val selected = selectedPreviewChannel != null
                 if (selectedPreviewChannel != null) {
@@ -688,7 +656,6 @@ private fun LiveBrowseAndPreview(
                             .padding(horizontal = OwnPlaySpacing.Lg, vertical = 3.dp),
                     ) {
                         ChannelRow(
-                            number = (index + 1).toString().padStart(3, '0'),
                             channel = channel,
                             selected = selected,
                             guide = guide,
@@ -745,7 +712,37 @@ private fun LiveCategoryStrip(
     onCustomGroupSelected: (String) -> Unit,
     onSelected: (String?) -> Unit,
 ) {
+    val listState = rememberLazyListState()
+    val selectedItemIndex = when {
+        favoritesOnly && favoriteCount > 0 -> 0
+        selectedCustomGroupId != null -> {
+            val groupIndex = customGroups.indexOfFirst { it.groupId == selectedCustomGroupId }
+            if (groupIndex >= 0) (if (favoriteCount > 0) 1 else 0) + groupIndex else -1
+        }
+        selectedCategoryKey != null -> {
+            val categoryIndex = categories.indexOfFirst { it.categoryKey == selectedCategoryKey }
+            if (categoryIndex >= 0) {
+                (if (favoriteCount > 0) 1 else 0) + customGroups.size + categoryIndex
+            } else {
+                -1
+            }
+        }
+        else -> -1
+    }
+
+    LaunchedEffect(selectedItemIndex) {
+        if (selectedItemIndex < 0) return@LaunchedEffect
+        repeat(4) {
+            if (listState.layoutInfo.totalItemsCount > selectedItemIndex) {
+                listState.animateScrollToItem(selectedItemIndex)
+                return@LaunchedEffect
+            }
+            delay(16)
+        }
+    }
+
     LazyRow(
+        state = listState,
         contentPadding = PaddingValues(horizontal = OwnPlaySpacing.Lg),
         horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Xs),
     ) {
@@ -910,7 +907,6 @@ private fun NowPlayingPanel(selectedChannel: LiveChannel, guide: LiveNowNext) {
 
 @Composable
 private fun ChannelRow(
-    number: String,
     channel: LiveChannel,
     selected: Boolean,
     guide: LiveNowNext,
@@ -939,12 +935,6 @@ private fun ChannelRow(
                     ),
             )
             Spacer(modifier = Modifier.width(OwnPlaySpacing.Sm))
-            Text(
-                text = number,
-                style = MaterialTheme.typography.labelMedium,
-                color = OwnPlayColors.TextMuted,
-                modifier = Modifier.width(36.dp),
-            )
             if (showChannelLogos) {
                 ChannelLogoIdentity(channel = channel, selected = selected)
                 Spacer(modifier = Modifier.width(OwnPlaySpacing.Md))
@@ -1041,15 +1031,27 @@ private fun FullscreenLive(
     var optionsVisible by remember(channel.channelId) { mutableStateOf(false) }
     val interactionSource = remember { MutableInteractionSource() }
 
+    BackHandler(enabled = optionsVisible) {
+        optionsVisible = false
+    }
+
     LaunchedEffect(
         overlayVisible,
+        optionsVisible,
         channel.channelId,
         playbackSnapshot.phase,
         playbackSnapshot.isPlaying,
     ) {
-        if (overlayVisible && LivePlayerControlsPolicy.shouldAutoHide(playbackSnapshot)) {
+        if (
+            overlayVisible &&
+            !optionsVisible &&
+            LivePlayerControlsPolicy.shouldAutoHide(playbackSnapshot)
+        ) {
             delay(4_000)
-            if (LivePlayerControlsPolicy.shouldAutoHide(playbackController.currentSnapshot())) {
+            if (
+                !optionsVisible &&
+                LivePlayerControlsPolicy.shouldAutoHide(playbackController.currentSnapshot())
+            ) {
                 overlayVisible = false
             }
         }
@@ -1074,7 +1076,11 @@ private fun FullscreenLive(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .playerLocalVerticalControls(playbackController, controllerScope)
+                .playerLocalVerticalControls(
+                    playbackController = playbackController,
+                    controllerScope = controllerScope,
+                    enabled = !optionsVisible,
+                )
                 .liveHorizontalNavigationGestures(
                     enabled = !optionsVisible,
                     onPrevious = {
@@ -1091,6 +1097,7 @@ private fun FullscreenLive(
                 .clickable(
                     interactionSource = interactionSource,
                     indication = null,
+                    enabled = !optionsVisible,
                 ) {
                     overlayVisible = !overlayVisible
                 },
@@ -1175,16 +1182,14 @@ private fun FullscreenLive(
                         )
                     }
                 }
-                if (audioTracks.isNotEmpty() || playbackSnapshot.subtitleTracks.isNotEmpty()) {
-                    PlayerGlassPillAction(
-                        text = "Options",
-                        emphasized = optionsVisible,
-                        onClick = { optionsVisible = !optionsVisible },
-                    )
-                }
+                PlayerGlassPillAction(
+                    text = "Options",
+                    emphasized = optionsVisible,
+                    onClick = { optionsVisible = !optionsVisible },
+                )
             }
 
-            if (optionsVisible && (audioTracks.isNotEmpty() || playbackSnapshot.subtitleTracks.isNotEmpty())) {
+            if (optionsVisible) {
                 PlaybackOptionsPanel(
                     audioTracks = audioTracks,
                     subtitleTracks = playbackSnapshot.subtitleTracks,

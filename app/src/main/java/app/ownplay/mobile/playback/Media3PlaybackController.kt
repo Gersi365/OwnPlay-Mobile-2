@@ -16,6 +16,7 @@ import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
+import androidx.media3.common.VideoSize
 import androidx.media3.common.text.CueGroup
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
@@ -24,18 +25,21 @@ import androidx.media3.decoder.ffmpeg.FfmpegLibrary
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.exoplayer.source.UnrecognizedInputFormatException
 import app.ownplay.mobile.playback.domain.AudioTrackPolicy
 import app.ownplay.mobile.playback.domain.PlaybackAudioTrack
 import app.ownplay.mobile.playback.domain.PlaybackLoadRequest
 import app.ownplay.mobile.playback.domain.PlaybackMedia
 import app.ownplay.mobile.playback.domain.PlaybackPhase
+import app.ownplay.mobile.playback.domain.PlaybackResizeMode
 import app.ownplay.mobile.playback.domain.PlaybackSnapshot
 import app.ownplay.mobile.playback.domain.PlaybackSpeedPolicy
+import app.ownplay.mobile.playback.domain.PlaybackStreamFormat
+import app.ownplay.mobile.playback.domain.PlaybackStreamFormatPolicy
 import app.ownplay.mobile.playback.domain.PlaybackSubtitleCue
 import app.ownplay.mobile.playback.domain.PlaybackSubtitleSelection
 import app.ownplay.mobile.playback.domain.PlaybackSubtitleTrack
 import app.ownplay.mobile.playback.domain.PlaybackStartPolicy
-import app.ownplay.mobile.playback.domain.PlaybackStreamFormat
 import app.ownplay.mobile.playback.domain.PlayerLocalControlPolicy
 import app.ownplay.mobile.playback.domain.SubtitleTrackPolicy
 import app.ownplay.mobile.playback.domain.VideoTarget
@@ -50,6 +54,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
+@OptIn(UnstableApi::class)
 class Media3PlaybackController(
     context: Context,
 ) : PlaybackController {
@@ -69,8 +74,13 @@ class Media3PlaybackController(
     private var boundSurface: BoundSurface? = null
     private var boundSurfaceDetachListener: View.OnAttachStateChangeListener? = null
     private var currentMedia: PlaybackMedia? = null
+    private var currentLoadRequest: PlaybackLoadRequest? = null
+    private var currentStreamFormat: PlaybackStreamFormat? = null
+    private var currentVideoSize: VideoSize? = null
+    private var opaqueHlsRecoveryAttempted = false
     private var subtitleSelection: PlaybackSubtitleSelection = PlaybackSubtitleSelection.Auto
     private var currentSubtitleCues: List<PlaybackSubtitleCue> = emptyList()
+    private var resizeMode: PlaybackResizeMode = PlaybackResizeMode.FIT
     private var released = false
 
     private val listener = object : Player.Listener {
@@ -93,6 +103,11 @@ class Media3PlaybackController(
             refreshSnapshot()
         }
 
+        override fun onVideoSizeChanged(videoSize: VideoSize) {
+            currentVideoSize = videoSize
+            refreshSnapshot()
+        }
+
         override fun onCues(cueGroup: CueGroup) {
             currentSubtitleCues = cueGroup.cues.mapNotNull { cue ->
                 cue.text?.toString()?.trim()?.takeIf { it.isNotEmpty() }?.let(::PlaybackSubtitleCue)
@@ -105,6 +120,9 @@ class Media3PlaybackController(
         }
 
         override fun onPlayerError(error: PlaybackException) {
+            if (tryRecoverOpaqueAutoStreamAsHls(error)) {
+                return
+            }
             Log.w(
                 "OwnPlayPlayback",
                 "Playback failure: ${error.getErrorCodeName()} (${error.errorCode})",
@@ -119,9 +137,18 @@ class Media3PlaybackController(
 
     override suspend fun load(request: PlaybackLoadRequest) {
         mutateOnPlayerThread {
+            val effectiveStreamFormat = when (request.media.streamFormat) {
+                PlaybackStreamFormat.HLS -> PlaybackStreamFormat.HLS
+                PlaybackStreamFormat.AUTO -> PlaybackStreamFormatPolicy.infer(request.media.uri)
+            }
             currentMedia = request.media
+            currentLoadRequest = request
+            currentStreamFormat = effectiveStreamFormat
+            currentVideoSize = null
+            opaqueHlsRecoveryAttempted = false
             subtitleSelection = PlaybackSubtitleSelection.Auto
             currentSubtitleCues = emptyList()
+            applyVideoResizeMode(PlaybackResizeMode.FIT)
             player.trackSelectionParameters = player.trackSelectionParameters
                 .buildUpon()
                 .clearOverridesOfType(C.TRACK_TYPE_AUDIO)
@@ -133,7 +160,7 @@ class Media3PlaybackController(
                 .setMediaId(request.media.id)
                 .setUri(request.media.uri)
 
-            if (request.media.streamFormat == PlaybackStreamFormat.HLS) {
+            if (effectiveStreamFormat == PlaybackStreamFormat.HLS) {
                 mediaItemBuilder.setMimeType(MimeTypes.APPLICATION_M3U8)
             }
 
@@ -159,14 +186,17 @@ class Media3PlaybackController(
         mutateOnPlayerThread {
             val existing = boundSurface
             if (existing != null && existing.target == target && existing.surfaceView === surfaceView) {
+                applySurfaceResizeTransform(surfaceView)
                 return@mutateOnPlayerThread
             }
 
             if (existing != null) {
                 removeDetachListener(existing.surfaceView)
+                resetSurfaceResizeTransform(existing.surfaceView)
                 player.clearVideoSurfaceView(existing.surfaceView)
             }
 
+            applySurfaceResizeTransform(surfaceView)
             player.setVideoSurfaceView(surfaceView)
             boundSurface = BoundSurface(target = target, surfaceView = surfaceView)
             installDetachListener(surfaceView)
@@ -191,6 +221,7 @@ class Media3PlaybackController(
             }
 
             removeDetachListener(surfaceView)
+            resetSurfaceResizeTransform(surfaceView)
             player.clearVideoSurfaceView(surfaceView)
             boundSurface = null
             ownership = VideoTargetOwnershipReducer.reduce(
@@ -312,6 +343,13 @@ class Media3PlaybackController(
         }
     }
 
+    override suspend fun setVideoResizeMode(mode: PlaybackResizeMode) {
+        mutateOnPlayerThread {
+            applyVideoResizeMode(mode)
+            refreshSnapshot()
+        }
+    }
+
     override suspend fun seekTo(positionMs: Long) {
         mutateOnPlayerThread {
             player.seekTo(positionMs.coerceAtLeast(0L))
@@ -346,6 +384,11 @@ class Media3PlaybackController(
                 clearBoundSurface()
                 player.clearMediaItems()
                 currentMedia = null
+                currentLoadRequest = null
+                currentStreamFormat = null
+                currentVideoSize = null
+                opaqueHlsRecoveryAttempted = false
+                resizeMode = PlaybackResizeMode.FIT
             }
             refreshSnapshot(errorCode = null)
         }
@@ -362,6 +405,10 @@ class Media3PlaybackController(
                 player.removeListener(listener)
                 player.release()
                 currentMedia = null
+                currentLoadRequest = null
+                currentStreamFormat = null
+                currentVideoSize = null
+                opaqueHlsRecoveryAttempted = false
                 released = true
                 mutableState.value = PlaybackSnapshot(phase = PlaybackPhase.RELEASED)
             }
@@ -377,7 +424,6 @@ class Media3PlaybackController(
         }
     }
 
-    @OptIn(UnstableApi::class)
     private fun createPlayer(context: Context): ExoPlayer {
         if (!FfmpegLibrary.isAvailable()) {
             Log.w("OwnPlayPlayback", "Media3 FFmpeg audio decoder is unavailable; using device decoders only.")
@@ -402,6 +448,68 @@ class Media3PlaybackController(
             .build()
     }
 
+    private fun tryRecoverOpaqueAutoStreamAsHls(error: PlaybackException): Boolean {
+        val request = currentLoadRequest ?: return false
+        if (opaqueHlsRecoveryAttempted) return false
+        if (request.media.streamFormat != PlaybackStreamFormat.AUTO) return false
+        if (currentStreamFormat != PlaybackStreamFormat.AUTO) return false
+        if (!PlaybackStreamFormatPolicy.isOpaqueNetworkUri(request.media.uri)) return false
+
+        var cause: Throwable? = error
+        var unrecognizedInput = false
+        while (cause != null) {
+            if (cause is UnrecognizedInputFormatException) {
+                unrecognizedInput = true
+                break
+            }
+            cause = cause.cause
+        }
+        if (!unrecognizedInput) return false
+
+        opaqueHlsRecoveryAttempted = true
+        currentStreamFormat = PlaybackStreamFormat.HLS
+        currentVideoSize = null
+        currentSubtitleCues = emptyList()
+        Log.i("OwnPlayPlayback", "Unrecognized opaque AUTO stream; retrying once as HLS.")
+
+        val playWhenReady = player.playWhenReady
+        val mediaItem = MediaItem.Builder()
+            .setMediaId(request.media.id)
+            .setUri(request.media.uri)
+            .setMimeType(MimeTypes.APPLICATION_M3U8)
+            .build()
+        player.setMediaItem(mediaItem)
+        PlaybackStartPolicy.resolve(request.start).positionMs?.let { positionMs ->
+            player.seekTo(positionMs)
+        }
+        player.playWhenReady = playWhenReady
+        player.prepare()
+        refreshSnapshot(errorCode = null)
+        return true
+    }
+
+    private fun applyVideoResizeMode(mode: PlaybackResizeMode) {
+        resizeMode = mode
+        player.videoScalingMode = when (mode) {
+            PlaybackResizeMode.FIT -> C.VIDEO_SCALING_MODE_SCALE_TO_FIT
+            PlaybackResizeMode.FILL,
+            PlaybackResizeMode.ZOOM,
+            -> C.VIDEO_SCALING_MODE_SCALE_TO_FIT_WITH_CROPPING
+        }
+        boundSurface?.surfaceView?.let(::applySurfaceResizeTransform)
+    }
+
+    private fun applySurfaceResizeTransform(surfaceView: SurfaceView) {
+        val scale = if (resizeMode == PlaybackResizeMode.ZOOM) 1.12f else 1f
+        surfaceView.scaleX = scale
+        surfaceView.scaleY = scale
+    }
+
+    private fun resetSurfaceResizeTransform(surfaceView: SurfaceView) {
+        surfaceView.scaleX = 1f
+        surfaceView.scaleY = 1f
+    }
+
     private fun installDetachListener(surfaceView: SurfaceView) {
         val detachListener = object : View.OnAttachStateChangeListener {
             override fun onViewAttachedToWindow(view: View) = Unit
@@ -413,6 +521,7 @@ class Media3PlaybackController(
                 }
 
                 player.clearVideoSurfaceView(surfaceView)
+                resetSurfaceResizeTransform(surfaceView)
                 removeDetachListener(surfaceView)
                 boundSurface = null
                 ownership = VideoTargetOwnershipReducer.reduce(
@@ -434,6 +543,7 @@ class Media3PlaybackController(
     private fun clearBoundSurface() {
         val existing = boundSurface ?: return
         removeDetachListener(existing.surfaceView)
+        resetSurfaceResizeTransform(existing.surfaceView)
         player.clearVideoSurfaceView(existing.surfaceView)
         boundSurface = null
         ownership = VideoTargetOwnershipReducer.reduce(
@@ -448,6 +558,8 @@ class Media3PlaybackController(
         }
 
         val media = currentMedia
+        val videoFormat = player.videoFormat
+        val videoSize = currentVideoSize
         val audio = currentAudioTrackStatus()
         val subtitles = currentSubtitleTrackStatus()
         val errorCodeName = errorCode?.let { PlaybackException.getErrorCodeName(it) }
@@ -456,6 +568,7 @@ class Media3PlaybackController(
             mediaId = media?.id,
             title = media?.title,
             kind = media?.kind,
+            streamFormat = currentStreamFormat,
             phase = if (errorCode != null) PlaybackPhase.ERROR else player.playbackState.toPlaybackPhase(),
             playWhenReady = player.playWhenReady,
             isPlaying = player.isPlaying,
@@ -463,6 +576,16 @@ class Media3PlaybackController(
             positionMs = player.currentPosition.coerceAtLeast(0L),
             durationMs = player.duration.takeUnless { it == C.TIME_UNSET || it < 0L },
             activeTarget = ownership.activeTarget,
+            resizeMode = resizeMode,
+            videoWidth = videoSize?.width?.takeIf { it > 0 }
+                ?: videoFormat?.width?.takeIf { it > 0 },
+            videoHeight = videoSize?.height?.takeIf { it > 0 }
+                ?: videoFormat?.height?.takeIf { it > 0 },
+            videoFrameRate = videoFormat?.frameRate?.takeIf { it > 0f },
+            videoMimeType = videoFormat?.sampleMimeType,
+            videoCodecs = videoFormat?.codecs,
+            videoBitrate = videoFormat?.averageBitrate?.takeIf { it > 0 }
+                ?: videoFormat?.peakBitrate?.takeIf { it > 0 },
             audioTracks = audio.tracks,
             audioTrackPresent = audio.present,
             audioTrackSupported = audio.supported,

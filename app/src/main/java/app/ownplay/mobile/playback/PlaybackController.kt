@@ -2,6 +2,7 @@ package app.ownplay.mobile.playback
 
 import android.view.SurfaceView
 import app.ownplay.mobile.playback.domain.PlaybackLoadRequest
+import app.ownplay.mobile.playback.domain.PlaybackResizeMode
 import app.ownplay.mobile.playback.domain.PlaybackSnapshot
 import app.ownplay.mobile.playback.domain.PlaybackSubtitleSelection
 import app.ownplay.mobile.playback.domain.VideoTarget
@@ -33,6 +34,8 @@ interface PlaybackController {
     suspend fun selectSubtitle(selection: PlaybackSubtitleSelection)
 
     suspend fun setPlaybackSpeed(speed: Float)
+
+    suspend fun setVideoResizeMode(mode: PlaybackResizeMode)
 
     suspend fun seekTo(positionMs: Long)
 
