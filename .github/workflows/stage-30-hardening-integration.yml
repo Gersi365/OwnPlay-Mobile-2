@@ -18,27 +18,18 @@ jobs:
         with:
           ref: stage-30-integration-hardening
           fetch-depth: 0
-      - name: Apply deterministic Stage 30 patch
-        run: python3 tools/stage30_hardening.py
-      - name: Commit Stage 30 source changes
+      - name: Apply Stage 30 cancellation hardening
+        run: python3 tools/stage30_cancellation_fix.py
+      - name: Commit Stage 30 cancellation hardening
         shell: bash
         run: |
           git diff --check
           git status --short
           git config user.name "Gersi365"
           git config user.email "Gersi365@outlook.com"
-          git add app/src/main/java/app/ownplay/mobile/sources/data/ProviderPayloadValidation.kt
-          git add app/src/main/java/app/ownplay/mobile/sources/data/SourceCatalogLoader.kt
-          git add app/src/main/java/app/ownplay/mobile/sources/data/xtream/OkHttpXtreamClient.kt
           git add app/src/main/java/app/ownplay/mobile/sources/data/SourceRepositoryImpl.kt
-          git add app/src/main/java/app/ownplay/mobile/data/db/BackupDao.kt
-          git add app/src/main/java/app/ownplay/mobile/feature/settings/data/BackupChannelPersonalizationRestorePolicy.kt
-          git add app/src/main/java/app/ownplay/mobile/feature/settings/data/BackupRepositoryImpl.kt
-          git add app/src/main/java/app/ownplay/mobile/playback/Media3PlaybackController.kt
-          git add app/src/main/java/app/ownplay/mobile/sources/domain/SourceRefreshFailurePolicy.kt
-          git add app/src/test/java/app/ownplay/mobile/sources/data/ProviderPayloadValidationTest.kt
-          git add app/src/test/java/app/ownplay/mobile/feature/settings/data/BackupChannelPersonalizationRestorePolicyTest.kt
-          git add app/src/test/java/app/ownplay/mobile/sources/domain/SourceRefreshFailureHardeningTest.kt
-          git diff --cached --quiet && { echo "No Stage 30 source changes produced"; exit 1; }
-          git commit -m "Stage 30: harden provider refresh and restore reliability"
+          git diff --cached --quiet && { echo "No Stage 30 cancellation changes produced"; exit 1; }
+          git commit -m "Stage 30: preserve refresh cancellation semantics"
           git push origin HEAD:stage-30-integration-hardening
+
+# cancellation hardening trigger
