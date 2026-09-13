@@ -143,6 +143,7 @@ class MainActivity : ComponentActivity() {
                 services.playbackController.transferVideoTarget(VideoTarget.FULLSCREEN)
             }
         }
+        fullscreenOrientationLatch.reset()
         updateFullscreenOrientationListener()
     }
 

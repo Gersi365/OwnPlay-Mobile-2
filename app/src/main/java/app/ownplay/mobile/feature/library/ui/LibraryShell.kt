@@ -155,6 +155,8 @@ fun LibraryShell(
     fun acceptResolution(resolved: LibraryPlaybackResolution) {
         when (resolved) {
             is LibraryPlaybackResolution.Success -> {
+                onFullscreenChanged(true)
+                activePlayback = resolved.value
                 scope.launch {
                     libraryVisibilityPreferences.showContinueWatching(
                         sourceId = resolved.value.sourceId,
@@ -162,7 +164,6 @@ fun LibraryShell(
                         contentId = resolved.value.contentId,
                     )
                     playbackController.load(resolved.value.toLoadRequest())
-                    activePlayback = resolved.value
                 }
             }
 
@@ -266,7 +267,9 @@ fun LibraryShell(
     }
 
     LaunchedEffect(activePlayback) {
-        onFullscreenChanged(activePlayback != null)
+        if (activePlayback == null) {
+            onFullscreenChanged(false)
+        }
     }
 
     DisposableEffect(Unit) {
