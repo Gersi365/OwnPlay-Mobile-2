@@ -16,6 +16,11 @@ interface XtreamClient {
     ): XtreamResult<List<XtreamLiveStream>>
     suspend fun vodCategories(baseUrl: String, credential: SourceCredential.Xtream): XtreamResult<List<XtreamCategory>>
     suspend fun vodStreams(baseUrl: String, credential: SourceCredential.Xtream): XtreamResult<List<XtreamMovie>>
+    suspend fun vodInfo(
+        baseUrl: String,
+        credential: SourceCredential.Xtream,
+        streamId: String,
+    ): XtreamResult<XtreamVodInfo>
     suspend fun seriesCategories(baseUrl: String, credential: SourceCredential.Xtream): XtreamResult<List<XtreamCategory>>
     suspend fun series(baseUrl: String, credential: SourceCredential.Xtream): XtreamResult<List<XtreamSeries>>
     suspend fun seriesInfo(baseUrl: String, credential: SourceCredential.Xtream, seriesId: String): XtreamResult<XtreamSeriesInfo>
