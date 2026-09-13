@@ -17,6 +17,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -35,6 +38,7 @@ import app.ownplay.mobile.playback.domain.PlaybackStreamFormat
 import app.ownplay.mobile.playback.domain.PlaybackSubtitleSelection
 import app.ownplay.mobile.playback.domain.PlaybackSubtitleTrack
 import app.ownplay.mobile.playback.domain.SubtitleTrackPolicy
+import kotlinx.coroutines.launch
 import kotlin.math.abs
 
 @Composable
@@ -43,18 +47,24 @@ fun PlaybackOptionsPanel(
     subtitleTracks: List<PlaybackSubtitleTrack>,
     subtitleSelection: PlaybackSubtitleSelection,
     playbackSpeed: Float,
-    resizeMode: PlaybackResizeMode,
-    playbackSnapshot: PlaybackSnapshot,
     allowSpeed: Boolean,
     onSelectAudio: (String?) -> Unit,
     onSelectSubtitle: (PlaybackSubtitleSelection) -> Unit,
     onSelectSpeed: (Float) -> Unit,
-    onSelectResizeMode: (PlaybackResizeMode) -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     BackHandler(onBack = onDismiss)
+
+    val playbackController = LocalPlaybackController.current
+    val interactionState = LocalPlayerInteractionState.current
+    val playbackSnapshot by playbackController.state.collectAsState()
+    val scope = rememberCoroutineScope()
     val streamRows = streamInfoRows(playbackSnapshot)
+
+    fun selectResizeMode(mode: PlaybackResizeMode) {
+        scope.launch { playbackController.setVideoResizeMode(mode) }
+    }
 
     Surface(
         modifier = modifier
@@ -99,27 +109,41 @@ fun PlaybackOptionsPanel(
                     PlaybackOptionRow(
                         title = "Fit",
                         detail = "Show the full frame",
-                        selected = resizeMode == PlaybackResizeMode.FIT,
+                        selected = playbackSnapshot.resizeMode == PlaybackResizeMode.FIT,
                         supported = true,
-                        onClick = { onSelectResizeMode(PlaybackResizeMode.FIT) },
+                        onClick = { selectResizeMode(PlaybackResizeMode.FIT) },
                     )
                 }
                 item(key = "picture-fill") {
                     PlaybackOptionRow(
                         title = "Fill",
                         detail = "Fill the screen; edges may crop",
-                        selected = resizeMode == PlaybackResizeMode.FILL,
+                        selected = playbackSnapshot.resizeMode == PlaybackResizeMode.FILL,
                         supported = true,
-                        onClick = { onSelectResizeMode(PlaybackResizeMode.FILL) },
+                        onClick = { selectResizeMode(PlaybackResizeMode.FILL) },
                     )
                 }
                 item(key = "picture-zoom") {
                     PlaybackOptionRow(
                         title = "Zoom",
                         detail = "Closer crop for letterboxed video",
-                        selected = resizeMode == PlaybackResizeMode.ZOOM,
+                        selected = playbackSnapshot.resizeMode == PlaybackResizeMode.ZOOM,
                         supported = true,
-                        onClick = { onSelectResizeMode(PlaybackResizeMode.ZOOM) },
+                        onClick = { selectResizeMode(PlaybackResizeMode.ZOOM) },
+                    )
+                }
+
+                item(key = "controls-header") { OptionSectionLabel("Controls") }
+                item(key = "touch-lock") {
+                    PlaybackOptionRow(
+                        title = "Lock touch",
+                        detail = "Block accidental taps and gestures",
+                        selected = false,
+                        supported = true,
+                        onClick = {
+                            onDismiss()
+                            interactionState.lockTouch()
+                        },
                     )
                 }
 
