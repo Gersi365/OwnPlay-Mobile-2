@@ -3,7 +3,6 @@ package app.ownplay.mobile.feature.settings.data
 import android.content.Context
 import androidx.room.withTransaction
 import app.ownplay.mobile.data.db.BackupDao
-import app.ownplay.mobile.data.db.ChannelPersonalizationEntity
 import app.ownplay.mobile.data.db.CustomGroupEntity
 import app.ownplay.mobile.data.db.CustomGroupMembershipEntity
 import app.ownplay.mobile.data.db.MediaFavoriteEntity
@@ -229,7 +228,10 @@ class BackupRepositoryImpl(
                     .filter { it.sourceId in validSourceIds }
                     .forEach { record ->
                         if (backupDao.hasLiveChannel(record.sourceId, record.channelId)) {
-                            backupDao.upsertChannelPersonalization(record.toEntity())
+                            val existingPersonalization = backupDao.getChannelPersonalizationRow(record.channelId)
+                            backupDao.upsertChannelPersonalization(
+                                BackupChannelPersonalizationRestorePolicy.merge(record, existingPersonalization),
+                            )
                             personalizationRestored += 1
                         } else {
                             pendingPersonalization += record
@@ -298,7 +300,10 @@ class BackupRepositoryImpl(
                     if (record.sourceId != sourceId) {
                         remainingPersonalization += record
                     } else if (backupDao.hasLiveChannel(record.sourceId, record.channelId)) {
-                        backupDao.upsertChannelPersonalization(record.toEntity())
+                        val existingPersonalization = backupDao.getChannelPersonalizationRow(record.channelId)
+                        backupDao.upsertChannelPersonalization(
+                            BackupChannelPersonalizationRestorePolicy.merge(record, existingPersonalization),
+                        )
                         applied += 1
                     } else {
                         remainingPersonalization += record
@@ -329,15 +334,6 @@ class BackupRepositoryImpl(
             failure("PENDING_RESTORE_FAILED", "Pending personalization could not be applied.")
         }
     }
-
-    private fun BackupChannelPersonalizationRecord.toEntity() = ChannelPersonalizationEntity(
-        channelId = channelId,
-        favorite = favorite,
-        hidden = hidden,
-        localName = localName,
-        localLogo = null,
-        manualOrder = manualOrder,
-    )
 
     private fun BackupMembershipRecord.toEntity() = CustomGroupMembershipEntity(
         groupId = groupId,

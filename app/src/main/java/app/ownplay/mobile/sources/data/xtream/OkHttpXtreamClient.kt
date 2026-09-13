@@ -1,6 +1,7 @@
 package app.ownplay.mobile.sources.data.xtream
 
 import app.ownplay.mobile.sources.data.ProviderHttpTransport
+import app.ownplay.mobile.sources.data.ProviderPayloadValidation
 import app.ownplay.mobile.sources.data.TransportResult
 import app.ownplay.mobile.sources.domain.SourceCredential
 import kotlinx.serialization.json.Json
@@ -219,11 +220,16 @@ class OkHttpXtreamClient(
             is XtreamResult.Failure -> root
             is XtreamResult.Success -> {
                 val array = root.value.asArray() ?: return XtreamResult.Failure("XTREAM_ARRAY_FORMAT")
-                XtreamResult.Success(
-                    array.mapIndexedNotNull { index, element ->
-                        element.asObject()?.let { mapper(it, index) }
-                    },
-                )
+                val mapped = array.mapIndexedNotNull { index, element ->
+                    element.asObject()?.let { mapper(it, index) }
+                }
+                ProviderPayloadValidation.xtreamArrayFailureCode(
+                    rawRowCount = array.size,
+                    mappedRowCount = mapped.size,
+                )?.let { code ->
+                    return XtreamResult.Failure(code)
+                }
+                XtreamResult.Success(mapped)
             }
         }
     }

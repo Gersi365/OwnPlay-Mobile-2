@@ -29,6 +29,8 @@ import java.util.UUID
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 class SourceRepositoryImpl(
     private val database: OwnPlayDatabase,
@@ -40,6 +42,9 @@ class SourceRepositoryImpl(
     private val nowMillis: () -> Long = System::currentTimeMillis,
     private val newSourceId: () -> String = { UUID.randomUUID().toString() },
 ) : SourceRepository {
+    // Reconciliation marks missing rows unavailable by generation; overlapping refreshes must not race.
+    private val refreshMutex = Mutex()
+
     override fun observeSources(): Flow<List<Source>> = sourceDao.observeAll().map { rows ->
         rows.map { entity -> entity.toDomain() }
     }
@@ -219,7 +224,7 @@ class SourceRepositoryImpl(
         }
     }
 
-    override suspend fun refresh(sourceId: String): SourceResult<RefreshSummary> {
+    override suspend fun refresh(sourceId: String): SourceResult<RefreshSummary> = refreshMutex.withLock {
         val source = sourceDao.get(sourceId)?.toDomain()
             ?: return failure("SOURCE_NOT_FOUND", "Source was not found.")
         if (!source.enabled) return failure("SOURCE_DISABLED", "Enable this source before refreshing it.")

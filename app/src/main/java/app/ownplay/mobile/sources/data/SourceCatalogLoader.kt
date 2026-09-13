@@ -155,9 +155,19 @@ class SourceCatalogLoader(
                 val resolvedEntries = parsed.entries.mapNotNull { entry ->
                     resolveLocator(locator, entry.streamLocator)?.let { resolved -> entry to resolved }
                 }
-                val visibleEntries = resolvedEntries.filterNot { (entry, _) ->
-                    ProviderCategoryVisibility.isUtilityLabel(entry.groupTitle.orEmpty())
+                val validationFailure = ProviderPayloadValidation.m3uFailureCode(
+                    parsedEntryCount = parsed.entries.size,
+                    diagnosticCount = parsed.diagnostics.size,
+                    resolvedEntryCount = resolvedEntries.size,
+                )
+                if (validationFailure != null) {
+                    return failedPayload(validationFailure)
                 }
+                val visibleEntries = ProviderPayloadValidation.distinctM3uByLocator(
+                    resolvedEntries.filterNot { (entry, _) ->
+                        ProviderCategoryVisibility.isUtilityLabel(entry.groupTitle.orEmpty())
+                    },
+                )
                 val tvgCounts = visibleEntries
                     .mapNotNull { (entry, _) -> entry.tvgId?.trim()?.takeIf(String::isNotEmpty) }
                     .groupingBy { it }

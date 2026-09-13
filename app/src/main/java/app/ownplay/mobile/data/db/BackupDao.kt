@@ -39,6 +39,9 @@ interface BackupDao {
     )
     suspend fun getChannelPersonalization(): List<BackupChannelPersonalizationView>
 
+    @Query("SELECT * FROM channel_personalization WHERE channelId = :channelId LIMIT 1")
+    suspend fun getChannelPersonalizationRow(channelId: String): ChannelPersonalizationEntity?
+
     @Query("SELECT * FROM custom_groups ORDER BY sourceId ASC, manualOrder ASC, groupId ASC")
     suspend fun getCustomGroups(): List<CustomGroupEntity>
 

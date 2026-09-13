@@ -68,6 +68,11 @@ object SourceRefreshFailurePolicy {
                 safeMessage = "The source address is invalid. Check the server URL and port.",
             )
 
+            hasPrefix("M3U_") -> SourceError(
+                code = "REFRESH_M3U_FORMAT",
+                safeMessage = "The playlist was read, but it did not contain a usable M3U catalog. The last known catalog was preserved.",
+            )
+
             has("XTREAM_JSON") || has("XTREAM_ARRAY_FORMAT") || hasPrefix("XTREAM_") -> SourceError(
                 code = "REFRESH_XTREAM_FORMAT",
                 safeMessage = "The server responded, but not with a compatible Xtream catalog. Check the base URL, port, username, and password.",
