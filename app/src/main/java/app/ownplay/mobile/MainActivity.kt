@@ -18,17 +18,22 @@ import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.lifecycleScope
+import app.ownplay.mobile.app.ContentFullscreenKind
 import app.ownplay.mobile.app.OwnPlayApp
 import app.ownplay.mobile.core.OwnPlayServices
 import app.ownplay.mobile.playback.domain.FullscreenOrientationLatch
+import app.ownplay.mobile.playback.domain.PhysicalOrientationBand
 import app.ownplay.mobile.playback.domain.PictureInPicturePolicy
+import app.ownplay.mobile.playback.domain.PlaybackKind
 import app.ownplay.mobile.playback.domain.PlaybackSnapshot
 import app.ownplay.mobile.playback.domain.PlayerLocalControlPolicy
+import app.ownplay.mobile.playback.domain.StableOrientationLatch
 import app.ownplay.mobile.playback.domain.VideoTarget
 import app.ownplay.mobile.playback.ui.PlayerLocalControlHud
 import kotlinx.coroutines.flow.combine
@@ -37,13 +42,17 @@ import kotlinx.coroutines.launch
 class MainActivity : ComponentActivity() {
     private lateinit var ownPlayApplication: OwnPlayApplication
     private lateinit var services: OwnPlayServices
-    private var contentFullscreen = false
+    private var contentFullscreenKind = ContentFullscreenKind.NONE
     private var pictureInPictureEnabled = true
     private var playbackSnapshot = PlaybackSnapshot()
     private var resumePlaybackAfterBackground = false
     private var appPlaybackVolume = 1f
     private val systemAutoRotateEnabled = mutableStateOf(false)
-    private val fullscreenOrientationLatch = FullscreenOrientationLatch()
+    private val liveAutoFullscreenRequestToken = mutableIntStateOf(0)
+    private val livePreviewLandscapeLatch = StableOrientationLatch(
+        targetBand = PhysicalOrientationBand.LANDSCAPE,
+    )
+    private val liveFullscreenOrientationLatch = FullscreenOrientationLatch()
     private var autoRotateObserver: ContentObserver? = null
     private var fullscreenOrientationListener: OrientationEventListener? = null
 
@@ -62,11 +71,16 @@ class MainActivity : ComponentActivity() {
             ) { settings, playback ->
                 settings.pictureInPictureEnabled to playback
             }.collect { (enabled, playback) ->
+                val wasLivePreview = isLivePreview(playbackSnapshot)
                 pictureInPictureEnabled = enabled
                 playbackSnapshot = playback
                 appPlaybackVolume = playback.volume
                 if (playback.mediaId == null) {
                     resetOwnPlayBrightness()
+                }
+                if (wasLivePreview != isLivePreview(playback)) {
+                    livePreviewLandscapeLatch.reset()
+                    updateFullscreenOrientationListener()
                 }
                 updatePictureInPictureParams()
             }
@@ -75,6 +89,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             OwnPlayApp(
                 services = services,
+                liveAutoFullscreenRequestToken = liveAutoFullscreenRequestToken.intValue,
                 onExitConfirmed = { finish() },
                 onFullscreenChanged = ::handleContentFullscreenChanged,
             )
@@ -138,12 +153,12 @@ class MainActivity : ComponentActivity() {
             }
 
             !isInPictureInPictureMode &&
-                contentFullscreen &&
+                contentFullscreenKind.isFullscreen &&
                 currentTarget == VideoTarget.PIP -> lifecycleScope.launch {
                 services.playbackController.transferVideoTarget(VideoTarget.FULLSCREEN)
             }
         }
-        fullscreenOrientationLatch.reset()
+        resetOrientationLatches()
         updateFullscreenOrientationListener()
     }
 
@@ -231,10 +246,8 @@ class MainActivity : ComponentActivity() {
         if (systemAutoRotateEnabled.value == enabled) return
 
         systemAutoRotateEnabled.value = enabled
-        fullscreenOrientationLatch.reset()
-        if (contentFullscreen) {
-            setContentOrientation(fullscreen = true)
-        }
+        resetOrientationLatches()
+        setContentOrientation(contentFullscreenKind)
         updateFullscreenOrientationListener()
     }
 
@@ -243,20 +256,37 @@ class MainActivity : ComponentActivity() {
             override fun onOrientationChanged(orientation: Int) {
                 if (
                     orientation == ORIENTATION_UNKNOWN ||
-                    !contentFullscreen ||
                     !systemAutoRotateEnabled.value ||
                     isInPictureInPictureMode
                 ) {
                     return
                 }
-                if (
-                    fullscreenOrientationLatch.onOrientation(
-                        orientationDegrees = orientation,
-                        elapsedRealtimeMillis = SystemClock.elapsedRealtime(),
-                    )
-                ) {
-                    fullscreenOrientationLatch.reset()
-                    onBackPressedDispatcher.onBackPressed()
+
+                val now = SystemClock.elapsedRealtime()
+                when {
+                    contentFullscreenKind == ContentFullscreenKind.LIVE -> {
+                        if (
+                            liveFullscreenOrientationLatch.onOrientation(
+                                orientationDegrees = orientation,
+                                elapsedRealtimeMillis = now,
+                            )
+                        ) {
+                            liveFullscreenOrientationLatch.reset()
+                            onBackPressedDispatcher.onBackPressed()
+                        }
+                    }
+
+                    isLivePreview() -> {
+                        if (
+                            livePreviewLandscapeLatch.onOrientation(
+                                orientationDegrees = orientation,
+                                elapsedRealtimeMillis = now,
+                            )
+                        ) {
+                            livePreviewLandscapeLatch.reset()
+                            liveAutoFullscreenRequestToken.intValue += 1
+                        }
+                    }
                 }
             }
         }
@@ -266,7 +296,12 @@ class MainActivity : ComponentActivity() {
     private fun updateFullscreenOrientationListener() {
         val listener = fullscreenOrientationListener ?: return
         val shouldListen =
-            contentFullscreen && systemAutoRotateEnabled.value && !isInPictureInPictureMode
+            systemAutoRotateEnabled.value &&
+                !isInPictureInPictureMode &&
+                (
+                    contentFullscreenKind == ContentFullscreenKind.LIVE ||
+                        isLivePreview()
+                    )
         if (shouldListen && listener.canDetectOrientation()) {
             listener.enable()
         } else {
@@ -274,27 +309,46 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun handleContentFullscreenChanged(fullscreen: Boolean) {
-        contentFullscreen = fullscreen
-        fullscreenOrientationLatch.reset()
-        setContentOrientation(fullscreen)
+    private fun handleContentFullscreenChanged(kind: ContentFullscreenKind) {
+        contentFullscreenKind = kind
+        resetOrientationLatches()
+        setContentOrientation(kind)
         updateFullscreenOrientationListener()
         updatePictureInPictureParams()
         window.decorView.postOnAnimation {
-            if (contentFullscreen != fullscreen || isFinishing || isDestroyed) {
+            if (contentFullscreenKind != kind || isFinishing || isDestroyed) {
                 return@postOnAnimation
             }
-            setImmersiveFullscreen(fullscreen)
+            setImmersiveFullscreen(kind.isFullscreen)
         }
     }
 
-    private fun setContentOrientation(fullscreen: Boolean) {
-        requestedOrientation = when {
-            !fullscreen -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-            systemAutoRotateEnabled.value -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-            else -> ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+    private fun setContentOrientation(kind: ContentFullscreenKind) {
+        requestedOrientation = when (kind) {
+            ContentFullscreenKind.NONE -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            ContentFullscreenKind.LIVE -> if (systemAutoRotateEnabled.value) {
+                ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            } else {
+                ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+            }
+            ContentFullscreenKind.LIBRARY -> if (systemAutoRotateEnabled.value) {
+                ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
+            } else {
+                ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+            }
         }
     }
+
+    private fun resetOrientationLatches() {
+        livePreviewLandscapeLatch.reset()
+        liveFullscreenOrientationLatch.reset()
+    }
+
+    private fun isLivePreview(snapshot: PlaybackSnapshot = playbackSnapshot): Boolean =
+        contentFullscreenKind == ContentFullscreenKind.NONE &&
+            snapshot.kind == PlaybackKind.LIVE &&
+            snapshot.mediaId != null &&
+            snapshot.activeTarget == VideoTarget.PREVIEW
 
     private fun setImmersiveFullscreen(fullscreen: Boolean) {
         val controller = WindowCompat.getInsetsController(window, window.decorView)
@@ -309,7 +363,7 @@ class MainActivity : ComponentActivity() {
 
     private fun canEnterPictureInPicture(): Boolean = PictureInPicturePolicy.canEnter(
         enabled = pictureInPictureEnabled,
-        contentFullscreen = contentFullscreen,
+        contentFullscreen = contentFullscreenKind.isFullscreen,
         playback = playbackSnapshot,
     )
 
