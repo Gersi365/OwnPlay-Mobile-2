@@ -312,15 +312,17 @@ class LiveRepositoryImpl(
                 else -> return failure("SOURCE_TYPE_UNSUPPORTED", "This source type is not supported.")
             }
 
+            val personalization = catalogDao.getChannelPersonalization(channel.channelId)
             LivePlaybackResolution.Success(
                 ResolvedLivePlayback(
                     channel = LiveChannel(
                         channelId = channel.channelId,
                         sourceId = channel.sourceId,
                         categoryKey = channel.categoryKey,
-                        name = channel.name,
-                        logoUrl = channel.logoUrl,
-                        sortOrder = channel.providerOrder,
+                        name = personalization?.localName ?: channel.name,
+                        logoUrl = personalization?.localLogo ?: channel.logoUrl,
+                        sortOrder = personalization?.manualOrder ?: channel.providerOrder,
+                        favorite = personalization?.favorite ?: false,
                     ),
                     uri = uri,
                     streamFormat = streamFormatFor(uri),
