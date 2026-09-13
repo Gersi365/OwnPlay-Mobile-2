@@ -6,6 +6,7 @@ import app.ownplay.mobile.data.db.DownloadEntity
 import app.ownplay.mobile.data.db.EpisodeEntity
 import app.ownplay.mobile.data.db.EpisodeLibraryView
 import app.ownplay.mobile.data.db.LibraryDao
+import app.ownplay.mobile.data.db.MediaFavoriteEntity
 import app.ownplay.mobile.data.db.MovieEntity
 import app.ownplay.mobile.data.db.OwnPlayDatabase
 import app.ownplay.mobile.data.db.PlaybackProgressEntity
@@ -279,6 +280,38 @@ class LibraryRepositoryImpl(
         }
     }
 
+    override suspend fun setMovieFavorite(movieId: String, favorite: Boolean) {
+        if (movieId.isBlank()) return
+        val movie = libraryDao.getMovie(movieId) ?: return
+        setMediaFavorite(movie.sourceId, FAVORITE_KIND_MOVIE, movie.movieId, favorite)
+    }
+
+    override suspend fun setSeriesFavorite(seriesId: String, favorite: Boolean) {
+        if (seriesId.isBlank()) return
+        val series = libraryDao.getSeries(seriesId) ?: return
+        setMediaFavorite(series.sourceId, FAVORITE_KIND_SERIES, series.seriesId, favorite)
+    }
+
+    private suspend fun setMediaFavorite(
+        sourceId: String,
+        mediaKind: String,
+        contentId: String,
+        favorite: Boolean,
+    ) {
+        if (favorite) {
+            libraryDao.upsertMediaFavorite(
+                MediaFavoriteEntity(
+                    sourceId = sourceId,
+                    mediaKind = mediaKind,
+                    contentId = contentId,
+                    addedAt = nowMillis(),
+                ),
+            )
+        } else {
+            libraryDao.deleteMediaFavorite(sourceId, mediaKind, contentId)
+        }
+    }
+
     private fun observeRows(sourceId: String): Flow<LibraryRows> {
         val coreRows = combine(
             libraryDao.observeAvailableMovies(sourceId),
@@ -297,7 +330,8 @@ class LibraryRepositoryImpl(
             categoryRows,
             libraryDao.observeIncompleteProgress(sourceId),
             libraryDao.observeCompletedDownloads(sourceId),
-        ) { core, categories, progress, downloads ->
+            libraryDao.observeMediaFavorites(sourceId),
+        ) { core, categories, progress, downloads, favorites ->
             // Library home only needs episode metadata for active Continue Watching rows.
             // Do not materialize every episode in a large provider catalog on each emission.
             val progressEpisodes = mutableListOf<EpisodeLibraryView>()
@@ -321,6 +355,7 @@ class LibraryRepositoryImpl(
                 seriesCategories = categories.seriesCategories,
                 progress = progress,
                 downloads = downloads,
+                favorites = favorites,
             )
         }
     }
@@ -329,13 +364,22 @@ class LibraryRepositoryImpl(
         val progressByKey = progress.associateBy { row ->
             ProgressKey(row.mediaKind.uppercase(Locale.US), row.contentId)
         }
+        val favoriteKeys = favorites.mapTo(mutableSetOf()) { row ->
+            FavoriteKey(row.mediaKind.uppercase(Locale.US), row.contentId)
+        }
         val movieModels = movies.map { movie ->
-            movie.toDomain(progressByKey[ProgressKey(LibraryMediaKind.MOVIE.name, movie.movieId)])
+            movie.toDomain(
+                progress = progressByKey[ProgressKey(LibraryMediaKind.MOVIE.name, movie.movieId)],
+                favorite = FavoriteKey(FAVORITE_KIND_MOVIE, movie.movieId) in favoriteKeys,
+            )
+        }
+        val seriesModels = series.map { item ->
+            item.toDomain(favorite = FavoriteKey(FAVORITE_KIND_SERIES, item.seriesId) in favoriteKeys)
         }
         val episodeModels = episodes.map { it.toDomain() }
         val movieById = movieModels.associateBy { it.movieId }
         val episodeById = episodeModels.associateBy { it.episodeId }
-        val seriesById = series.associateBy { it.seriesId }
+        val seriesById = seriesModels.associateBy { it.seriesId }
 
         val continueItems = progress.mapNotNull { row ->
             if (row.completed || row.positionMs <= 0L || row.durationMs <= 0L) {
@@ -383,7 +427,7 @@ class LibraryRepositoryImpl(
             movieCategories = movieCategories.map { LibraryCategory(it.categoryKey, it.name, it.providerOrder) },
             movies = LibraryOrderingPolicy.movies(movieModels),
             seriesCategories = seriesCategories.map { LibraryCategory(it.categoryKey, it.name, it.providerOrder) },
-            series = LibraryOrderingPolicy.series(series.map { it.toDomain() }),
+            series = LibraryOrderingPolicy.series(seriesModels),
             downloadedMedia = LibraryOrderingPolicy.downloadedMedia(downloadModels),
         )
     }
@@ -412,7 +456,10 @@ class LibraryRepositoryImpl(
         return credentialStore.get(source.sourceId) as? SourceCredential.Xtream
     }
 
-    private fun MovieEntity.toDomain(progress: PlaybackProgressEntity?): LibraryMovie {
+    private fun MovieEntity.toDomain(
+        progress: PlaybackProgressEntity?,
+        favorite: Boolean = false,
+    ): LibraryMovie {
         val validProgress = progress?.takeIf { !it.completed && it.positionMs > 0L && it.durationMs > 0L }
         return LibraryMovie(
             movieId = movieId,
@@ -425,10 +472,11 @@ class LibraryRepositoryImpl(
             providerOrder = providerOrder,
             resumePositionMs = validProgress?.positionMs,
             durationMs = validProgress?.durationMs,
+            favorite = favorite,
         )
     }
 
-    private fun SeriesEntity.toDomain(): LibrarySeries = LibrarySeries(
+    private fun SeriesEntity.toDomain(favorite: Boolean = false): LibrarySeries = LibrarySeries(
         seriesId = seriesId,
         sourceId = sourceId,
         categoryKey = categoryKey,
@@ -438,6 +486,7 @@ class LibraryRepositoryImpl(
         description = description,
         rating = rating,
         providerOrder = providerOrder,
+        favorite = favorite,
     )
 
     private fun EpisodeLibraryView.toDomain(): LibraryEpisode {
@@ -482,6 +531,11 @@ class LibraryRepositoryImpl(
         val contentId: String,
     )
 
+    private data class FavoriteKey(
+        val mediaKind: String,
+        val contentId: String,
+    )
+
     private data class CoreRows(
         val movies: List<MovieEntity>,
         val series: List<SeriesEntity>,
@@ -500,5 +554,11 @@ class LibraryRepositoryImpl(
         val seriesCategories: List<ProviderCategoryEntity>,
         val progress: List<PlaybackProgressEntity>,
         val downloads: List<DownloadEntity>,
+        val favorites: List<MediaFavoriteEntity>,
     )
+
+    private companion object {
+        const val FAVORITE_KIND_MOVIE = "MOVIE"
+        const val FAVORITE_KIND_SERIES = "SERIES"
+    }
 }

@@ -16,6 +16,7 @@ data class LiveChannelView(
     val name: String,
     val logoUrl: String?,
     val streamLocator: String,
+    val favorite: Boolean,
     val sortOrder: Int,
 )
 
@@ -35,6 +36,8 @@ data class ManageableLiveChannelView(
     val name: String,
     val logoUrl: String?,
     val providerOrder: Int,
+    val favorite: Boolean,
+    val localName: String?,
     val hidden: Boolean,
     val manualOrder: Int?,
 )
@@ -154,6 +157,7 @@ interface CatalogDao {
             COALESCE(p.localName, c.name) AS name,
             COALESCE(p.localLogo, c.logoUrl) AS logoUrl,
             c.streamLocator AS streamLocator,
+            COALESCE(p.favorite, 0) AS favorite,
             COALESCE(p.manualOrder, c.providerOrder) AS sortOrder
         FROM live_channels AS c
         LEFT JOIN channel_personalization AS p ON p.channelId = c.channelId
@@ -184,6 +188,8 @@ interface CatalogDao {
             COALESCE(p.localName, c.name) AS name,
             COALESCE(p.localLogo, c.logoUrl) AS logoUrl,
             c.providerOrder AS providerOrder,
+            COALESCE(p.favorite, 0) AS favorite,
+            p.localName AS localName,
             COALESCE(p.hidden, 0) AS hidden,
             p.manualOrder AS manualOrder
         FROM live_channels AS c
@@ -286,6 +292,39 @@ interface LibraryDao {
         """,
     )
     fun observeAvailableSeries(sourceId: String): Flow<List<SeriesEntity>>
+
+    @Query(
+        """
+        SELECT * FROM media_favorites
+        WHERE sourceId = :sourceId
+        ORDER BY addedAt DESC, mediaKind ASC, contentId ASC
+        """,
+    )
+    fun observeMediaFavorites(sourceId: String): Flow<List<MediaFavoriteEntity>>
+
+    @Query(
+        """
+        SELECT * FROM media_favorites
+        WHERE sourceId = :sourceId
+          AND mediaKind = :mediaKind
+          AND contentId = :contentId
+        LIMIT 1
+        """,
+    )
+    suspend fun getMediaFavorite(sourceId: String, mediaKind: String, contentId: String): MediaFavoriteEntity?
+
+    @Upsert
+    suspend fun upsertMediaFavorite(row: MediaFavoriteEntity)
+
+    @Query(
+        """
+        DELETE FROM media_favorites
+        WHERE sourceId = :sourceId
+          AND mediaKind = :mediaKind
+          AND contentId = :contentId
+        """,
+    )
+    suspend fun deleteMediaFavorite(sourceId: String, mediaKind: String, contentId: String): Int
 
     @Query(
         """

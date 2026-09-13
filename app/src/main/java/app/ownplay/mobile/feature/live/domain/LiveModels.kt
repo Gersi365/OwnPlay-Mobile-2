@@ -16,6 +16,7 @@ data class LiveChannel(
     val name: String,
     val logoUrl: String?,
     val sortOrder: Int,
+    val favorite: Boolean = false,
 )
 
 data class LiveCatalog(
@@ -41,6 +42,8 @@ data class ManageableLiveChannel(
     val name: String,
     val logoUrl: String?,
     val providerOrder: Int,
+    val favorite: Boolean,
+    val localName: String?,
     val hidden: Boolean,
     val manualOrder: Int?,
 )
@@ -90,6 +93,8 @@ interface LiveRepository {
     suspend fun resolvePlayback(channelId: String): LivePlaybackResolution
     suspend fun setCategoryHidden(sourceId: String, categoryKey: String, hidden: Boolean)
     suspend fun setChannelHidden(channelId: String, hidden: Boolean)
+    suspend fun setChannelFavorite(channelId: String, favorite: Boolean)
+    suspend fun setChannelLocalName(channelId: String, localName: String?)
     suspend fun setCategoryOrder(sourceId: String, orderedCategoryKeys: List<String>)
     suspend fun setChannelOrder(orderedChannelIds: List<String>)
     suspend fun resetCategoryOrder(sourceId: String, categoryKeys: List<String>)

@@ -115,6 +115,7 @@ fun LiveShell(
     var orientationFullscreenArmed by remember { mutableStateOf(true) }
     var searchVisible by remember(catalog?.activeSourceId) { mutableStateOf(false) }
     var searchQuery by remember(catalog?.activeSourceId) { mutableStateOf("") }
+    var favoritesOnly by remember(catalog?.activeSourceId) { mutableStateOf(false) }
 
     fun applyEffect(effect: LiveEffect) {
         when (effect) {
@@ -180,16 +181,26 @@ fun LiveShell(
     val activeCategoryKey = LiveBrowsePolicy.activeCategoryKey(categories, selectedCategoryKey)
     val normalizedSearchQuery = searchQuery.trim()
     val searchActive = normalizedSearchQuery.isNotEmpty()
-    val visibleChannels = remember(channels, activeCategoryKey, searchActive, normalizedSearchQuery) {
-        if (searchActive) {
-            channels.filter { channel -> channel.name.contains(normalizedSearchQuery, ignoreCase = true) }
-        } else {
-            activeCategoryKey?.let { key ->
+    val favoriteChannels = remember(channels) { LiveBrowsePolicy.favoriteChannels(channels) }
+    val visibleChannels = remember(
+        channels,
+        favoriteChannels,
+        activeCategoryKey,
+        favoritesOnly,
+        searchActive,
+        normalizedSearchQuery,
+    ) {
+        when {
+            searchActive -> channels.filter { channel ->
+                channel.name.contains(normalizedSearchQuery, ignoreCase = true)
+            }
+            favoritesOnly -> favoriteChannels
+            else -> activeCategoryKey?.let { key ->
                 channels.filter { channel -> channel.categoryKey == key }
             } ?: channels
         }
     }
-    val showCategories = categories.isNotEmpty() && !searchActive
+    val showCategories = !searchActive && (categories.isNotEmpty() || favoriteChannels.isNotEmpty())
     val selectedChannel = remember(channels, presentationState.selectedChannelId) {
         channels.firstOrNull { it.channelId == presentationState.selectedChannelId }
     }
@@ -205,6 +216,10 @@ fun LiveShell(
             playback.audioTrackSelected == false ->
             "Audio track could not be selected: ${AudioFormatLabelPolicy.describe(playback.audioMimeType, playback.audioCodecs)}."
         else -> null
+    }
+
+    LaunchedEffect(favoriteChannels.isEmpty(), favoritesOnly) {
+        if (favoritesOnly && favoriteChannels.isEmpty()) favoritesOnly = false
     }
 
     LaunchedEffect(categories, selectedCategoryKey) {
@@ -319,6 +334,8 @@ fun LiveShell(
             waitingForInitialChannels = waitingForInitialChannels,
             channels = visibleChannels,
             categories = categories,
+            favoriteCount = favoriteChannels.size,
+            favoritesOnly = favoritesOnly,
             liveRepository = liveRepository,
             selectedCategoryKey = activeCategoryKey,
             searchVisible = searchVisible,
@@ -329,7 +346,17 @@ fun LiveShell(
                 if (!searchVisible) searchQuery = ""
             },
             onSearchQueryChange = { searchQuery = it },
+            onFavoriteFilterSelected = {
+                favoritesOnly = true
+                if (
+                    presentationState.presentation == LivePresentation.PREVIEW &&
+                    selectedChannel?.favorite != true
+                ) {
+                    dispatch(LiveIntent.BackPressed)
+                }
+            },
             onCategorySelected = { categoryKey ->
+                favoritesOnly = false
                 selectedCategoryKey = categoryKey
                 if (
                     presentationState.presentation == LivePresentation.PREVIEW &&
@@ -348,6 +375,17 @@ fun LiveShell(
             showChannelLogos = showChannelLogos,
             listState = browseListState,
             onChannelTapped = { channel -> dispatch(LiveIntent.ChannelTapped(channel.channelId)) },
+            onChannelFavoriteToggle = { channel ->
+                scope.launch { liveRepository.setChannelFavorite(channel.channelId, !channel.favorite) }
+                if (
+                    favoritesOnly &&
+                    channel.favorite &&
+                    presentationState.presentation == LivePresentation.PREVIEW &&
+                    selectedChannel?.channelId == channel.channelId
+                ) {
+                    dispatch(LiveIntent.BackPressed)
+                }
+            },
             modifier = modifier,
         )
     }
@@ -359,6 +397,8 @@ private fun LiveBrowseAndPreview(
     waitingForInitialChannels: Boolean,
     channels: List<LiveChannel>,
     categories: List<LiveCategory>,
+    favoriteCount: Int,
+    favoritesOnly: Boolean,
     liveRepository: LiveRepository,
     selectedCategoryKey: String?,
     searchVisible: Boolean,
@@ -366,6 +406,7 @@ private fun LiveBrowseAndPreview(
     showCategories: Boolean,
     onSearchToggle: () -> Unit,
     onSearchQueryChange: (String) -> Unit,
+    onFavoriteFilterSelected: () -> Unit,
     onCategorySelected: (String?) -> Unit,
     selectedChannel: LiveChannel?,
     playbackController: PlaybackController,
@@ -377,6 +418,7 @@ private fun LiveBrowseAndPreview(
     showChannelLogos: Boolean,
     listState: LazyListState,
     onChannelTapped: (LiveChannel) -> Unit,
+    onChannelFavoriteToggle: (LiveChannel) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     LaunchedEffect(selectedChannel?.channelId, selectedCategoryKey, channels, categories) {
@@ -437,7 +479,10 @@ private fun LiveBrowseAndPreview(
             item {
                 LiveCategoryStrip(
                     categories = categories,
+                    favoriteCount = favoriteCount,
+                    favoritesOnly = favoritesOnly,
                     selectedCategoryKey = selectedCategoryKey,
+                    onFavoritesSelected = onFavoriteFilterSelected,
                     onSelected = onCategorySelected,
                 )
             }
@@ -523,6 +568,7 @@ private fun LiveBrowseAndPreview(
                             selected = selected,
                             guide = guide,
                             showChannelLogos = showChannelLogos,
+                            onFavoriteToggle = { onChannelFavoriteToggle(channel) },
                             onClick = { onChannelTapped(channel) },
                         )
                     }
@@ -565,17 +611,29 @@ private fun LivePreviewBlock(
 @Composable
 private fun LiveCategoryStrip(
     categories: List<LiveCategory>,
+    favoriteCount: Int,
+    favoritesOnly: Boolean,
     selectedCategoryKey: String?,
+    onFavoritesSelected: () -> Unit,
     onSelected: (String?) -> Unit,
 ) {
     LazyRow(
         contentPadding = PaddingValues(horizontal = OwnPlaySpacing.Lg),
         horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Xs),
     ) {
+        if (favoriteCount > 0) {
+            item(key = "ownplay-favorites") {
+                OwnPlayFilterChip(
+                    label = "Favorites",
+                    selected = favoritesOnly,
+                    onClick = onFavoritesSelected,
+                )
+            }
+        }
         items(categories, key = { it.categoryKey }) { category ->
             OwnPlayFilterChip(
                 label = category.name,
-                selected = selectedCategoryKey == category.categoryKey,
+                selected = !favoritesOnly && selectedCategoryKey == category.categoryKey,
                 onClick = { onSelected(category.categoryKey) },
             )
         }
@@ -722,6 +780,7 @@ private fun ChannelRow(
     selected: Boolean,
     guide: LiveNowNext,
     showChannelLogos: Boolean,
+    onFavoriteToggle: () -> Unit,
     onClick: () -> Unit,
 ) {
     Surface(
@@ -780,6 +839,14 @@ private fun ChannelRow(
                     }
                 }
             }
+            Text(
+                text = if (channel.favorite) "★" else "☆",
+                modifier = Modifier
+                    .clickable(onClick = onFavoriteToggle)
+                    .padding(horizontal = 10.dp, vertical = 10.dp),
+                style = MaterialTheme.typography.titleMedium,
+                color = if (channel.favorite) OwnPlayColors.Accent else OwnPlayColors.TextMuted,
+            )
             Text(
                 text = "›",
                 style = MaterialTheme.typography.titleLarge,
