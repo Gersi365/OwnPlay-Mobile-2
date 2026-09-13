@@ -197,7 +197,7 @@ class MainActivity : ComponentActivity() {
 
     private fun setContentOrientation(fullscreen: Boolean) {
         requestedOrientation = if (fullscreen) {
-            ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
         } else {
             ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         }

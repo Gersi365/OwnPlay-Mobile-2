@@ -13,6 +13,7 @@ data class LivePresentationState(
 
 sealed interface LiveIntent {
     data class ChannelTapped(val channelId: String) : LiveIntent
+    data class ChannelSwitched(val channelId: String) : LiveIntent
     data object BackPressed : LiveIntent
     data class ChannelUnavailable(val channelId: String) : LiveIntent
 }
@@ -33,6 +34,7 @@ object LivePresentationReducer {
         intent: LiveIntent,
     ): LiveTransition = when (intent) {
         is LiveIntent.ChannelTapped -> onChannelTapped(state, intent.channelId)
+        is LiveIntent.ChannelSwitched -> onChannelSwitched(state, intent.channelId)
         LiveIntent.BackPressed -> onBackPressed(state)
         is LiveIntent.ChannelUnavailable -> onChannelUnavailable(state, intent.channelId)
     }
@@ -59,6 +61,22 @@ object LivePresentationReducer {
                 effects = listOf(LiveEffect.LoadChannel(channelId)),
             )
         }
+    }
+
+    private fun onChannelSwitched(
+        state: LivePresentationState,
+        channelId: String,
+    ): LiveTransition {
+        require(channelId.isNotBlank()) { "Channel id must not be blank." }
+
+        if (state.presentation == LivePresentation.BROWSE || state.selectedChannelId == channelId) {
+            return LiveTransition(state = state)
+        }
+
+        return LiveTransition(
+            state = state.copy(selectedChannelId = channelId),
+            effects = listOf(LiveEffect.LoadChannel(channelId)),
+        )
     }
 
     private fun onBackPressed(state: LivePresentationState): LiveTransition = when (state.presentation) {

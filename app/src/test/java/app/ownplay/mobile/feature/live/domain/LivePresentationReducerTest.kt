@@ -48,6 +48,42 @@ class LivePresentationReducerTest {
     }
 
     @Test
+    fun channelSwitchGestureKeepsFullscreenAndLoadsOnlyNewChannel() {
+        val transition = LivePresentationReducer.reduce(
+            LivePresentationState(
+                presentation = LivePresentation.FULLSCREEN,
+                selectedChannelId = "channel-1",
+            ),
+            LiveIntent.ChannelSwitched("channel-2"),
+        )
+
+        assertEquals(LivePresentation.FULLSCREEN, transition.state.presentation)
+        assertEquals("channel-2", transition.state.selectedChannelId)
+        assertEquals(listOf(LiveEffect.LoadChannel("channel-2")), transition.effects)
+    }
+
+    @Test
+    fun channelSwitchGestureDoesNotReloadSameChannelOrStartPlaybackFromBrowse() {
+        val fullscreenState = LivePresentationState(
+            presentation = LivePresentation.FULLSCREEN,
+            selectedChannelId = "channel-1",
+        )
+        val sameChannel = LivePresentationReducer.reduce(
+            fullscreenState,
+            LiveIntent.ChannelSwitched("channel-1"),
+        )
+        val browse = LivePresentationReducer.reduce(
+            LivePresentationState(),
+            LiveIntent.ChannelSwitched("channel-2"),
+        )
+
+        assertEquals(fullscreenState, sameChannel.state)
+        assertTrue(sameChannel.effects.isEmpty())
+        assertEquals(LivePresentationState(), browse.state)
+        assertTrue(browse.effects.isEmpty())
+    }
+
+    @Test
     fun backFromFullscreenReturnsToSamePreviewWithoutReload() {
         val transition = LivePresentationReducer.reduce(
             LivePresentationState(

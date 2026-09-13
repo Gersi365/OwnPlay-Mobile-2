@@ -9,4 +9,9 @@ internal object LiveOrientationPolicy {
 
     fun shouldAutoEnterFullscreen(orientationDegrees: Int, armed: Boolean): Boolean =
         armed && isLandscape(orientationDegrees)
+
+    fun shouldAutoExitFullscreen(
+        previousOrientationDegrees: Int?,
+        orientationDegrees: Int,
+    ): Boolean = previousOrientationDegrees?.let(::isLandscape) == true && isPortrait(orientationDegrees)
 }
