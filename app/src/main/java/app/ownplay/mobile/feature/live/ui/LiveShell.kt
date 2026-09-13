@@ -91,6 +91,7 @@ import app.ownplay.mobile.playback.ui.playerLocalVerticalControls
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -108,58 +109,79 @@ fun LiveShell(
     val playback by playbackController.state.collectAsState()
     val scope = rememberCoroutineScope()
     val browseListState = rememberLazyListState()
+    val channelLoadGeneration = remember { AtomicLong(0L) }
 
     var presentationState by remember { mutableStateOf(LivePresentationState()) }
     var resolutionError by remember { mutableStateOf<String?>(null) }
     var fallbackLoadRequest by remember { mutableStateOf<PlaybackLoadRequest?>(null) }
     var waitingForInitialChannels by remember(catalog?.activeSourceId) { mutableStateOf(false) }
     var orientationFullscreenArmed by remember { mutableStateOf(true) }
+    var lastStableOrientationDegrees by remember { mutableStateOf<Int?>(null) }
     var searchVisible by remember(catalog?.activeSourceId) { mutableStateOf(false) }
     var searchQuery by remember(catalog?.activeSourceId) { mutableStateOf("") }
     var favoritesOnly by remember(catalog?.activeSourceId) { mutableStateOf(false) }
 
     fun applyEffect(effect: LiveEffect) {
         when (effect) {
-            is LiveEffect.LoadChannel -> scope.launch {
-                resolutionError = null
-                when (val resolved = liveRepository.resolvePlayback(effect.channelId)) {
-                    is LivePlaybackResolution.Success -> {
-                        fallbackLoadRequest = resolved.value.fallbackUri?.let { fallbackUri ->
-                            PlaybackLoadRequest(
-                                media = PlaybackMedia(
-                                    id = resolved.value.channel.channelId,
-                                    uri = fallbackUri,
-                                    title = resolved.value.channel.name,
-                                    kind = PlaybackKind.LIVE,
-                                    streamFormat = resolved.value.fallbackStreamFormat ?: resolved.value.streamFormat,
+            is LiveEffect.LoadChannel -> {
+                val generation = channelLoadGeneration.incrementAndGet()
+                scope.launch {
+                    resolutionError = null
+                    fallbackLoadRequest = null
+                    when (val resolved = liveRepository.resolvePlayback(effect.channelId)) {
+                        is LivePlaybackResolution.Success -> {
+                            if (
+                                channelLoadGeneration.get() != generation ||
+                                presentationState.selectedChannelId != effect.channelId
+                            ) {
+                                return@launch
+                            }
+                            fallbackLoadRequest = resolved.value.fallbackUri?.let { fallbackUri ->
+                                PlaybackLoadRequest(
+                                    media = PlaybackMedia(
+                                        id = resolved.value.channel.channelId,
+                                        uri = fallbackUri,
+                                        title = resolved.value.channel.name,
+                                        kind = PlaybackKind.LIVE,
+                                        streamFormat = resolved.value.fallbackStreamFormat ?: resolved.value.streamFormat,
+                                    ),
+                                )
+                            }
+                            playbackController.load(
+                                PlaybackLoadRequest(
+                                    media = PlaybackMedia(
+                                        id = resolved.value.channel.channelId,
+                                        uri = resolved.value.uri,
+                                        title = resolved.value.channel.name,
+                                        kind = PlaybackKind.LIVE,
+                                        streamFormat = resolved.value.streamFormat,
+                                    ),
                                 ),
                             )
                         }
-                        playbackController.load(
-                            PlaybackLoadRequest(
-                                media = PlaybackMedia(
-                                    id = resolved.value.channel.channelId,
-                                    uri = resolved.value.uri,
-                                    title = resolved.value.channel.name,
-                                    kind = PlaybackKind.LIVE,
-                                    streamFormat = resolved.value.streamFormat,
-                                ),
-                            ),
-                        )
-                    }
 
-                    is LivePlaybackResolution.Failure -> {
-                        fallbackLoadRequest = null
-                        playbackController.stop(clearMedia = true)
-                        resolutionError = resolved.safeMessage
+                        is LivePlaybackResolution.Failure -> {
+                            if (
+                                channelLoadGeneration.get() != generation ||
+                                presentationState.selectedChannelId != effect.channelId
+                            ) {
+                                return@launch
+                            }
+                            fallbackLoadRequest = null
+                            playbackController.stop(clearMedia = true)
+                            resolutionError = resolved.safeMessage
+                        }
                     }
                 }
             }
 
-            LiveEffect.StopPlayback -> scope.launch {
-                resolutionError = null
-                fallbackLoadRequest = null
-                playbackController.stop(clearMedia = true)
+            LiveEffect.StopPlayback -> {
+                channelLoadGeneration.incrementAndGet()
+                scope.launch {
+                    resolutionError = null
+                    fallbackLoadRequest = null
+                    playbackController.stop(clearMedia = true)
+                }
             }
         }
     }
@@ -232,6 +254,38 @@ fun LiveShell(
         else -> null
     }
 
+    fun selectProviderCategory(categoryKey: String?) {
+        favoritesOnly = false
+        selectedCustomGroupId = null
+        selectedCategoryKey = categoryKey
+        if (
+            presentationState.presentation == LivePresentation.PREVIEW &&
+            selectedChannel?.categoryKey != categoryKey
+        ) {
+            dispatch(LiveIntent.BackPressed)
+        }
+    }
+
+    fun stepProviderCategory(direction: LiveNavigationDirection) {
+        if (searchActive || favoritesOnly || selectedCustomGroup != null) return
+        val nextCategoryKey = LiveGestureNavigationPolicy.adjacentKey(
+            keys = categories.map { it.categoryKey },
+            currentKey = activeCategoryKey,
+            direction = direction,
+        ) ?: return
+        selectProviderCategory(nextCategoryKey)
+    }
+
+    fun stepFullscreenChannel(direction: LiveNavigationDirection) {
+        val currentChannelId = presentationState.selectedChannelId ?: return
+        val nextChannelId = LiveGestureNavigationPolicy.adjacentKey(
+            keys = visibleChannels.map { it.channelId },
+            currentKey = currentChannelId,
+            direction = direction,
+        ) ?: return
+        dispatch(LiveIntent.ChannelSwitched(nextChannelId))
+    }
+
     LaunchedEffect(favoriteChannels.isEmpty(), favoritesOnly) {
         if (favoritesOnly && favoriteChannels.isEmpty()) favoritesOnly = false
     }
@@ -293,25 +347,46 @@ fun LiveShell(
         presentationState.selectedChannelId,
     ) {
         val selectedId = presentationState.selectedChannelId
-        if (presentationState.presentation != LivePresentation.PREVIEW || selectedId == null) {
+        if (presentationState.presentation == LivePresentation.BROWSE || selectedId == null) {
             onDispose { }
         } else {
             var landscapeTriggered = false
+            var portraitExitTriggered = false
             val listener = object : OrientationEventListener(orientationContext) {
                 override fun onOrientationChanged(orientation: Int) {
                     if (orientation == ORIENTATION_UNKNOWN) return
+                    val previousStableOrientation = lastStableOrientationDegrees
                     when {
                         LiveOrientationPolicy.isPortrait(orientation) -> {
+                            lastStableOrientationDegrees = orientation
                             landscapeTriggered = false
                             orientationFullscreenArmed = true
+                            if (
+                                presentationState.presentation == LivePresentation.FULLSCREEN &&
+                                LiveOrientationPolicy.shouldAutoExitFullscreen(
+                                    previousOrientationDegrees = previousStableOrientation,
+                                    orientationDegrees = orientation,
+                                ) &&
+                                !portraitExitTriggered
+                            ) {
+                                portraitExitTriggered = true
+                                dispatch(LiveIntent.BackPressed)
+                            }
                         }
-                        LiveOrientationPolicy.shouldAutoEnterFullscreen(
-                            orientationDegrees = orientation,
-                            armed = orientationFullscreenArmed,
-                        ) && !landscapeTriggered -> {
-                            landscapeTriggered = true
-                            orientationFullscreenArmed = false
-                            dispatch(LiveIntent.ChannelTapped(selectedId))
+                        LiveOrientationPolicy.isLandscape(orientation) -> {
+                            lastStableOrientationDegrees = orientation
+                            if (
+                                presentationState.presentation == LivePresentation.PREVIEW &&
+                                LiveOrientationPolicy.shouldAutoEnterFullscreen(
+                                    orientationDegrees = orientation,
+                                    armed = orientationFullscreenArmed,
+                                ) &&
+                                !landscapeTriggered
+                            ) {
+                                landscapeTriggered = true
+                                orientationFullscreenArmed = false
+                                dispatch(LiveIntent.ChannelTapped(selectedId))
+                            }
                         }
                     }
                 }
@@ -346,6 +421,8 @@ fun LiveShell(
                 orientationFullscreenArmed = false
                 dispatch(LiveIntent.BackPressed)
             },
+            onPreviousChannel = { stepFullscreenChannel(LiveNavigationDirection.PREVIOUS) },
+            onNextChannel = { stepFullscreenChannel(LiveNavigationDirection.NEXT) },
             modifier = modifier,
         )
     } else {
@@ -363,6 +440,9 @@ fun LiveShell(
             searchVisible = searchVisible,
             searchQuery = searchQuery,
             showCategories = showCategories,
+            categorySwipeEnabled = !searchActive && !favoritesOnly && selectedCustomGroup == null && categories.size > 1,
+            onPreviousCategoryGesture = { stepProviderCategory(LiveNavigationDirection.PREVIOUS) },
+            onNextCategoryGesture = { stepProviderCategory(LiveNavigationDirection.NEXT) },
             onSearchToggle = {
                 searchVisible = !searchVisible
                 if (!searchVisible) searchQuery = ""
@@ -389,17 +469,7 @@ fun LiveShell(
                     dispatch(LiveIntent.BackPressed)
                 }
             },
-            onCategorySelected = { categoryKey ->
-                favoritesOnly = false
-                selectedCustomGroupId = null
-                selectedCategoryKey = categoryKey
-                if (
-                    presentationState.presentation == LivePresentation.PREVIEW &&
-                    selectedChannel?.categoryKey != categoryKey
-                ) {
-                    dispatch(LiveIntent.BackPressed)
-                }
-            },
+            onCategorySelected = ::selectProviderCategory,
             selectedChannel = selectedChannel,
             playbackController = playbackController,
             controllerScope = scope,
@@ -441,6 +511,9 @@ private fun LiveBrowseAndPreview(
     searchVisible: Boolean,
     searchQuery: String,
     showCategories: Boolean,
+    categorySwipeEnabled: Boolean,
+    onPreviousCategoryGesture: () -> Unit,
+    onNextCategoryGesture: () -> Unit,
     onSearchToggle: () -> Unit,
     onSearchQueryChange: (String) -> Unit,
     onFavoriteFilterSelected: () -> Unit,
@@ -607,6 +680,11 @@ private fun LiveBrowseAndPreview(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .liveHorizontalNavigationGestures(
+                                enabled = categorySwipeEnabled,
+                                onPrevious = onPreviousCategoryGesture,
+                                onNext = onNextCategoryGesture,
+                            )
                             .padding(horizontal = OwnPlaySpacing.Lg, vertical = 3.dp),
                     ) {
                         ChannelRow(
@@ -955,6 +1033,8 @@ private fun FullscreenLive(
     audioCompatibilityMessage: String?,
     audioTracks: List<PlaybackAudioTrack>,
     onBackToPreview: () -> Unit,
+    onPreviousChannel: () -> Unit,
+    onNextChannel: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var overlayVisible by remember(channel.channelId) { mutableStateOf(true) }
@@ -995,6 +1075,19 @@ private fun FullscreenLive(
             modifier = Modifier
                 .fillMaxSize()
                 .playerLocalVerticalControls(playbackController, controllerScope)
+                .liveHorizontalNavigationGestures(
+                    enabled = !optionsVisible,
+                    onPrevious = {
+                        optionsVisible = false
+                        overlayVisible = true
+                        onPreviousChannel()
+                    },
+                    onNext = {
+                        optionsVisible = false
+                        overlayVisible = true
+                        onNextChannel()
+                    },
+                )
                 .clickable(
                     interactionSource = interactionSource,
                     indication = null,

@@ -131,6 +131,17 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        if (
+            contentFullscreen &&
+            newConfig.orientation == Configuration.ORIENTATION_LANDSCAPE &&
+            requestedOrientation != ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
+        ) {
+            requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
+        }
+    }
+
     override fun onStop() {
         if (!isChangingConfigurations) {
             when {
