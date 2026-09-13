@@ -49,6 +49,7 @@ class MainActivity : ComponentActivity() {
     private var appPlaybackVolume = 1f
     private val systemAutoRotateEnabled = mutableStateOf(false)
     private val liveAutoFullscreenRequestToken = mutableIntStateOf(0)
+    private val liveAutoPreviewRequestToken = mutableIntStateOf(0)
     private val livePreviewLandscapeLatch = StableOrientationLatch(
         targetBand = PhysicalOrientationBand.LANDSCAPE,
     )
@@ -90,6 +91,7 @@ class MainActivity : ComponentActivity() {
             OwnPlayApp(
                 services = services,
                 liveAutoFullscreenRequestToken = liveAutoFullscreenRequestToken.intValue,
+                liveAutoPreviewRequestToken = liveAutoPreviewRequestToken.intValue,
                 onExitConfirmed = { finish() },
                 onFullscreenChanged = ::handleContentFullscreenChanged,
             )
@@ -272,7 +274,7 @@ class MainActivity : ComponentActivity() {
                             )
                         ) {
                             liveFullscreenOrientationLatch.reset()
-                            onBackPressedDispatcher.onBackPressed()
+                            liveAutoPreviewRequestToken.intValue += 1
                         }
                     }
 
