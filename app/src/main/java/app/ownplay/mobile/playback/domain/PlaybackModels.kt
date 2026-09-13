@@ -12,6 +12,12 @@ enum class PlaybackStreamFormat {
     HLS,
 }
 
+enum class PlaybackResizeMode {
+    FIT,
+    FILL,
+    ZOOM,
+}
+
 data class PlaybackMedia(
     val id: String,
     val uri: String,
@@ -126,6 +132,7 @@ data class PlaybackSnapshot(
     val mediaId: String? = null,
     val title: String? = null,
     val kind: PlaybackKind? = null,
+    val streamFormat: PlaybackStreamFormat? = null,
     val phase: PlaybackPhase = PlaybackPhase.IDLE,
     val playWhenReady: Boolean = false,
     val isPlaying: Boolean = false,
@@ -133,6 +140,13 @@ data class PlaybackSnapshot(
     val positionMs: Long = 0L,
     val durationMs: Long? = null,
     val activeTarget: VideoTarget = VideoTarget.NONE,
+    val resizeMode: PlaybackResizeMode = PlaybackResizeMode.FIT,
+    val videoWidth: Int? = null,
+    val videoHeight: Int? = null,
+    val videoFrameRate: Float? = null,
+    val videoMimeType: String? = null,
+    val videoCodecs: String? = null,
+    val videoBitrate: Int? = null,
     val audioTracks: List<PlaybackAudioTrack> = emptyList(),
     val audioTrackPresent: Boolean? = null,
     val audioTrackSupported: Boolean? = null,
