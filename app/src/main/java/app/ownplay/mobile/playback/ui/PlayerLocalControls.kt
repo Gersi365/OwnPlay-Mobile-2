@@ -18,7 +18,12 @@ import kotlinx.coroutines.launch
 fun Modifier.playerLocalVerticalControls(
     playbackController: PlaybackController,
     controllerScope: CoroutineScope,
+    enabled: Boolean = true,
 ): Modifier = composed {
+    if (!enabled) {
+        return@composed this
+    }
+
     val context = LocalContext.current
     val activity = remember(context) { context.findActivity() }
 
