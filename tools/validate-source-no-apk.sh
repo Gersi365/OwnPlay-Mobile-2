@@ -5,6 +5,7 @@ set -euo pipefail
 # This script deliberately avoids assemble, bundle, package, install, and connected-device tasks.
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PINNED_GRADLE_VERSION="9.6.0"
 cd "$ROOT_DIR"
 
 find_packaged_artifacts() {
@@ -80,9 +81,17 @@ if [[ -x "./gradlew" ]]; then
 elif command -v gradle >/dev/null 2>&1; then
   GRADLE_CMD=("gradle")
 else
-  echo "ERROR: Gradle is not available. Install/provision the pinned Gradle version before validation." >&2
+  echo "ERROR: Gradle is not available. Install/provision Gradle $PINNED_GRADLE_VERSION before validation." >&2
   exit 3
 fi
+
+gradle_version="$("${GRADLE_CMD[@]}" --version | awk '/^Gradle / { print $2; exit }')"
+if [[ "$gradle_version" != "$PINNED_GRADLE_VERSION" ]]; then
+  echo "ERROR: Source validation requires Gradle $PINNED_GRADLE_VERSION; found ${gradle_version:-unknown}." >&2
+  exit 3
+fi
+
+echo "Validated Gradle version: $gradle_version"
 
 "${GRADLE_CMD[@]}" \
   :app:compileDebugKotlin \
