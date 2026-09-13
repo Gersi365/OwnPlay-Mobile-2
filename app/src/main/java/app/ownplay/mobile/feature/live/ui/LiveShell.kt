@@ -101,6 +101,7 @@ fun LiveShell(
     playbackController: PlaybackController,
     showChannelLogos: Boolean,
     autoFullscreenRequestToken: Int = 0,
+    autoPreviewRequestToken: Int = 0,
     onFullscreenChanged: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -291,6 +292,15 @@ fun LiveShell(
         ) {
             val channelId = selectedChannel?.channelId ?: return@LaunchedEffect
             dispatch(LiveIntent.ChannelTapped(channelId))
+        }
+    }
+
+    LaunchedEffect(autoPreviewRequestToken) {
+        if (
+            autoPreviewRequestToken > 0 &&
+            presentationState.presentation == LivePresentation.FULLSCREEN
+        ) {
+            dispatch(LiveIntent.BackPressed)
         }
     }
 
