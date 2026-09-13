@@ -42,6 +42,7 @@ fun OwnPlayApp(
     services: OwnPlayServices,
     liveAutoFullscreenRequestToken: Int = 0,
     liveAutoPreviewRequestToken: Int = 0,
+    pictureInPictureActive: Boolean = false,
     onFullscreenChanged: (ContentFullscreenKind) -> Unit = {},
     onExitConfirmed: () -> Unit = {},
 ) {
@@ -64,8 +65,8 @@ fun OwnPlayApp(
             onFullscreenChanged(kind)
         }
 
-        LaunchedEffect(contentFullscreenKind) {
-            if (!contentFullscreenKind.isFullscreen) {
+        LaunchedEffect(contentFullscreenKind, pictureInPictureActive) {
+            if (!contentFullscreenKind.isFullscreen || pictureInPictureActive) {
                 playerInteractionState.unlockTouch()
             }
         }
@@ -168,7 +169,11 @@ fun OwnPlayApp(
                     }
                 }
 
-                if (contentFullscreenKind.isFullscreen && playerInteractionState.touchLocked) {
+                if (
+                    contentFullscreenKind.isFullscreen &&
+                    !pictureInPictureActive &&
+                    playerInteractionState.touchLocked
+                ) {
                     PlayerTouchLockOverlay(playerInteractionState)
                 }
             }
