@@ -35,7 +35,7 @@ Run the source-only validation gate with:
 bash tools/validate-source-no-apk.sh
 ```
 
-That gate compiles the debug source, runs unit tests and lint, verifies committed Room schemas, and fails if an APK or AAB is produced. APK generation is intentionally separate from routine source validation.
+That gate checks the public repository for accidentally tracked signing/private-key material, compiles the debug source, runs unit tests and lint, verifies committed Room schemas, and fails if an APK or AAB is produced. APK generation is intentionally separate from routine source validation.
 
 ## Repository layout
 
