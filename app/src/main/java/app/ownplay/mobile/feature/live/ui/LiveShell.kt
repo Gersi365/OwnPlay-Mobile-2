@@ -1036,13 +1036,21 @@ private fun FullscreenLive(
 
     LaunchedEffect(
         overlayVisible,
+        optionsVisible,
         channel.channelId,
         playbackSnapshot.phase,
         playbackSnapshot.isPlaying,
     ) {
-        if (overlayVisible && LivePlayerControlsPolicy.shouldAutoHide(playbackSnapshot)) {
+        if (
+            overlayVisible &&
+            !optionsVisible &&
+            LivePlayerControlsPolicy.shouldAutoHide(playbackSnapshot)
+        ) {
             delay(4_000)
-            if (LivePlayerControlsPolicy.shouldAutoHide(playbackController.currentSnapshot())) {
+            if (
+                !optionsVisible &&
+                LivePlayerControlsPolicy.shouldAutoHide(playbackController.currentSnapshot())
+            ) {
                 overlayVisible = false
             }
         }
@@ -1067,7 +1075,11 @@ private fun FullscreenLive(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .playerLocalVerticalControls(playbackController, controllerScope)
+                .playerLocalVerticalControls(
+                    playbackController = playbackController,
+                    controllerScope = controllerScope,
+                    enabled = !optionsVisible,
+                )
                 .liveHorizontalNavigationGestures(
                     enabled = !optionsVisible,
                     onPrevious = {
@@ -1084,6 +1096,7 @@ private fun FullscreenLive(
                 .clickable(
                     interactionSource = interactionSource,
                     indication = null,
+                    enabled = !optionsVisible,
                 ) {
                     overlayVisible = !overlayVisible
                 },
@@ -1168,16 +1181,14 @@ private fun FullscreenLive(
                         )
                     }
                 }
-                if (audioTracks.isNotEmpty() || playbackSnapshot.subtitleTracks.isNotEmpty()) {
-                    PlayerGlassPillAction(
-                        text = "Options",
-                        emphasized = optionsVisible,
-                        onClick = { optionsVisible = !optionsVisible },
-                    )
-                }
+                PlayerGlassPillAction(
+                    text = "Options",
+                    emphasized = optionsVisible,
+                    onClick = { optionsVisible = !optionsVisible },
+                )
             }
 
-            if (optionsVisible && (audioTracks.isNotEmpty() || playbackSnapshot.subtitleTracks.isNotEmpty())) {
+            if (optionsVisible) {
                 PlaybackOptionsPanel(
                     audioTracks = audioTracks,
                     subtitleTracks = playbackSnapshot.subtitleTracks,
