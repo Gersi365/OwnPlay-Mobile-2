@@ -30,6 +30,7 @@ import kotlinx.coroutines.launch
 fun OwnPlayApp(
     services: OwnPlayServices,
     liveAutoFullscreenRequestToken: Int = 0,
+    liveAutoPreviewRequestToken: Int = 0,
     onFullscreenChanged: (ContentFullscreenKind) -> Unit = {},
     onExitConfirmed: () -> Unit = {},
 ) {
@@ -105,6 +106,7 @@ fun OwnPlayApp(
                         playbackController = services.playbackController,
                         showChannelLogos = settings.showChannelLogos,
                         autoFullscreenRequestToken = liveAutoFullscreenRequestToken,
+                        autoPreviewRequestToken = liveAutoPreviewRequestToken,
                         onFullscreenChanged = { fullscreen ->
                             setContentFullscreen(
                                 if (fullscreen) ContentFullscreenKind.LIVE else ContentFullscreenKind.NONE,
