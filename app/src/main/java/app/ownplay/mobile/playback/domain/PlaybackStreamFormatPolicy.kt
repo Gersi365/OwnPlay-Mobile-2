@@ -25,6 +25,16 @@ object PlaybackStreamFormatPolicy {
         return PlaybackStreamFormat.AUTO
     }
 
+    fun isOpaqueNetworkUri(uri: String): Boolean {
+        val parsed = runCatching { URI(uri.trim()) }.getOrNull() ?: return false
+        if (parsed.scheme?.lowercase(Locale.US) !in setOf("http", "https")) return false
+        val lastSegment = parsed.path.orEmpty()
+            .trimEnd('/')
+            .substringAfterLast('/')
+            .trim()
+        return lastSegment.isNotEmpty() && '.' !in lastSegment
+    }
+
     private fun queryDeclaresHls(rawQuery: String): Boolean = rawQuery
         .split('&')
         .asSequence()
