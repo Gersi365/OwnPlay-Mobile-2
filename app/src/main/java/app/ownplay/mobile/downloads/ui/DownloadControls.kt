@@ -1,10 +1,5 @@
 package app.ownplay.mobile.downloads.ui
 
-import android.Manifest
-import android.content.pm.PackageManager
-import android.os.Build
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -19,19 +14,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.core.content.ContextCompat
-import app.ownplay.mobile.data.prefs.SettingsPreferences
 import app.ownplay.mobile.design.OwnPlayColors
 import app.ownplay.mobile.design.OwnPlayPrimaryButton
 import app.ownplay.mobile.design.OwnPlaySecondaryButton
@@ -39,12 +29,9 @@ import app.ownplay.mobile.design.OwnPlayShapeTokens
 import app.ownplay.mobile.design.OwnPlaySpacing
 import app.ownplay.mobile.downloads.domain.DownloadAction
 import app.ownplay.mobile.downloads.domain.DownloadItem
-import app.ownplay.mobile.downloads.domain.DownloadPermissionPolicy
-import app.ownplay.mobile.downloads.domain.DownloadPermissionPrompt
 import app.ownplay.mobile.downloads.domain.DownloadState
 import app.ownplay.mobile.downloads.domain.DownloadStatePolicy
 import kotlin.math.roundToInt
-import kotlinx.coroutines.launch
 
 @Composable
 fun DownloadControls(
@@ -53,75 +40,14 @@ fun DownloadControls(
     modifier: Modifier = Modifier,
     compact: Boolean = false,
 ) {
-    val context = LocalContext.current
-    val permissionPreferences = remember(context) { SettingsPreferences(context.applicationContext) }
-    val notificationPermissionPrompted by permissionPreferences.downloadNotificationPermissionPrompted
-        .collectAsState(initial = false)
-    val scope = rememberCoroutineScope()
-    var pendingDownload by remember { mutableStateOf(false) }
     var permissionMessage by remember { mutableStateOf<String?>(null) }
-
-    val legacyStoragePermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission(),
-    ) { granted ->
-        if (pendingDownload) {
-            pendingDownload = false
-            if (granted) {
-                permissionMessage = null
-                onAction(DownloadAction.DOWNLOAD)
-            } else {
-                permissionMessage = "Storage permission is required to save public downloads on Android 8 or 9."
-            }
-        }
-    }
-    val notificationPermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission(),
-    ) {
-        if (pendingDownload) {
-            pendingDownload = false
-            permissionMessage = null
-            onAction(DownloadAction.DOWNLOAD)
-        }
-    }
+    val permissionDispatcher = rememberDownloadPermissionDispatcher(
+        onBlocked = { message -> permissionMessage = message },
+    )
 
     fun dispatchAction(action: DownloadAction) {
         permissionMessage = null
-        if (action != DownloadAction.DOWNLOAD) {
-            onAction(action)
-            return
-        }
-        if (pendingDownload) return
-
-        val legacyStorageGranted = Build.VERSION.SDK_INT > Build.VERSION_CODES.P ||
-            ContextCompat.checkSelfPermission(
-                context,
-                Manifest.permission.WRITE_EXTERNAL_STORAGE,
-            ) == PackageManager.PERMISSION_GRANTED
-        val notificationsGranted = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
-            ContextCompat.checkSelfPermission(
-                context,
-                Manifest.permission.POST_NOTIFICATIONS,
-            ) == PackageManager.PERMISSION_GRANTED
-
-        when (
-            DownloadPermissionPolicy.nextPrompt(
-                sdkInt = Build.VERSION.SDK_INT,
-                legacyStorageGranted = legacyStorageGranted,
-                notificationsGranted = notificationsGranted,
-                notificationPermissionPrompted = notificationPermissionPrompted,
-            )
-        ) {
-            DownloadPermissionPrompt.NONE -> onAction(DownloadAction.DOWNLOAD)
-            DownloadPermissionPrompt.LEGACY_PUBLIC_STORAGE -> {
-                pendingDownload = true
-                legacyStoragePermissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
-            }
-            DownloadPermissionPrompt.NOTIFICATIONS -> {
-                pendingDownload = true
-                scope.launch { permissionPreferences.markDownloadNotificationPermissionPrompted() }
-                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-            }
-        }
+        permissionDispatcher(action, onAction)
     }
 
     val primaryAction = DownloadStatePolicy.primaryAction(item)

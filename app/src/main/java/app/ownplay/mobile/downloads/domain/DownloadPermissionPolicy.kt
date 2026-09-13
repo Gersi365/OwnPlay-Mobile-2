@@ -21,4 +21,17 @@ object DownloadPermissionPolicy {
             DownloadPermissionPrompt.NOTIFICATIONS
         else -> DownloadPermissionPrompt.NONE
     }
+
+    fun requiresPermissionCheck(action: DownloadAction): Boolean = when (action) {
+        DownloadAction.DOWNLOAD,
+        DownloadAction.RESUME,
+        DownloadAction.RETRY,
+        -> true
+
+        DownloadAction.PAUSE,
+        DownloadAction.REMOVE,
+        DownloadAction.PLAY_OFFLINE,
+        DownloadAction.RESUME_OFFLINE,
+        -> false
+    }
 }
