@@ -340,7 +340,7 @@ private fun streamInfoRows(snapshot: PlaybackSnapshot): List<StreamInfo> = listO
         label = "Format",
         value = when (snapshot.streamFormat) {
             PlaybackStreamFormat.HLS -> "HLS"
-            PlaybackStreamFormat.AUTO -> "Auto-detected"
+            PlaybackStreamFormat.AUTO -> "Auto"
             null -> diagnosticPendingValue(snapshot)
         },
     ),
