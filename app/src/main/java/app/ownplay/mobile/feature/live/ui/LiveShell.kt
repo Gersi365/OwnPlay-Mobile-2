@@ -57,11 +57,13 @@ import app.ownplay.mobile.design.OwnPlayShapeTokens
 import app.ownplay.mobile.design.OwnPlaySpacing
 import app.ownplay.mobile.design.OwnPlayStatePanel
 import app.ownplay.mobile.design.OwnPlayTopBar
+import app.ownplay.mobile.feature.live.domain.ChannelNameDisplayPolicy
 import app.ownplay.mobile.feature.live.domain.LiveCatalog
 import app.ownplay.mobile.feature.live.domain.LiveCategory
 import app.ownplay.mobile.feature.live.domain.LiveChannel
 import app.ownplay.mobile.feature.live.domain.LiveCustomGroup
 import app.ownplay.mobile.feature.live.domain.LiveEffect
+import app.ownplay.mobile.feature.live.domain.LiveEpgProgressPolicy
 import app.ownplay.mobile.feature.live.domain.LiveIntent
 import app.ownplay.mobile.feature.live.domain.LiveNowNext
 import app.ownplay.mobile.feature.live.domain.LivePlaybackResolution
@@ -100,6 +102,7 @@ fun LiveShell(
     liveRepository: LiveRepository,
     playbackController: PlaybackController,
     showChannelLogos: Boolean,
+    hideChannelPrefix: Boolean,
     autoFullscreenRequestToken: Int = 0,
     autoPreviewRequestToken: Int = 0,
     onFullscreenChanged: (Boolean) -> Unit,
@@ -120,6 +123,9 @@ fun LiveShell(
     var searchQuery by remember(catalog?.activeSourceId) { mutableStateOf("") }
     var favoritesOnly by remember(catalog?.activeSourceId) { mutableStateOf(false) }
 
+    fun displayChannelName(channel: LiveChannel): String =
+        ChannelNameDisplayPolicy.displayName(channel.name, hideChannelPrefix)
+
     fun applyEffect(effect: LiveEffect) {
         when (effect) {
             is LiveEffect.LoadChannel -> {
@@ -135,12 +141,13 @@ fun LiveShell(
                             ) {
                                 return@launch
                             }
+                            val displayTitle = displayChannelName(resolved.value.channel)
                             fallbackLoadRequest = resolved.value.fallbackUri?.let { fallbackUri ->
                                 PlaybackLoadRequest(
                                     media = PlaybackMedia(
                                         id = resolved.value.channel.channelId,
                                         uri = fallbackUri,
-                                        title = resolved.value.channel.name,
+                                        title = displayTitle,
                                         kind = PlaybackKind.LIVE,
                                         streamFormat = resolved.value.fallbackStreamFormat ?: resolved.value.streamFormat,
                                     ),
@@ -151,7 +158,7 @@ fun LiveShell(
                                     media = PlaybackMedia(
                                         id = resolved.value.channel.channelId,
                                         uri = resolved.value.uri,
-                                        title = resolved.value.channel.name,
+                                        title = displayTitle,
                                         kind = PlaybackKind.LIVE,
                                         streamFormat = resolved.value.streamFormat,
                                     ),
@@ -221,10 +228,13 @@ fun LiveShell(
         selectedCustomGroup,
         searchActive,
         normalizedSearchQuery,
+        hideChannelPrefix,
     ) {
         when {
             searchActive -> channels.filter { channel ->
-                channel.name.contains(normalizedSearchQuery, ignoreCase = true)
+                channel.name.contains(normalizedSearchQuery, ignoreCase = true) ||
+                    ChannelNameDisplayPolicy.displayName(channel.name, hideChannelPrefix)
+                        .contains(normalizedSearchQuery, ignoreCase = true)
             }
             selectedCustomGroup != null -> customGroupChannels
             favoritesOnly -> favoriteChannels
@@ -368,6 +378,7 @@ fun LiveShell(
         }
         FullscreenLive(
             channel = selectedChannel,
+            displayName = displayChannelName(selectedChannel),
             channelNumber = channelNumber,
             playbackController = playbackController,
             controllerScope = scope,
@@ -434,6 +445,7 @@ fun LiveShell(
             selectedGuide = selectedGuide,
             audioCompatibilityMessage = audioCompatibilityMessage,
             showChannelLogos = showChannelLogos,
+            hideChannelPrefix = hideChannelPrefix,
             listState = browseListState,
             onChannelTapped = { channel -> dispatch(LiveIntent.ChannelTapped(channel.channelId)) },
             onChannelFavoriteToggle = { channel ->
@@ -483,11 +495,14 @@ private fun LiveBrowseAndPreview(
     selectedGuide: LiveNowNext,
     audioCompatibilityMessage: String?,
     showChannelLogos: Boolean,
+    hideChannelPrefix: Boolean,
     listState: LazyListState,
     onChannelTapped: (LiveChannel) -> Unit,
     onChannelFavoriteToggle: (LiveChannel) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val nowEpochSeconds = rememberEpgClock()
+
     LaunchedEffect(
         selectedChannel?.channelId,
         selectedCategoryKey,
@@ -633,6 +648,7 @@ private fun LiveBrowseAndPreview(
                     item(key = "live-preview-${channel.channelId}") {
                         LivePreviewBlock(
                             selectedChannel = selectedPreviewChannel,
+                            displayName = ChannelNameDisplayPolicy.displayName(selectedPreviewChannel.name, hideChannelPrefix),
                             playbackController = playbackController,
                             controllerScope = controllerScope,
                             playbackPhase = playbackPhase,
@@ -645,6 +661,7 @@ private fun LiveBrowseAndPreview(
 
                 item(key = channel.channelId) {
                     val guide = if (selected) selectedGuide else rememberLiveGuide(liveRepository, channel.channelId)
+                    val displayName = ChannelNameDisplayPolicy.displayName(channel.name, hideChannelPrefix)
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -657,8 +674,10 @@ private fun LiveBrowseAndPreview(
                     ) {
                         ChannelRow(
                             channel = channel,
+                            displayName = displayName,
                             selected = selected,
                             guide = guide,
+                            nowEpochSeconds = nowEpochSeconds,
                             showChannelLogos = showChannelLogos,
                             onFavoriteToggle = { onChannelFavoriteToggle(channel) },
                             onClick = { onChannelTapped(channel) },
@@ -675,6 +694,7 @@ private fun LiveBrowseAndPreview(
 @Composable
 private fun LivePreviewBlock(
     selectedChannel: LiveChannel,
+    displayName: String,
     playbackController: PlaybackController,
     controllerScope: CoroutineScope,
     playbackPhase: PlaybackPhase,
@@ -690,13 +710,14 @@ private fun LivePreviewBlock(
     ) {
         PreviewSurface(
             selectedChannel = selectedChannel,
+            displayName = displayName,
             playbackController = playbackController,
             controllerScope = controllerScope,
             playbackPhase = playbackPhase,
             resolutionError = resolutionError,
             audioCompatibilityMessage = audioCompatibilityMessage,
         )
-        NowPlayingPanel(selectedChannel = selectedChannel, guide = guide)
+        NowPlayingPanel(displayName = displayName, guide = guide)
     }
 }
 
@@ -775,6 +796,7 @@ private fun LiveCategoryStrip(
 @Composable
 private fun PreviewSurface(
     selectedChannel: LiveChannel?,
+    displayName: String?,
     playbackController: PlaybackController,
     controllerScope: CoroutineScope,
     playbackPhase: PlaybackPhase,
@@ -824,7 +846,7 @@ private fun PreviewSurface(
                 resolutionError != null -> resolutionError
                 playbackPhase == PlaybackPhase.ERROR -> "Playback unavailable"
                 audioCompatibilityMessage != null -> audioCompatibilityMessage
-                playbackPhase == PlaybackPhase.BUFFERING -> "Loading ${selectedChannel.name}…"
+                playbackPhase == PlaybackPhase.BUFFERING -> "Loading ${displayName ?: selectedChannel.name}…"
                 else -> null
             }
             if (statusMessage != null) {
@@ -845,7 +867,7 @@ private fun PreviewSurface(
 }
 
 @Composable
-private fun NowPlayingPanel(selectedChannel: LiveChannel, guide: LiveNowNext) {
+private fun NowPlayingPanel(displayName: String, guide: LiveNowNext) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -874,25 +896,31 @@ private fun NowPlayingPanel(selectedChannel: LiveChannel, guide: LiveNowNext) {
                     color = OwnPlayColors.Accent,
                     fontWeight = FontWeight.Bold,
                 )
+                guide.now?.let { current ->
+                    programTimeRange(current).takeIf { it.isNotBlank() }?.let { range ->
+                        Text(
+                            text = range,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = OwnPlayColors.TextMuted,
+                        )
+                    }
+                }
                 Text(
-                    text = guide.now?.let(::programTimeRange)?.takeIf { it.isNotBlank() } ?: "LIVE",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = OwnPlayColors.TextMuted,
-                )
-                Text(
-                    text = selectedChannel.name,
+                    text = displayName,
                     modifier = Modifier.weight(1f),
                     style = MaterialTheme.typography.labelMedium,
                     color = OwnPlayColors.TextMuted,
                     maxLines = 1,
                 )
             }
-            Text(
-                text = guide.now?.title ?: "Guide unavailable",
-                style = MaterialTheme.typography.titleMedium,
-                color = OwnPlayColors.TextPrimary,
-                maxLines = 1,
-            )
+            guide.now?.let { current ->
+                Text(
+                    text = current.title,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = OwnPlayColors.TextPrimary,
+                    maxLines = 1,
+                )
+            }
             guide.next?.let { next ->
                 Text(
                     text = "NEXT ${programTimeRange(next)} • ${next.title}",
@@ -908,12 +936,17 @@ private fun NowPlayingPanel(selectedChannel: LiveChannel, guide: LiveNowNext) {
 @Composable
 private fun ChannelRow(
     channel: LiveChannel,
+    displayName: String,
     selected: Boolean,
     guide: LiveNowNext,
+    nowEpochSeconds: Long,
     showChannelLogos: Boolean,
     onFavoriteToggle: () -> Unit,
     onClick: () -> Unit,
 ) {
+    val currentProgram = guide.now
+    val currentProgress = LiveEpgProgressPolicy.fraction(currentProgram, nowEpochSeconds)
+
     Surface(
         onClick = onClick,
         modifier = Modifier.fillMaxWidth(),
@@ -936,23 +969,44 @@ private fun ChannelRow(
             )
             Spacer(modifier = Modifier.width(OwnPlaySpacing.Sm))
             if (showChannelLogos) {
-                ChannelLogoIdentity(channel = channel, selected = selected)
+                ChannelLogoIdentity(channel = channel, displayName = displayName, selected = selected)
                 Spacer(modifier = Modifier.width(OwnPlaySpacing.Md))
             }
-            Column(modifier = Modifier.weight(1f)) {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(3.dp),
+            ) {
                 Text(
-                    text = channel.name,
+                    text = displayName,
                     style = MaterialTheme.typography.titleMedium,
                     color = OwnPlayColors.TextPrimary,
                     maxLines = 1,
                 )
-                Text(
-                    text = guide.now?.let { program -> "${programTimeRange(program)} • ${program.title}" }
-                        ?: if (selected) "Previewing now" else "Live channel",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = OwnPlayColors.TextSecondary,
-                    maxLines = 1,
-                )
+                currentProgram?.let { program ->
+                    Text(
+                        text = listOf(programTimeRange(program), program.title)
+                            .filter(String::isNotBlank)
+                            .joinToString(" • "),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = OwnPlayColors.TextSecondary,
+                        maxLines = 1,
+                    )
+                    currentProgress?.let { progress ->
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(2.dp)
+                                .background(OwnPlayColors.Divider.copy(alpha = 0.72f)),
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth(progress)
+                                    .height(2.dp)
+                                    .background(OwnPlayColors.Accent),
+                            )
+                        }
+                    }
+                }
                 if (selected) {
                     guide.next?.let { next ->
                         Text(
@@ -982,7 +1036,7 @@ private fun ChannelRow(
 }
 
 @Composable
-private fun ChannelLogoIdentity(channel: LiveChannel, selected: Boolean) {
+private fun ChannelLogoIdentity(channel: LiveChannel, displayName: String, selected: Boolean) {
     val bitmap by produceState<ImageBitmap?>(initialValue = null, key1 = channel.logoUrl) {
         value = OwnPlayRemoteImageLoader.load(channel.logoUrl, RemoteImageProfile.LOGO)
     }
@@ -996,13 +1050,13 @@ private fun ChannelLogoIdentity(channel: LiveChannel, selected: Boolean) {
         if (bitmap != null) {
             Image(
                 bitmap = bitmap!!,
-                contentDescription = "${channel.name} logo",
+                contentDescription = "$displayName logo",
                 modifier = Modifier.fillMaxSize().padding(4.dp),
                 contentScale = ContentScale.Fit,
             )
         } else {
             Text(
-                text = channel.name.firstOrNull()?.uppercaseChar()?.toString() ?: "•",
+                text = displayName.firstOrNull()?.uppercaseChar()?.toString() ?: "•",
                 style = MaterialTheme.typography.titleMedium,
                 color = OwnPlayColors.TextPrimary,
                 fontWeight = FontWeight.Bold,
@@ -1014,6 +1068,7 @@ private fun ChannelLogoIdentity(channel: LiveChannel, selected: Boolean) {
 @Composable
 private fun FullscreenLive(
     channel: LiveChannel,
+    displayName: String,
     channelNumber: String,
     playbackController: PlaybackController,
     controllerScope: CoroutineScope,
@@ -1134,7 +1189,7 @@ private fun FullscreenLive(
                     verticalArrangement = Arrangement.spacedBy(1.dp),
                 ) {
                     Text(
-                        text = channel.name,
+                        text = displayName,
                         style = MaterialTheme.typography.titleMedium,
                         color = Color.White,
                         maxLines = 1,
@@ -1160,19 +1215,22 @@ private fun FullscreenLive(
                     modifier = Modifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
-                    Text(
-                        text = when {
-                            resolutionError != null -> resolutionError
-                            playbackSnapshot.phase == PlaybackPhase.ERROR -> playbackSnapshot.errorMessage ?: "Playback unavailable"
-                            audioCompatibilityMessage != null -> audioCompatibilityMessage
-                            playbackSnapshot.phase == PlaybackPhase.BUFFERING -> "Buffering live stream…"
-                            guide.now != null -> "Now ${programTimeRange(guide.now)} • ${guide.now.title}"
-                            else -> "Live • Guide unavailable"
-                        },
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = Color.White,
-                        maxLines = 1,
-                    )
+                    val statusMessage = when {
+                        resolutionError != null -> resolutionError
+                        playbackSnapshot.phase == PlaybackPhase.ERROR -> playbackSnapshot.errorMessage ?: "Playback unavailable"
+                        audioCompatibilityMessage != null -> audioCompatibilityMessage
+                        playbackSnapshot.phase == PlaybackPhase.BUFFERING -> "Buffering live stream…"
+                        guide.now != null -> "Now ${programTimeRange(guide.now)} • ${guide.now.title}"
+                        else -> null
+                    }
+                    statusMessage?.let { message ->
+                        Text(
+                            text = message,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Color.White,
+                            maxLines = 1,
+                        )
+                    }
                     guide.next?.let { next ->
                         Text(
                             text = "Next ${programTimeRange(next)} • ${next.title}",
@@ -1270,6 +1328,18 @@ private fun rememberLiveGuide(
         guide = channelId?.let { liveRepository.loadNowNext(it) } ?: LiveNowNext()
     }
     return guide
+}
+
+@Composable
+private fun rememberEpgClock(): Long {
+    var nowEpochSeconds by remember { mutableStateOf(Instant.now().epochSecond) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            nowEpochSeconds = Instant.now().epochSecond
+            delay(30_000)
+        }
+    }
+    return nowEpochSeconds
 }
 
 private fun programTimeRange(program: LiveProgram): String {
