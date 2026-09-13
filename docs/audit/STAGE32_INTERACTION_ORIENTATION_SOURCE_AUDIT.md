@@ -85,7 +85,15 @@ The following playback enhancements remain separate work and are not required fo
 
 ## Validation evidence
 
-Final code checkpoint `0df9fc68fb5e964251a4079a1dd6977b53874895` passed GitHub Actions run `34767945269`, job `103752224247`, using `bash tools/validate-source-no-apk.sh`:
+The original Stage 32 checkpoint `0df9fc68fb5e964251a4079a1dd6977b53874895` passed GitHub Actions run `34767945269`, job `103752224247`.
+
+On-device QA of v29 then exposed a Library orientation defect: Library/offline fullscreen could render in portrait because the Activity used `SCREEN_ORIENTATION_FULL_SENSOR` when Android Auto-rotate was enabled. The source correction removes that branch and applies the universal fullscreen rule instead:
+
+- non-fullscreen presentation -> `SCREEN_ORIENTATION_PORTRAIT`
+- any fullscreen presentation with Auto-rotate OFF -> `SCREEN_ORIENTATION_LANDSCAPE`
+- any fullscreen presentation with Auto-rotate ON -> `SCREEN_ORIENTATION_SENSOR_LANDSCAPE`
+
+The corrected exact HEAD `19b6adac807eed37b8a2710a55a390f64942aa3d` passed GitHub Actions run `34769828450`, job `103757267973`, using `bash tools/validate-source-no-apk.sh`:
 
 - exact source checkout: PASS
 - debug source compile: PASS
@@ -93,10 +101,11 @@ Final code checkpoint `0df9fc68fb5e964251a4079a1dd6977b53874895` passed GitHub A
 - lint: PASS
 - committed Room schema guard: PASS
 - APK/AAB absence guard: PASS
-
-A later physical-QA correction removed the Library/offline `FULL_SENSOR` path after on-device QA exposed portrait fullscreen. The corrected contract is now universal: all fullscreen playback is landscape-only, while Live alone retains a separate portrait Preview state. The correction commit and this audit update require the standard exact-head source-only validation before Stage 32 is reported as SOURCE PASS again.
+- Gradle result: `BUILD SUCCESSFUL in 3m 33s`
 
 The build emitted the same two pre-existing non-blocking Kotlin Elvis warnings in `DownloadRepositoryImpl.kt` and `CustomGroupManagementScreen.kt`; neither warning is introduced by the Stage 32 interaction/orientation/playback-control work.
+
+Stage 32 is therefore **SOURCE PASS** again at exact corrected HEAD `19b6adac807eed37b8a2710a55a390f64942aa3d`.
 
 Physical QA remains `NOT_YET_VERIFIED` for the corrected Library/offline landscape-only fullscreen behavior, orientation timing and OEM Auto-rotate behavior, empty-category gesture ergonomics, PiP transitions and dynamic PiP geometry, Touch Lock input leakage/ergonomics, Options interaction behavior, Fit/Fill/Zoom crop and scaling behavior, Stream Info accuracy against real provider streams, one-shot opaque-HLS recovery against a real provider endpoint, and final visual acceptance. Those checks require an explicitly authorized QA APK and on-device testing.
 
