@@ -769,7 +769,7 @@ private fun ChannelManagement(
                         TextButton(
                             onClick = {
                                 editChannelId = channel.channelId
-                                editNameValue = channel.localName ?: channel.name
+                                editNameValue = channel.localName.orEmpty()
                                 editLogoValue = channel.localLogo.orEmpty()
                             },
                             contentPadding = PaddingValues(horizontal = OwnPlaySpacing.Xs),
