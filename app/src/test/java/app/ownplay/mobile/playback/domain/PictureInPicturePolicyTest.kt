@@ -1,5 +1,6 @@
 package app.ownplay.mobile.playback.domain
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -92,6 +93,26 @@ class PictureInPicturePolicyTest {
                 contentFullscreen = true,
                 playback = playback(phase = PlaybackPhase.ERROR),
             ),
+        )
+    }
+
+    @Test
+    fun videoDimensionsDrivePictureInPictureAspectRatio() {
+        assertEquals(
+            PictureInPictureAspectRatio(width = 4, height = 3),
+            PictureInPictureAspectRatioPolicy.resolve(videoWidth = 4, videoHeight = 3),
+        )
+    }
+
+    @Test
+    fun invalidOrPlatformExtremeAspectRatioFallsBackToSixteenByNine() {
+        assertEquals(
+            PictureInPictureAspectRatioPolicy.fallback,
+            PictureInPictureAspectRatioPolicy.resolve(videoWidth = null, videoHeight = 1080),
+        )
+        assertEquals(
+            PictureInPictureAspectRatioPolicy.fallback,
+            PictureInPictureAspectRatioPolicy.resolve(videoWidth = 4000, videoHeight = 500),
         )
     }
 
