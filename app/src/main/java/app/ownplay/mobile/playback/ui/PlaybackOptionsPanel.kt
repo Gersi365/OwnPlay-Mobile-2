@@ -1,5 +1,6 @@
 package app.ownplay.mobile.playback.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -8,7 +9,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -43,9 +44,13 @@ fun PlaybackOptionsPanel(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    BackHandler(onBack = onDismiss)
+
     Surface(
-        modifier = modifier.width(304.dp),
-        color = Color.Black.copy(alpha = 0.80f),
+        modifier = modifier
+            .fillMaxWidth(0.86f)
+            .widthIn(max = 320.dp),
+        color = Color.Black.copy(alpha = 0.82f),
         shape = OwnPlayShapeTokens.Medium,
         border = BorderStroke(1.dp, Color.White.copy(alpha = 0.10f)),
         tonalElevation = 0.dp,
