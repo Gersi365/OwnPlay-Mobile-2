@@ -4,20 +4,28 @@ import android.app.PictureInPictureParams
 import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.content.res.Configuration
+import android.database.ContentObserver
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
+import android.provider.Settings
 import android.util.Rational
 import android.view.KeyEvent
+import android.view.OrientationEventListener
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.runtime.mutableStateOf
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.lifecycleScope
 import app.ownplay.mobile.app.OwnPlayApp
 import app.ownplay.mobile.core.OwnPlayServices
+import app.ownplay.mobile.playback.domain.FullscreenOrientationLatch
 import app.ownplay.mobile.playback.domain.PictureInPicturePolicy
 import app.ownplay.mobile.playback.domain.PlaybackSnapshot
 import app.ownplay.mobile.playback.domain.PlayerLocalControlPolicy
@@ -34,12 +42,18 @@ class MainActivity : ComponentActivity() {
     private var playbackSnapshot = PlaybackSnapshot()
     private var resumePlaybackAfterBackground = false
     private var appPlaybackVolume = 1f
+    private val systemAutoRotateEnabled = mutableStateOf(false)
+    private val fullscreenOrientationLatch = FullscreenOrientationLatch()
+    private var autoRotateObserver: ContentObserver? = null
+    private var fullscreenOrientationListener: OrientationEventListener? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         ownPlayApplication = application as OwnPlayApplication
         services = ownPlayApplication.services
+        installSystemAutoRotateObserver()
+        installFullscreenOrientationListener()
 
         lifecycleScope.launch {
             combine(
@@ -129,17 +143,15 @@ class MainActivity : ComponentActivity() {
                 services.playbackController.transferVideoTarget(VideoTarget.FULLSCREEN)
             }
         }
+        updateFullscreenOrientationListener()
     }
 
-    override fun onConfigurationChanged(newConfig: Configuration) {
-        super.onConfigurationChanged(newConfig)
-        if (
-            contentFullscreen &&
-            newConfig.orientation == Configuration.ORIENTATION_LANDSCAPE &&
-            requestedOrientation != ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
-        ) {
-            requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
-        }
+    override fun onDestroy() {
+        fullscreenOrientationListener?.disable()
+        fullscreenOrientationListener = null
+        autoRotateObserver?.let(contentResolver::unregisterContentObserver)
+        autoRotateObserver = null
+        super.onDestroy()
     }
 
     override fun onStop() {
@@ -194,23 +206,92 @@ class MainActivity : ComponentActivity() {
         window.attributes = attributes
     }
 
+    private fun installSystemAutoRotateObserver() {
+        refreshSystemAutoRotateEnabled()
+        val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
+            override fun onChange(selfChange: Boolean) {
+                refreshSystemAutoRotateEnabled()
+            }
+        }
+        autoRotateObserver = observer
+        contentResolver.registerContentObserver(
+            Settings.System.getUriFor(Settings.System.ACCELEROMETER_ROTATION),
+            false,
+            observer,
+        )
+    }
+
+    private fun refreshSystemAutoRotateEnabled() {
+        val enabled = Settings.System.getInt(
+            contentResolver,
+            Settings.System.ACCELEROMETER_ROTATION,
+            0,
+        ) == 1
+        if (systemAutoRotateEnabled.value == enabled) return
+
+        systemAutoRotateEnabled.value = enabled
+        fullscreenOrientationLatch.reset()
+        if (contentFullscreen) {
+            setContentOrientation(fullscreen = true)
+        }
+        updateFullscreenOrientationListener()
+    }
+
+    private fun installFullscreenOrientationListener() {
+        fullscreenOrientationListener = object : OrientationEventListener(this) {
+            override fun onOrientationChanged(orientation: Int) {
+                if (
+                    orientation == ORIENTATION_UNKNOWN ||
+                    !contentFullscreen ||
+                    !systemAutoRotateEnabled.value ||
+                    isInPictureInPictureMode
+                ) {
+                    return
+                }
+                if (
+                    fullscreenOrientationLatch.onOrientation(
+                        orientationDegrees = orientation,
+                        elapsedRealtimeMillis = SystemClock.elapsedRealtime(),
+                    )
+                ) {
+                    fullscreenOrientationLatch.reset()
+                    onBackPressedDispatcher.onBackPressed()
+                }
+            }
+        }
+        updateFullscreenOrientationListener()
+    }
+
+    private fun updateFullscreenOrientationListener() {
+        val listener = fullscreenOrientationListener ?: return
+        val shouldListen =
+            contentFullscreen && systemAutoRotateEnabled.value && !isInPictureInPictureMode
+        if (shouldListen && listener.canDetectOrientation()) {
+            listener.enable()
+        } else {
+            listener.disable()
+        }
+    }
+
     private fun handleContentFullscreenChanged(fullscreen: Boolean) {
         contentFullscreen = fullscreen
+        fullscreenOrientationLatch.reset()
+        setContentOrientation(fullscreen)
+        updateFullscreenOrientationListener()
         updatePictureInPictureParams()
         window.decorView.postOnAnimation {
             if (contentFullscreen != fullscreen || isFinishing || isDestroyed) {
                 return@postOnAnimation
             }
-            setContentOrientation(fullscreen)
             setImmersiveFullscreen(fullscreen)
         }
     }
 
     private fun setContentOrientation(fullscreen: Boolean) {
-        requestedOrientation = if (fullscreen) {
-            ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-        } else {
-            ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        requestedOrientation = when {
+            !fullscreen -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            systemAutoRotateEnabled.value -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            else -> ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
         }
     }
 
