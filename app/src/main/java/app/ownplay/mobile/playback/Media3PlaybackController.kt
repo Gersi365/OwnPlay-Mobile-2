@@ -298,6 +298,7 @@ class Media3PlaybackController(
                     subtitleSelection = selection
                 }
             }
+            currentSubtitleCues = emptyList()
             refreshSnapshot()
         }
     }
