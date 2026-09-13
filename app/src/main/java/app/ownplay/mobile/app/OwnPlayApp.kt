@@ -29,23 +29,26 @@ import kotlinx.coroutines.launch
 @Composable
 fun OwnPlayApp(
     services: OwnPlayServices,
-    onFullscreenChanged: (Boolean) -> Unit = {},
+    liveAutoFullscreenRequestToken: Int = 0,
+    onFullscreenChanged: (ContentFullscreenKind) -> Unit = {},
     onExitConfirmed: () -> Unit = {},
 ) {
     OwnPlayTheme {
         var selectedDestination by rememberSaveable {
             mutableStateOf(AppDestination.Live)
         }
-        var contentFullscreen by rememberSaveable { mutableStateOf(false) }
+        var contentFullscreenKind by rememberSaveable {
+            mutableStateOf(ContentFullscreenKind.NONE)
+        }
         var exitConfirmationVisible by rememberSaveable { mutableStateOf(false) }
         var pendingOfflineDownloadId by rememberSaveable { mutableStateOf<String?>(null) }
         val scope = rememberCoroutineScope()
         val settingsFlow = remember(services.settingsPreferences) { services.settingsPreferences.settings }
         val settings by settingsFlow.collectAsState(initial = SettingsSnapshot())
 
-        fun setContentFullscreen(fullscreen: Boolean) {
-            contentFullscreen = fullscreen
-            onFullscreenChanged(fullscreen)
+        fun setContentFullscreen(kind: ContentFullscreenKind) {
+            contentFullscreenKind = kind
+            onFullscreenChanged(kind)
         }
 
         BackHandler {
@@ -66,7 +69,7 @@ fun OwnPlayApp(
         Scaffold(
             containerColor = OwnPlayColors.Background,
             bottomBar = {
-                if (!contentFullscreen) {
+                if (!contentFullscreenKind.isFullscreen) {
                     OwnPlayBottomBar(
                         selectedDestination = selectedDestination,
                         onDestinationSelected = { destination ->
@@ -77,7 +80,7 @@ fun OwnPlayApp(
                                 scope.launch {
                                     services.playbackController.stop(clearMedia = true)
                                 }
-                                setContentFullscreen(false)
+                                setContentFullscreen(ContentFullscreenKind.NONE)
                             }
                             selectedDestination = destination
                         },
@@ -88,14 +91,25 @@ fun OwnPlayApp(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(if (contentFullscreen) PaddingValues(0.dp) else innerPadding),
+                    .padding(
+                        if (contentFullscreenKind.isFullscreen) {
+                            PaddingValues(0.dp)
+                        } else {
+                            innerPadding
+                        },
+                    ),
             ) {
                 when (selectedDestination) {
                     AppDestination.Live -> LiveShell(
                         liveRepository = services.liveRepository,
                         playbackController = services.playbackController,
                         showChannelLogos = settings.showChannelLogos,
-                        onFullscreenChanged = ::setContentFullscreen,
+                        autoFullscreenRequestToken = liveAutoFullscreenRequestToken,
+                        onFullscreenChanged = { fullscreen ->
+                            setContentFullscreen(
+                                if (fullscreen) ContentFullscreenKind.LIVE else ContentFullscreenKind.NONE,
+                            )
+                        },
                     )
 
                     AppDestination.Library -> LibraryShell(
@@ -106,7 +120,11 @@ fun OwnPlayApp(
                         resumePlaybackEnabled = settings.resumePlaybackEnabled,
                         initialOfflineDownloadId = pendingOfflineDownloadId,
                         onInitialOfflineConsumed = { pendingOfflineDownloadId = null },
-                        onFullscreenChanged = ::setContentFullscreen,
+                        onFullscreenChanged = { fullscreen ->
+                            setContentFullscreen(
+                                if (fullscreen) ContentFullscreenKind.LIBRARY else ContentFullscreenKind.NONE,
+                            )
+                        },
                     )
 
                     AppDestination.Settings -> SettingsShell(
