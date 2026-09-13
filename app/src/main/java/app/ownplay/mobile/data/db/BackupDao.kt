@@ -3,6 +3,7 @@ package app.ownplay.mobile.data.db
 import androidx.room.Dao
 import androidx.room.Query
 import androidx.room.Upsert
+import kotlinx.coroutines.flow.Flow
 
 data class BackupChannelPersonalizationView(
     val sourceId: String,
@@ -43,6 +44,27 @@ interface BackupDao {
 
     @Query(
         """
+        SELECT * FROM custom_groups
+        WHERE sourceId = :sourceId
+        ORDER BY manualOrder ASC, name COLLATE NOCASE ASC, groupId ASC
+        """,
+    )
+    suspend fun getCustomGroupsForSource(sourceId: String): List<CustomGroupEntity>
+
+    @Query(
+        """
+        SELECT * FROM custom_groups
+        WHERE sourceId = :sourceId
+        ORDER BY manualOrder ASC, name COLLATE NOCASE ASC, groupId ASC
+        """,
+    )
+    fun observeCustomGroups(sourceId: String): Flow<List<CustomGroupEntity>>
+
+    @Query("SELECT * FROM custom_groups WHERE groupId = :groupId LIMIT 1")
+    suspend fun getCustomGroup(groupId: String): CustomGroupEntity?
+
+    @Query(
+        """
         SELECT
             g.sourceId AS sourceId,
             m.groupId AS groupId,
@@ -54,6 +76,30 @@ interface BackupDao {
         """,
     )
     suspend fun getCustomGroupMemberships(): List<BackupGroupMembershipView>
+
+    @Query(
+        """
+        SELECT
+            g.sourceId AS sourceId,
+            m.groupId AS groupId,
+            m.channelId AS channelId,
+            m.manualOrder AS manualOrder
+        FROM custom_group_memberships AS m
+        INNER JOIN custom_groups AS g ON g.groupId = m.groupId
+        WHERE g.sourceId = :sourceId
+        ORDER BY g.manualOrder ASC, m.groupId ASC, m.manualOrder ASC, m.channelId ASC
+        """,
+    )
+    fun observeCustomGroupMemberships(sourceId: String): Flow<List<BackupGroupMembershipView>>
+
+    @Query(
+        """
+        SELECT * FROM custom_group_memberships
+        WHERE groupId = :groupId
+        ORDER BY manualOrder ASC, channelId ASC
+        """,
+    )
+    suspend fun getCustomGroupMembershipRows(groupId: String): List<CustomGroupMembershipEntity>
 
     @Query("SELECT * FROM media_favorites ORDER BY sourceId ASC, mediaKind ASC, contentId ASC")
     suspend fun getMediaFavorites(): List<MediaFavoriteEntity>
@@ -95,4 +141,12 @@ interface BackupDao {
 
     @Upsert
     suspend fun upsertCustomGroupMembership(row: CustomGroupMembershipEntity)
+
+    @Query(
+        """
+        DELETE FROM custom_group_memberships
+        WHERE groupId = :groupId AND channelId = :channelId
+        """,
+    )
+    suspend fun deleteCustomGroupMembership(groupId: String, channelId: String): Int
 }

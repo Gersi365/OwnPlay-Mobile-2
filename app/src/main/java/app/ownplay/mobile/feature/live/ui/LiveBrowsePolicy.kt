@@ -11,6 +11,15 @@ internal object LiveBrowsePolicy {
     fun favoriteChannels(channels: List<LiveChannel>): List<LiveChannel> =
         channels.filter { channel -> channel.favorite }
 
+    fun customGroupChannels(
+        channels: List<LiveChannel>,
+        channelIds: List<String>,
+    ): List<LiveChannel> {
+        if (channelIds.isEmpty()) return emptyList()
+        val membership = channelIds.toHashSet()
+        return channels.filter { channel -> channel.channelId in membership }
+    }
+
     fun activeCategoryKey(
         categories: List<LiveCategory>,
         requestedCategoryKey: String?,

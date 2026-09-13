@@ -1,13 +1,18 @@
 package app.ownplay.mobile.feature.live.data
 
 import androidx.room.withTransaction
+import app.ownplay.mobile.data.db.BackupGroupMembershipView
 import app.ownplay.mobile.data.db.CatalogDao
 import app.ownplay.mobile.data.db.CategoryPersonalizationEntity
 import app.ownplay.mobile.data.db.ChannelPersonalizationEntity
+import app.ownplay.mobile.data.db.CustomGroupEntity
+import app.ownplay.mobile.data.db.CustomGroupMembershipEntity
 import app.ownplay.mobile.data.db.OwnPlayDatabase
 import app.ownplay.mobile.data.db.SourceDao
 import app.ownplay.mobile.data.security.CredentialStore
 import app.ownplay.mobile.feature.live.domain.LiveCatalog
+import app.ownplay.mobile.feature.live.domain.LiveCustomGroup
+import app.ownplay.mobile.feature.live.domain.LiveCustomGroupPolicy
 import app.ownplay.mobile.feature.live.domain.LiveGuidePolicy
 import app.ownplay.mobile.feature.live.domain.LiveManagementCatalog
 import app.ownplay.mobile.feature.live.domain.LiveNowNext
@@ -30,6 +35,7 @@ import app.ownplay.mobile.sources.domain.SourceRepository
 import app.ownplay.mobile.sources.domain.SourceType
 import java.net.URI
 import java.util.Locale
+import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -52,6 +58,25 @@ class LiveRepositoryImpl(
     )
 
     private val guideCache = ConcurrentHashMap<String, GuideCacheEntry>()
+    private val backupDao = database.backupDao()
+
+    private fun mapCustomGroups(
+        groups: List<CustomGroupEntity>,
+        memberships: List<BackupGroupMembershipView>,
+    ): List<LiveCustomGroup> {
+        val channelIdsByGroup = memberships
+            .groupBy { row -> row.groupId }
+            .mapValues { (_, rows) -> rows.sortedBy { it.manualOrder }.map { it.channelId } }
+        return groups.map { group ->
+            LiveCustomGroup(
+                groupId = group.groupId,
+                sourceId = group.sourceId,
+                name = group.name,
+                manualOrder = group.manualOrder,
+                channelIds = channelIdsByGroup[group.groupId].orEmpty(),
+            )
+        }
+    }
     @OptIn(ExperimentalCoroutinesApi::class)
     override fun observeCatalog(): Flow<LiveCatalog> =
         sourceRepository.observeActiveSource().flatMapLatest { source ->
@@ -61,7 +86,9 @@ class LiveRepositoryImpl(
                 combine(
                     catalogDao.observeAvailableCategories(source.sourceId, "LIVE"),
                     catalogDao.observeAvailableLiveChannels(source.sourceId),
-                ) { categoryRows, channelRows ->
+                    backupDao.observeCustomGroups(source.sourceId),
+                    backupDao.observeCustomGroupMemberships(source.sourceId),
+                ) { categoryRows, channelRows, groupRows, membershipRows ->
                     LiveCatalog(
                         activeSourceId = source.sourceId,
                         activeSourceName = source.displayName,
@@ -75,16 +102,17 @@ class LiveRepositoryImpl(
                         channels = channelRows
                             .filterNot { row -> ProviderCategoryVisibility.isUtilityLabel(row.name) }
                             .map { row ->
-                            LiveChannel(
-                                channelId = row.channelId,
-                                sourceId = row.sourceId,
-                                categoryKey = row.categoryKey,
-                                name = row.name,
-                                logoUrl = row.logoUrl,
-                                sortOrder = row.sortOrder,
-                                favorite = row.favorite,
-                            )
-                        },
+                                LiveChannel(
+                                    channelId = row.channelId,
+                                    sourceId = row.sourceId,
+                                    categoryKey = row.categoryKey,
+                                    name = row.name,
+                                    logoUrl = row.logoUrl,
+                                    sortOrder = row.sortOrder,
+                                    favorite = row.favorite,
+                                )
+                            },
+                        customGroups = mapCustomGroups(groupRows, membershipRows),
                     )
                 }
             }
@@ -99,7 +127,9 @@ class LiveRepositoryImpl(
                 combine(
                     catalogDao.observeManageableLiveCategories(source.sourceId),
                     catalogDao.observeManageableLiveChannels(source.sourceId),
-                ) { categoryRows, channelRows ->
+                    backupDao.observeCustomGroups(source.sourceId),
+                    backupDao.observeCustomGroupMemberships(source.sourceId),
+                ) { categoryRows, channelRows, groupRows, membershipRows ->
                     LiveManagementCatalog(
                         activeSourceId = source.sourceId,
                         activeSourceName = source.displayName,
@@ -131,6 +161,7 @@ class LiveRepositoryImpl(
                                     manualOrder = row.manualOrder,
                                 )
                             },
+                        customGroups = mapCustomGroups(groupRows, membershipRows),
                     )
                 }
             }
@@ -229,6 +260,60 @@ class LiveRepositoryImpl(
                 if (current.manualOrder != null) {
                     catalogDao.upsertChannelPersonalization(current.copy(manualOrder = null))
                 }
+            }
+        }
+    }
+
+    override suspend fun createCustomGroup(sourceId: String, name: String) {
+        if (sourceId.isBlank()) return
+        val normalizedName = LiveCustomGroupPolicy.normalizeName(name) ?: return
+        database.withTransaction {
+            if (sourceDao.get(sourceId) == null) return@withTransaction
+            val nextOrder = backupDao.getCustomGroupsForSource(sourceId)
+                .maxOfOrNull { group -> group.manualOrder }
+                ?.plus(1)
+                ?: 0
+            backupDao.upsertCustomGroups(
+                listOf(
+                    CustomGroupEntity(
+                        groupId = "local-group:${UUID.randomUUID()}",
+                        sourceId = sourceId,
+                        name = normalizedName,
+                        manualOrder = nextOrder,
+                    ),
+                ),
+            )
+        }
+    }
+
+    override suspend fun renameCustomGroup(groupId: String, name: String) {
+        if (groupId.isBlank()) return
+        val normalizedName = LiveCustomGroupPolicy.normalizeName(name) ?: return
+        database.withTransaction {
+            val group = backupDao.getCustomGroup(groupId) ?: return@withTransaction
+            backupDao.upsertCustomGroups(listOf(group.copy(name = normalizedName)))
+        }
+    }
+
+    override suspend fun setCustomGroupMembership(groupId: String, channelId: String, included: Boolean) {
+        if (groupId.isBlank() || channelId.isBlank()) return
+        database.withTransaction {
+            val group = backupDao.getCustomGroup(groupId) ?: return@withTransaction
+            if (!backupDao.hasLiveChannel(group.sourceId, channelId)) return@withTransaction
+            val memberships = backupDao.getCustomGroupMembershipRows(groupId)
+            val existing = memberships.firstOrNull { row -> row.channelId == channelId }
+            if (included) {
+                if (existing != null) return@withTransaction
+                val nextOrder = memberships.maxOfOrNull { row -> row.manualOrder }?.plus(1) ?: 0
+                backupDao.upsertCustomGroupMembership(
+                    CustomGroupMembershipEntity(
+                        groupId = groupId,
+                        channelId = channelId,
+                        manualOrder = nextOrder,
+                    ),
+                )
+            } else if (existing != null) {
+                backupDao.deleteCustomGroupMembership(groupId, channelId)
             }
         }
     }

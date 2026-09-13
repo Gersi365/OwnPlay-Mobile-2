@@ -19,11 +19,20 @@ data class LiveChannel(
     val favorite: Boolean = false,
 )
 
+data class LiveCustomGroup(
+    val groupId: String,
+    val sourceId: String,
+    val name: String,
+    val manualOrder: Int,
+    val channelIds: List<String> = emptyList(),
+)
+
 data class LiveCatalog(
     val activeSourceId: String? = null,
     val activeSourceName: String? = null,
     val categories: List<LiveCategory> = emptyList(),
     val channels: List<LiveChannel> = emptyList(),
+    val customGroups: List<LiveCustomGroup> = emptyList(),
 )
 
 data class ManageableLiveCategory(
@@ -53,6 +62,7 @@ data class LiveManagementCatalog(
     val activeSourceName: String? = null,
     val categories: List<ManageableLiveCategory> = emptyList(),
     val channels: List<ManageableLiveChannel> = emptyList(),
+    val customGroups: List<LiveCustomGroup> = emptyList(),
 )
 
 data class LiveProgram(
@@ -99,4 +109,7 @@ interface LiveRepository {
     suspend fun setChannelOrder(orderedChannelIds: List<String>)
     suspend fun resetCategoryOrder(sourceId: String, categoryKeys: List<String>)
     suspend fun resetChannelOrder(channelIds: List<String>)
+    suspend fun createCustomGroup(sourceId: String, name: String)
+    suspend fun renameCustomGroup(groupId: String, name: String)
+    suspend fun setCustomGroupMembership(groupId: String, channelId: String, included: Boolean)
 }
