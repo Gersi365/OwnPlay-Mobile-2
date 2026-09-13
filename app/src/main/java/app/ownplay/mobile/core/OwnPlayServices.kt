@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.work.WorkManager
 import app.ownplay.mobile.data.db.OwnPlayDatabase
 import app.ownplay.mobile.data.prefs.ActiveSourcePreferences
+import app.ownplay.mobile.data.prefs.LibraryVisibilityPreferences
 import app.ownplay.mobile.data.prefs.SettingsPreferences
 import app.ownplay.mobile.data.security.CredentialStore
 import app.ownplay.mobile.data.security.KeystoreCredentialStore
@@ -54,6 +55,10 @@ class OwnPlayServices private constructor(
 
     val settingsPreferences: SettingsPreferences by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         SettingsPreferences(applicationContext)
+    }
+
+    val libraryVisibilityPreferences: LibraryVisibilityPreferences by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        LibraryVisibilityPreferences(applicationContext)
     }
 
     val backupRepository: BackupRepository by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {

@@ -34,6 +34,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import app.ownplay.mobile.data.prefs.LibraryVisibilityPreferences
 import app.ownplay.mobile.data.prefs.SettingsPreferences
 import app.ownplay.mobile.design.OwnPlayColors
 import app.ownplay.mobile.design.OwnPlayPanel
@@ -74,6 +75,7 @@ private data class SettingRowModel(
 fun SettingsShell(
     sourceRepository: SourceRepository,
     settingsPreferences: SettingsPreferences,
+    libraryVisibilityPreferences: LibraryVisibilityPreferences,
     backupRepository: BackupRepository,
     liveRepository: LiveRepository,
     downloadRepository: DownloadRepository,
@@ -120,6 +122,7 @@ fun SettingsShell(
 
         SettingsPage.MANAGE_DOWNLOADS -> DownloadManagementScreen(
             downloadRepository = downloadRepository,
+            libraryVisibilityPreferences = libraryVisibilityPreferences,
             onPlayOffline = onPlayOffline,
             onBack = { pageName = SettingsPage.MAIN.name },
             modifier = modifier,
@@ -245,7 +248,7 @@ private fun MainSettings(
                 subtitle = "Offline media",
                 marker = "↓",
                 rows = listOf(
-                    SettingRowModel("Manage downloads", "Pause, resume, retry, remove, or open completed media", SettingTrailing.Chevron, onManageDownloads),
+                    SettingRowModel("Manage downloads", "Pause, resume, retry, show or hide in Library, delete, or play offline", SettingTrailing.Chevron, onManageDownloads),
                 ),
             )
 
