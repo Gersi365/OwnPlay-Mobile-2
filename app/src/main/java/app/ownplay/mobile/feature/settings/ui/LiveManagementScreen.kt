@@ -69,6 +69,7 @@ private const val DESTINATION_HOME = "home"
 private const val DESTINATION_CATEGORIES = "categories"
 private const val DESTINATION_CHANNEL_CATEGORIES = "channel_categories"
 private const val DESTINATION_CHANNELS = "channels"
+private const val DESTINATION_CUSTOM_GROUPS = "custom_groups"
 
 private class ReorderVisualState {
     var dragging by mutableStateOf(false)
@@ -156,6 +157,7 @@ fun LiveManagementScreen(
             onBack = onBack,
             onManageCategories = { destination = DESTINATION_CATEGORIES },
             onManageChannels = { destination = DESTINATION_CHANNEL_CATEGORIES },
+            onManageCustomGroups = { destination = DESTINATION_CUSTOM_GROUPS },
             modifier = modifier,
         )
 
@@ -241,6 +243,13 @@ fun LiveManagementScreen(
             )
         }
 
+        DESTINATION_CUSTOM_GROUPS -> CustomGroupManagementScreen(
+            liveRepository = liveRepository,
+            catalog = catalog,
+            onBack = { destination = DESTINATION_HOME },
+            modifier = modifier,
+        )
+
         else -> {
             selectedScope = null
             destination = DESTINATION_HOME
@@ -254,6 +263,7 @@ private fun LiveManagementHome(
     onBack: () -> Unit,
     onManageCategories: () -> Unit,
     onManageChannels: () -> Unit,
+    onManageCustomGroups: () -> Unit,
     modifier: Modifier,
 ) {
     Column(modifier = modifier.fillMaxSize()) {
@@ -275,61 +285,56 @@ private fun LiveManagementHome(
             modifier = Modifier.padding(OwnPlaySpacing.Lg),
             verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),
         ) {
-            OwnPlayPanel(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable(onClick = onManageCategories),
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(OwnPlaySpacing.Md),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Manage categories",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = OwnPlayColors.TextPrimary,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                        Text(
-                            text = "Show, hide, and reorder Live categories.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = OwnPlayColors.TextSecondary,
-                        )
-                    }
-                    Text("›", style = MaterialTheme.typography.titleLarge, color = OwnPlayColors.Accent)
-                }
-            }
+            ManagementDestinationCard(
+                title = "Manage categories",
+                summary = "Show, hide, and reorder Live categories.",
+                onClick = onManageCategories,
+            )
+            ManagementDestinationCard(
+                title = "Manage channels",
+                summary = "Choose a category, then show, hide, rename, favorite, or reorder its channels.",
+                onClick = onManageChannels,
+            )
+            ManagementDestinationCard(
+                title = "Custom groups",
+                summary = "Create local channel groups and manage their memberships.",
+                onClick = onManageCustomGroups,
+            )
+        }
+    }
+}
 
-            OwnPlayPanel(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable(onClick = onManageChannels),
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(OwnPlaySpacing.Md),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Manage channels",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = OwnPlayColors.TextPrimary,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                        Text(
-                            text = "Choose a category, then show, hide, or reorder its channels.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = OwnPlayColors.TextSecondary,
-                        )
-                    }
-                    Text("›", style = MaterialTheme.typography.titleLarge, color = OwnPlayColors.Accent)
-                }
+@Composable
+private fun ManagementDestinationCard(
+    title: String,
+    summary: String,
+    onClick: () -> Unit,
+) {
+    OwnPlayPanel(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(OwnPlaySpacing.Md),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = OwnPlayColors.TextPrimary,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = summary,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = OwnPlayColors.TextSecondary,
+                )
             }
+            Text("›", style = MaterialTheme.typography.titleLarge, color = OwnPlayColors.Accent)
         }
     }
 }

@@ -61,6 +61,7 @@ import app.ownplay.mobile.design.OwnPlayTopBar
 import app.ownplay.mobile.feature.live.domain.LiveCatalog
 import app.ownplay.mobile.feature.live.domain.LiveCategory
 import app.ownplay.mobile.feature.live.domain.LiveChannel
+import app.ownplay.mobile.feature.live.domain.LiveCustomGroup
 import app.ownplay.mobile.feature.live.domain.LiveEffect
 import app.ownplay.mobile.feature.live.domain.LiveIntent
 import app.ownplay.mobile.feature.live.domain.LiveNowNext
@@ -175,18 +176,28 @@ fun LiveShell(
     }
 
     val channels = catalog?.channels.orEmpty()
+    val customGroups = catalog?.customGroups.orEmpty()
     val rawCategories = catalog?.categories.orEmpty()
     val categories = remember(rawCategories) { LiveBrowsePolicy.visibleCategories(rawCategories) }
     var selectedCategoryKey by remember(catalog?.activeSourceId) { mutableStateOf<String?>(null) }
+    var selectedCustomGroupId by remember(catalog?.activeSourceId) { mutableStateOf<String?>(null) }
     val activeCategoryKey = LiveBrowsePolicy.activeCategoryKey(categories, selectedCategoryKey)
+    val selectedCustomGroup = remember(customGroups, selectedCustomGroupId) {
+        customGroups.firstOrNull { group -> group.groupId == selectedCustomGroupId }
+    }
     val normalizedSearchQuery = searchQuery.trim()
     val searchActive = normalizedSearchQuery.isNotEmpty()
     val favoriteChannels = remember(channels) { LiveBrowsePolicy.favoriteChannels(channels) }
+    val customGroupChannels = remember(channels, selectedCustomGroup) {
+        LiveBrowsePolicy.customGroupChannels(channels, selectedCustomGroup?.channelIds.orEmpty())
+    }
     val visibleChannels = remember(
         channels,
         favoriteChannels,
+        customGroupChannels,
         activeCategoryKey,
         favoritesOnly,
+        selectedCustomGroup,
         searchActive,
         normalizedSearchQuery,
     ) {
@@ -194,13 +205,16 @@ fun LiveShell(
             searchActive -> channels.filter { channel ->
                 channel.name.contains(normalizedSearchQuery, ignoreCase = true)
             }
+            selectedCustomGroup != null -> customGroupChannels
             favoritesOnly -> favoriteChannels
             else -> activeCategoryKey?.let { key ->
                 channels.filter { channel -> channel.categoryKey == key }
             } ?: channels
         }
     }
-    val showCategories = !searchActive && (categories.isNotEmpty() || favoriteChannels.isNotEmpty())
+    val showCategories = !searchActive && (
+        categories.isNotEmpty() || favoriteChannels.isNotEmpty() || customGroups.isNotEmpty()
+    )
     val selectedChannel = remember(channels, presentationState.selectedChannelId) {
         channels.firstOrNull { it.channelId == presentationState.selectedChannelId }
     }
@@ -220,6 +234,12 @@ fun LiveShell(
 
     LaunchedEffect(favoriteChannels.isEmpty(), favoritesOnly) {
         if (favoritesOnly && favoriteChannels.isEmpty()) favoritesOnly = false
+    }
+
+    LaunchedEffect(customGroups, selectedCustomGroupId) {
+        if (selectedCustomGroupId != null && selectedCustomGroup == null) {
+            selectedCustomGroupId = null
+        }
     }
 
     LaunchedEffect(categories, selectedCategoryKey) {
@@ -336,6 +356,8 @@ fun LiveShell(
             categories = categories,
             favoriteCount = favoriteChannels.size,
             favoritesOnly = favoritesOnly,
+            customGroups = customGroups,
+            selectedCustomGroupId = selectedCustomGroupId,
             liveRepository = liveRepository,
             selectedCategoryKey = activeCategoryKey,
             searchVisible = searchVisible,
@@ -347,6 +369,7 @@ fun LiveShell(
             },
             onSearchQueryChange = { searchQuery = it },
             onFavoriteFilterSelected = {
+                selectedCustomGroupId = null
                 favoritesOnly = true
                 if (
                     presentationState.presentation == LivePresentation.PREVIEW &&
@@ -355,8 +378,20 @@ fun LiveShell(
                     dispatch(LiveIntent.BackPressed)
                 }
             },
+            onCustomGroupSelected = { groupId ->
+                favoritesOnly = false
+                selectedCustomGroupId = groupId
+                val group = customGroups.firstOrNull { it.groupId == groupId }
+                if (
+                    presentationState.presentation == LivePresentation.PREVIEW &&
+                    selectedChannel?.channelId !in group?.channelIds.orEmpty()
+                ) {
+                    dispatch(LiveIntent.BackPressed)
+                }
+            },
             onCategorySelected = { categoryKey ->
                 favoritesOnly = false
+                selectedCustomGroupId = null
                 selectedCategoryKey = categoryKey
                 if (
                     presentationState.presentation == LivePresentation.PREVIEW &&
@@ -399,6 +434,8 @@ private fun LiveBrowseAndPreview(
     categories: List<LiveCategory>,
     favoriteCount: Int,
     favoritesOnly: Boolean,
+    customGroups: List<LiveCustomGroup>,
+    selectedCustomGroupId: String?,
     liveRepository: LiveRepository,
     selectedCategoryKey: String?,
     searchVisible: Boolean,
@@ -407,6 +444,7 @@ private fun LiveBrowseAndPreview(
     onSearchToggle: () -> Unit,
     onSearchQueryChange: (String) -> Unit,
     onFavoriteFilterSelected: () -> Unit,
+    onCustomGroupSelected: (String) -> Unit,
     onCategorySelected: (String?) -> Unit,
     selectedChannel: LiveChannel?,
     playbackController: PlaybackController,
@@ -421,7 +459,13 @@ private fun LiveBrowseAndPreview(
     onChannelFavoriteToggle: (LiveChannel) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    LaunchedEffect(selectedChannel?.channelId, selectedCategoryKey, channels, categories) {
+    LaunchedEffect(
+        selectedChannel?.channelId,
+        selectedCategoryKey,
+        selectedCustomGroupId,
+        channels,
+        categories,
+    ) {
         val selectedId = selectedChannel?.channelId ?: return@LaunchedEffect
         val selectedIndex = channels.indexOfFirst { it.channelId == selectedId }
         if (selectedIndex < 0) return@LaunchedEffect
@@ -481,8 +525,11 @@ private fun LiveBrowseAndPreview(
                     categories = categories,
                     favoriteCount = favoriteCount,
                     favoritesOnly = favoritesOnly,
+                    customGroups = customGroups,
+                    selectedCustomGroupId = selectedCustomGroupId,
                     selectedCategoryKey = selectedCategoryKey,
                     onFavoritesSelected = onFavoriteFilterSelected,
+                    onCustomGroupSelected = onCustomGroupSelected,
                     onSelected = onCategorySelected,
                 )
             }
@@ -613,8 +660,11 @@ private fun LiveCategoryStrip(
     categories: List<LiveCategory>,
     favoriteCount: Int,
     favoritesOnly: Boolean,
+    customGroups: List<LiveCustomGroup>,
+    selectedCustomGroupId: String?,
     selectedCategoryKey: String?,
     onFavoritesSelected: () -> Unit,
+    onCustomGroupSelected: (String) -> Unit,
     onSelected: (String?) -> Unit,
 ) {
     LazyRow(
@@ -625,15 +675,22 @@ private fun LiveCategoryStrip(
             item(key = "ownplay-favorites") {
                 OwnPlayFilterChip(
                     label = "Favorites",
-                    selected = favoritesOnly,
+                    selected = favoritesOnly && selectedCustomGroupId == null,
                     onClick = onFavoritesSelected,
                 )
             }
         }
+        items(customGroups, key = { group -> group.groupId }) { group ->
+            OwnPlayFilterChip(
+                label = group.name,
+                selected = !favoritesOnly && selectedCustomGroupId == group.groupId,
+                onClick = { onCustomGroupSelected(group.groupId) },
+            )
+        }
         items(categories, key = { it.categoryKey }) { category ->
             OwnPlayFilterChip(
                 label = category.name,
-                selected = !favoritesOnly && selectedCategoryKey == category.categoryKey,
+                selected = !favoritesOnly && selectedCustomGroupId == null && selectedCategoryKey == category.categoryKey,
                 onClick = { onSelected(category.categoryKey) },
             )
         }
