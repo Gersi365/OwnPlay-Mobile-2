@@ -131,6 +131,17 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        if (
+            contentFullscreen &&
+            newConfig.orientation == Configuration.ORIENTATION_LANDSCAPE &&
+            requestedOrientation != ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
+        ) {
+            requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
+        }
+    }
+
     override fun onStop() {
         if (!isChangingConfigurations) {
             when {
@@ -197,7 +208,7 @@ class MainActivity : ComponentActivity() {
 
     private fun setContentOrientation(fullscreen: Boolean) {
         requestedOrientation = if (fullscreen) {
-            ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
+            ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
         } else {
             ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         }
