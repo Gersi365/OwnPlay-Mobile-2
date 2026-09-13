@@ -1,0 +1,39 @@
+name: Stage 26 playback personalization fix
+
+on:
+  push:
+    branches:
+      - stage-26-favorites-local-personalization
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event.head_commit.message == 'Apply Stage 26 playback personalization fix'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: stage-26-favorites-local-personalization
+          fetch-depth: 0
+      - name: Patch resolved Live presentation metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('app/src/main/java/app/ownplay/mobile/feature/live/data/LiveRepositoryImpl.kt')
+          text = path.read_text()
+          old = '''            LivePlaybackResolution.Success(\n                ResolvedLivePlayback(\n                    channel = LiveChannel(\n                        channelId = channel.channelId,\n                        sourceId = channel.sourceId,\n                        categoryKey = channel.categoryKey,\n                        name = channel.name,\n                        logoUrl = channel.logoUrl,\n                        sortOrder = channel.providerOrder,\n                    ),\n'''
+          new = '''            val personalization = catalogDao.getChannelPersonalization(channel.channelId)\n            LivePlaybackResolution.Success(\n                ResolvedLivePlayback(\n                    channel = LiveChannel(\n                        channelId = channel.channelId,\n                        sourceId = channel.sourceId,\n                        categoryKey = channel.categoryKey,\n                        name = personalization?.localName ?: channel.name,\n                        logoUrl = personalization?.localLogo ?: channel.logoUrl,\n                        sortOrder = personalization?.manualOrder ?: channel.providerOrder,\n                        favorite = personalization?.favorite ?: false,\n                    ),\n'''
+          if text.count(old) != 1:
+              raise SystemExit(f'Expected one resolved Live channel block, found {text.count(old)}')
+          path.write_text(text.replace(old, new))
+          PY
+          git diff --check
+          git config user.name "Gersi365"
+          git config user.email "Gersi365@outlook.com"
+          git add app/src/main/java/app/ownplay/mobile/feature/live/data/LiveRepositoryImpl.kt
+          git commit -m "Stage 26: apply local personalization to playback metadata"
+          git push origin HEAD:stage-26-favorites-local-personalization
