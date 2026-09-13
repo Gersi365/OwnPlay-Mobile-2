@@ -59,6 +59,36 @@ data class LibraryEpisode(
     val resumePositionMs: Long?,
 )
 
+data class LibraryMediaMetadata(
+    val title: String,
+    val posterUrl: String? = null,
+    val backdropUrl: String? = null,
+    val plot: String? = null,
+    val releaseDate: String? = null,
+    val durationMs: Long? = null,
+    val rating: String? = null,
+    val genre: String? = null,
+    val director: String? = null,
+    val cast: String? = null,
+)
+
+data class LibraryMovieDetail(
+    val movie: LibraryMovie,
+    val metadata: LibraryMediaMetadata,
+)
+
+sealed interface LibraryMovieDetailResult {
+    data class Success(
+        val detail: LibraryMovieDetail,
+        val refreshWarning: String? = null,
+    ) : LibraryMovieDetailResult
+
+    data class Failure(
+        val code: String,
+        val safeMessage: String,
+    ) : LibraryMovieDetailResult
+}
+
 data class ContinueWatchingItem(
     val sourceId: String,
     val contentId: String,
@@ -94,6 +124,7 @@ data class LibraryCatalog(
 data class LibrarySeriesDetail(
     val series: LibrarySeries,
     val episodes: List<LibraryEpisode>,
+    val metadata: LibraryMediaMetadata? = null,
 )
 
 sealed interface LibrarySeriesDetailResult {
@@ -144,10 +175,13 @@ data class PlaybackProgressUpdate(
 
 interface LibraryRepository {
     fun observeCatalog(): Flow<LibraryCatalog>
+    suspend fun loadMovieDetail(movieId: String): LibraryMovieDetailResult
     suspend fun loadSeriesDetail(seriesId: String): LibrarySeriesDetailResult
     suspend fun resolveMoviePlayback(movieId: String, startMode: LibraryStartMode): LibraryPlaybackResolution
     suspend fun resolveEpisodePlayback(episodeId: String, startMode: LibraryStartMode): LibraryPlaybackResolution
     suspend fun saveProgress(update: PlaybackProgressUpdate)
+    suspend fun clearProgress(sourceId: String, mediaKind: LibraryMediaKind, contentId: String)
+    suspend fun markWatched(sourceId: String, mediaKind: LibraryMediaKind, contentId: String, durationMs: Long)
     suspend fun setMovieFavorite(movieId: String, favorite: Boolean)
     suspend fun setSeriesFavorite(seriesId: String, favorite: Boolean)
 }
