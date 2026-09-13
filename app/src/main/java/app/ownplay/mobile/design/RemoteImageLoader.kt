@@ -2,10 +2,13 @@ package app.ownplay.mobile.design
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.net.Uri
 import android.util.LruCache
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import java.io.ByteArrayOutputStream
+import java.io.File
+import java.io.FileInputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import kotlinx.coroutines.CompletableDeferred
@@ -52,25 +55,38 @@ internal object OwnPlayRemoteImageLoader {
 
         return try {
             val bitmap = deferred.await()
-            if (bitmap != null) {
-                memoryCache.put(cacheKey, bitmap)
-            }
+            if (bitmap != null) memoryCache.put(cacheKey, bitmap)
             bitmap?.asImageBitmap()
         } finally {
             if (deferred.isCompleted) {
                 synchronized(inFlightLock) {
-                    if (inFlight[cacheKey] === deferred) {
-                        inFlight.remove(cacheKey)
-                    }
+                    if (inFlight[cacheKey] === deferred) inFlight.remove(cacheKey)
                 }
             }
         }
     }
 
-    private fun fetchBitmap(
-        locator: String,
-        profile: RemoteImageProfile,
-    ): Bitmap? {
+    private fun fetchBitmap(locator: String, profile: RemoteImageProfile): Bitmap? = when {
+        locator.startsWith(FILE_SCHEME, ignoreCase = true) -> fetchFileBitmap(locator, profile)
+        locator.startsWith("https://", ignoreCase = true) || locator.startsWith("http://", ignoreCase = true) ->
+            fetchHttpBitmap(locator, profile)
+        else -> null
+    }
+
+    private fun fetchFileBitmap(locator: String, profile: RemoteImageProfile): Bitmap? {
+        val path = runCatching { Uri.parse(locator).path }.getOrNull() ?: return null
+        val file = File(path)
+        if (!file.isFile || file.length() <= 0L || file.length() > profile.maxBytes) return null
+        return try {
+            FileInputStream(file).use { input ->
+                readAndDecode(input.readBytesLimited(profile.maxBytes), profile.maxDimension)
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun fetchHttpBitmap(locator: String, profile: RemoteImageProfile): Bitmap? {
         val connection = try {
             URL(locator).openConnection() as? HttpURLConnection
         } catch (_: Exception) {
@@ -85,25 +101,9 @@ internal object OwnPlayRemoteImageLoader {
             if (connection.responseCode !in 200..299) return null
             val announcedLength = connection.contentLengthLong
             if (announcedLength > profile.maxBytes) return null
-
-            val output = ByteArrayOutputStream(
-                announcedLength
-                    .takeIf { it in 1..profile.maxBytes.toLong() }
-                    ?.toInt()
-                    ?: DEFAULT_BUFFER_CAPACITY,
-            )
             connection.inputStream.use { input ->
-                val buffer = ByteArray(NETWORK_BUFFER_BYTES)
-                var total = 0
-                while (true) {
-                    val count = input.read(buffer)
-                    if (count <= 0) break
-                    total += count
-                    if (total > profile.maxBytes) return null
-                    output.write(buffer, 0, count)
-                }
+                readAndDecode(input.readBytesLimited(profile.maxBytes), profile.maxDimension)
             }
-            decodeSampled(output.toByteArray(), profile.maxDimension)
         } catch (_: Exception) {
             null
         } finally {
@@ -111,22 +111,32 @@ internal object OwnPlayRemoteImageLoader {
         }
     }
 
-    private fun decodeSampled(
-        bytes: ByteArray,
-        maxDimension: Int,
-    ): Bitmap? {
-        if (bytes.isEmpty()) return null
+    private fun java.io.InputStream.readBytesLimited(maxBytes: Int): ByteArray {
+        val output = ByteArrayOutputStream(DEFAULT_BUFFER_CAPACITY)
+        val buffer = ByteArray(NETWORK_BUFFER_BYTES)
+        var total = 0
+        while (true) {
+            val count = read(buffer)
+            if (count <= 0) break
+            total += count
+            if (total > maxBytes) return ByteArray(0)
+            output.write(buffer, 0, count)
+        }
+        return output.toByteArray()
+    }
 
+    private fun readAndDecode(bytes: ByteArray, maxDimension: Int): Bitmap? =
+        if (bytes.isEmpty()) null else decodeSampled(bytes, maxDimension)
+
+    private fun decodeSampled(bytes: ByteArray, maxDimension: Int): Bitmap? {
+        if (bytes.isEmpty()) return null
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
         val largest = maxOf(bounds.outWidth, bounds.outHeight)
         if (largest <= 0) return null
 
         var sampleSize = 1
-        while (largest / (sampleSize * 2) >= maxDimension) {
-            sampleSize *= 2
-        }
-
+        while (largest / (sampleSize * 2) >= maxDimension) sampleSize *= 2
         val options = BitmapFactory.Options().apply {
             inSampleSize = sampleSize
             inPreferredConfig = Bitmap.Config.ARGB_8888
@@ -134,6 +144,7 @@ internal object OwnPlayRemoteImageLoader {
         return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
     }
 
+    private const val FILE_SCHEME = "file://"
     private const val MEMORY_CACHE_KB = 24 * 1024
     private const val CONNECT_TIMEOUT_MS = 4_000
     private const val READ_TIMEOUT_MS = 5_000
