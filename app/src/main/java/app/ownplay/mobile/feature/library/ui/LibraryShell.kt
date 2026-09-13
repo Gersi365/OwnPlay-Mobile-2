@@ -1766,12 +1766,20 @@ private fun LibraryFullscreenPlayer(
         playback.contentId,
         playback.offline,
         overlayVisible,
+        optionsVisible,
         playerState.isPlaying,
         playerState.phase,
     ) {
-        if (overlayVisible && LibraryPlayerControlsPolicy.shouldAutoHide(playerState)) {
+        if (
+            overlayVisible &&
+            !optionsVisible &&
+            LibraryPlayerControlsPolicy.shouldAutoHide(playerState)
+        ) {
             delay(4_000)
-            if (LibraryPlayerControlsPolicy.shouldAutoHide(playbackController.currentSnapshot())) {
+            if (
+                !optionsVisible &&
+                LibraryPlayerControlsPolicy.shouldAutoHide(playbackController.currentSnapshot())
+            ) {
                 overlayVisible = false
             }
         }
