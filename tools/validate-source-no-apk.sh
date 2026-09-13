@@ -11,6 +11,35 @@ find_packaged_artifacts() {
   find . -type f \( -name '*.apk' -o -name '*.aab' \) -not -path './.git/*' -print
 }
 
+verify_public_repo_hygiene() {
+  local forbidden_paths
+  forbidden_paths="$(
+    git ls-files | grep -E \
+      '(^|/)(\.env([.].*)?|secrets\.properties|keystore\.properties)$|[.](jks|keystore|p12|pfx|key)$' \
+      || true
+  )"
+  if [[ -n "$forbidden_paths" ]]; then
+    echo "ERROR: Secret/signing material must not be tracked in the public repository:" >&2
+    printf '%s\n' "$forbidden_paths" >&2
+    exit 6
+  fi
+
+  local private_key_markers
+  private_key_markers="$(
+    git grep -I -n -E \
+      -e '-----BEGIN (RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----' \
+      -- . \
+      || true
+  )"
+  if [[ -n "$private_key_markers" ]]; then
+    echo "ERROR: Private-key material was detected in tracked text files:" >&2
+    printf '%s\n' "$private_key_markers" >&2
+    exit 6
+  fi
+}
+
+verify_public_repo_hygiene
+
 existing_artifacts="$(find_packaged_artifacts)"
 if [[ -n "$existing_artifacts" ]]; then
   echo "ERROR: Packaged Android artifacts already exist before validation:" >&2
