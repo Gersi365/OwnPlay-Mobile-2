@@ -25,6 +25,7 @@ import androidx.media3.decoder.ffmpeg.FfmpegLibrary
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.exoplayer.source.UnrecognizedInputFormatException
 import app.ownplay.mobile.playback.domain.AudioTrackPolicy
 import app.ownplay.mobile.playback.domain.PlaybackAudioTrack
 import app.ownplay.mobile.playback.domain.PlaybackLoadRequest
@@ -73,8 +74,10 @@ class Media3PlaybackController(
     private var boundSurface: BoundSurface? = null
     private var boundSurfaceDetachListener: View.OnAttachStateChangeListener? = null
     private var currentMedia: PlaybackMedia? = null
+    private var currentLoadRequest: PlaybackLoadRequest? = null
     private var currentStreamFormat: PlaybackStreamFormat? = null
     private var currentVideoSize: VideoSize? = null
+    private var opaqueHlsRecoveryAttempted = false
     private var subtitleSelection: PlaybackSubtitleSelection = PlaybackSubtitleSelection.Auto
     private var currentSubtitleCues: List<PlaybackSubtitleCue> = emptyList()
     private var resizeMode: PlaybackResizeMode = PlaybackResizeMode.FIT
@@ -117,6 +120,9 @@ class Media3PlaybackController(
         }
 
         override fun onPlayerError(error: PlaybackException) {
+            if (tryRecoverOpaqueAutoStreamAsHls(error)) {
+                return
+            }
             Log.w(
                 "OwnPlayPlayback",
                 "Playback failure: ${error.getErrorCodeName()} (${error.errorCode})",
@@ -136,8 +142,10 @@ class Media3PlaybackController(
                 PlaybackStreamFormat.AUTO -> PlaybackStreamFormatPolicy.infer(request.media.uri)
             }
             currentMedia = request.media
+            currentLoadRequest = request
             currentStreamFormat = effectiveStreamFormat
             currentVideoSize = null
+            opaqueHlsRecoveryAttempted = false
             subtitleSelection = PlaybackSubtitleSelection.Auto
             currentSubtitleCues = emptyList()
             applyVideoResizeMode(PlaybackResizeMode.FIT)
@@ -376,8 +384,10 @@ class Media3PlaybackController(
                 clearBoundSurface()
                 player.clearMediaItems()
                 currentMedia = null
+                currentLoadRequest = null
                 currentStreamFormat = null
                 currentVideoSize = null
+                opaqueHlsRecoveryAttempted = false
                 resizeMode = PlaybackResizeMode.FIT
             }
             refreshSnapshot(errorCode = null)
@@ -395,8 +405,10 @@ class Media3PlaybackController(
                 player.removeListener(listener)
                 player.release()
                 currentMedia = null
+                currentLoadRequest = null
                 currentStreamFormat = null
                 currentVideoSize = null
+                opaqueHlsRecoveryAttempted = false
                 released = true
                 mutableState.value = PlaybackSnapshot(phase = PlaybackPhase.RELEASED)
             }
@@ -434,6 +446,46 @@ class Media3PlaybackController(
             .setHandleAudioBecomingNoisy(true)
             .setLooper(Looper.getMainLooper())
             .build()
+    }
+
+    private fun tryRecoverOpaqueAutoStreamAsHls(error: PlaybackException): Boolean {
+        val request = currentLoadRequest ?: return false
+        if (opaqueHlsRecoveryAttempted) return false
+        if (request.media.streamFormat != PlaybackStreamFormat.AUTO) return false
+        if (currentStreamFormat != PlaybackStreamFormat.AUTO) return false
+        if (!PlaybackStreamFormatPolicy.isOpaqueNetworkUri(request.media.uri)) return false
+
+        var cause: Throwable? = error
+        var unrecognizedInput = false
+        while (cause != null) {
+            if (cause is UnrecognizedInputFormatException) {
+                unrecognizedInput = true
+                break
+            }
+            cause = cause.cause
+        }
+        if (!unrecognizedInput) return false
+
+        opaqueHlsRecoveryAttempted = true
+        currentStreamFormat = PlaybackStreamFormat.HLS
+        currentVideoSize = null
+        currentSubtitleCues = emptyList()
+        Log.i("OwnPlayPlayback", "Unrecognized opaque AUTO stream; retrying once as HLS.")
+
+        val playWhenReady = player.playWhenReady
+        val mediaItem = MediaItem.Builder()
+            .setMediaId(request.media.id)
+            .setUri(request.media.uri)
+            .setMimeType(MimeTypes.APPLICATION_M3U8)
+            .build()
+        player.setMediaItem(mediaItem)
+        PlaybackStartPolicy.resolve(request.start).positionMs?.let { positionMs ->
+            player.seekTo(positionMs)
+        }
+        player.playWhenReady = playWhenReady
+        player.prepare()
+        refreshSnapshot(errorCode = null)
+        return true
     }
 
     private fun applyVideoResizeMode(mode: PlaybackResizeMode) {
