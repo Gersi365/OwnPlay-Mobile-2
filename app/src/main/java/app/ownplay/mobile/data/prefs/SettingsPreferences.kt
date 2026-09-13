@@ -33,6 +33,17 @@ class SettingsPreferences(
         .map(::toSnapshot)
         .distinctUntilChanged()
 
+    val downloadNotificationPermissionPrompted: Flow<Boolean> = context.ownPlaySettingsDataStore.data
+        .catch { throwable ->
+            if (throwable is IOException) {
+                emitAll(flowOf(emptyPreferences()))
+            } else {
+                throw throwable
+            }
+        }
+        .map { preferences -> preferences[DOWNLOAD_NOTIFICATION_PERMISSION_PROMPTED] ?: false }
+        .distinctUntilChanged()
+
     suspend fun setPictureInPictureEnabled(enabled: Boolean) = edit {
         it[PICTURE_IN_PICTURE] = enabled
     }
@@ -51,6 +62,10 @@ class SettingsPreferences(
 
     suspend fun setShowChannelLogos(enabled: Boolean) = edit {
         it[SHOW_CHANNEL_LOGOS] = enabled
+    }
+
+    suspend fun markDownloadNotificationPermissionPrompted() = edit {
+        it[DOWNLOAD_NOTIFICATION_PERMISSION_PROMPTED] = true
     }
 
     suspend fun replace(snapshot: SettingsSnapshot) = edit { preferences ->
@@ -81,5 +96,7 @@ class SettingsPreferences(
         val AUTO_REFRESH_PROVIDERS = booleanPreferencesKey("auto_refresh_providers")
         val PROVIDER_REFRESH_INTERVAL = stringPreferencesKey("provider_refresh_interval")
         val SHOW_CHANNEL_LOGOS = booleanPreferencesKey("show_channel_logos")
+        val DOWNLOAD_NOTIFICATION_PERMISSION_PROMPTED =
+            booleanPreferencesKey("download_notification_permission_prompted")
     }
 }

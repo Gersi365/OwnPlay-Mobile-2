@@ -14,9 +14,11 @@ object DownloadPermissionPolicy {
         sdkInt: Int,
         legacyStorageGranted: Boolean,
         notificationsGranted: Boolean,
+        notificationPermissionPrompted: Boolean,
     ): DownloadPermissionPrompt = when {
         sdkInt <= ANDROID_9_API && !legacyStorageGranted -> DownloadPermissionPrompt.LEGACY_PUBLIC_STORAGE
-        sdkInt >= ANDROID_13_API && !notificationsGranted -> DownloadPermissionPrompt.NOTIFICATIONS
+        sdkInt >= ANDROID_13_API && !notificationsGranted && !notificationPermissionPrompted ->
+            DownloadPermissionPrompt.NOTIFICATIONS
         else -> DownloadPermissionPrompt.NONE
     }
 }

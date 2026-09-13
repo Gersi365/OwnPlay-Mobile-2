@@ -19,9 +19,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -29,6 +31,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import app.ownplay.mobile.data.prefs.SettingsPreferences
 import app.ownplay.mobile.design.OwnPlayColors
 import app.ownplay.mobile.design.OwnPlayPrimaryButton
 import app.ownplay.mobile.design.OwnPlaySecondaryButton
@@ -41,6 +44,7 @@ import app.ownplay.mobile.downloads.domain.DownloadPermissionPrompt
 import app.ownplay.mobile.downloads.domain.DownloadState
 import app.ownplay.mobile.downloads.domain.DownloadStatePolicy
 import kotlin.math.roundToInt
+import kotlinx.coroutines.launch
 
 @Composable
 fun DownloadControls(
@@ -50,6 +54,10 @@ fun DownloadControls(
     compact: Boolean = false,
 ) {
     val context = LocalContext.current
+    val permissionPreferences = remember(context) { SettingsPreferences(context.applicationContext) }
+    val notificationPermissionPrompted by permissionPreferences.downloadNotificationPermissionPrompted
+        .collectAsState(initial = false)
+    val scope = rememberCoroutineScope()
     var pendingDownload by remember { mutableStateOf(false) }
     var permissionMessage by remember { mutableStateOf<String?>(null) }
 
@@ -100,6 +108,7 @@ fun DownloadControls(
                 sdkInt = Build.VERSION.SDK_INT,
                 legacyStorageGranted = legacyStorageGranted,
                 notificationsGranted = notificationsGranted,
+                notificationPermissionPrompted = notificationPermissionPrompted,
             )
         ) {
             DownloadPermissionPrompt.NONE -> onAction(DownloadAction.DOWNLOAD)
@@ -109,6 +118,7 @@ fun DownloadControls(
             }
             DownloadPermissionPrompt.NOTIFICATIONS -> {
                 pendingDownload = true
+                scope.launch { permissionPreferences.markDownloadNotificationPermissionPrompted() }
                 notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
             }
         }

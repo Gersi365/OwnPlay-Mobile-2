@@ -8,23 +8,56 @@ class DownloadPermissionPolicyTest {
     fun `legacy public storage is requested only through Android 9`() {
         assertEquals(
             DownloadPermissionPrompt.LEGACY_PUBLIC_STORAGE,
-            DownloadPermissionPolicy.nextPrompt(28, legacyStorageGranted = false, notificationsGranted = true),
+            DownloadPermissionPolicy.nextPrompt(
+                sdkInt = 28,
+                legacyStorageGranted = false,
+                notificationsGranted = true,
+                notificationPermissionPrompted = false,
+            ),
         )
         assertEquals(
             DownloadPermissionPrompt.NONE,
-            DownloadPermissionPolicy.nextPrompt(29, legacyStorageGranted = false, notificationsGranted = true),
+            DownloadPermissionPolicy.nextPrompt(
+                sdkInt = 29,
+                legacyStorageGranted = false,
+                notificationsGranted = true,
+                notificationPermissionPrompted = false,
+            ),
         )
     }
 
     @Test
-    fun `notification permission is requested from Android 13`() {
+    fun `notification permission is requested once from Android 13`() {
         assertEquals(
             DownloadPermissionPrompt.NOTIFICATIONS,
-            DownloadPermissionPolicy.nextPrompt(33, legacyStorageGranted = true, notificationsGranted = false),
+            DownloadPermissionPolicy.nextPrompt(
+                sdkInt = 33,
+                legacyStorageGranted = true,
+                notificationsGranted = false,
+                notificationPermissionPrompted = false,
+            ),
         )
         assertEquals(
             DownloadPermissionPrompt.NONE,
-            DownloadPermissionPolicy.nextPrompt(32, legacyStorageGranted = true, notificationsGranted = false),
+            DownloadPermissionPolicy.nextPrompt(
+                sdkInt = 33,
+                legacyStorageGranted = true,
+                notificationsGranted = false,
+                notificationPermissionPrompted = true,
+            ),
+        )
+    }
+
+    @Test
+    fun `notification permission is not requested before Android 13`() {
+        assertEquals(
+            DownloadPermissionPrompt.NONE,
+            DownloadPermissionPolicy.nextPrompt(
+                sdkInt = 32,
+                legacyStorageGranted = true,
+                notificationsGranted = false,
+                notificationPermissionPrompted = false,
+            ),
         )
     }
 
@@ -32,7 +65,12 @@ class DownloadPermissionPolicyTest {
     fun `no prompt is needed when applicable permissions are granted`() {
         assertEquals(
             DownloadPermissionPrompt.NONE,
-            DownloadPermissionPolicy.nextPrompt(36, legacyStorageGranted = true, notificationsGranted = true),
+            DownloadPermissionPolicy.nextPrompt(
+                sdkInt = 36,
+                legacyStorageGranted = true,
+                notificationsGranted = true,
+                notificationPermissionPrompted = false,
+            ),
         )
     }
 }
