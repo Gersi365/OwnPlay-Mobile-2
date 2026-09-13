@@ -26,6 +26,7 @@ import app.ownplay.mobile.sources.domain.SourceSelectionPolicy
 import app.ownplay.mobile.sources.domain.SourceType
 import app.ownplay.mobile.sources.domain.SourceUpdate
 import java.util.UUID
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
@@ -230,6 +231,8 @@ class SourceRepositoryImpl(
         if (!source.enabled) return failure("SOURCE_DISABLED", "Enable this source before refreshing it.")
         val credential = try {
             credentialStore.get(sourceId)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (_: Exception) {
             return failure("CREDENTIAL_READ_FAILED", "Secure source credentials could not be read.")
         } ?: return failure("CREDENTIAL_MISSING", "Source credentials are unavailable.")
@@ -237,6 +240,8 @@ class SourceRepositoryImpl(
         val attemptAt = nowMillis()
         val payload = try {
             catalogLoader.load(source, credential)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (_: Exception) {
             return recordFailedRefresh(sourceId, attemptAt, "REFRESH_UNEXPECTED")
         }
@@ -288,6 +293,8 @@ class SourceRepositoryImpl(
                     warnings = payload.errorCodes(),
                 ),
             )
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (_: Exception) {
             failure("REFRESH_PERSIST_FAILED", "Source refresh data could not be committed.")
         }
