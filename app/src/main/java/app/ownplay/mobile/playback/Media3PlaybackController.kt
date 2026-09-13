@@ -168,14 +168,17 @@ class Media3PlaybackController(
         mutateOnPlayerThread {
             val existing = boundSurface
             if (existing != null && existing.target == target && existing.surfaceView === surfaceView) {
+                applySurfaceResizeTransform(surfaceView)
                 return@mutateOnPlayerThread
             }
 
             if (existing != null) {
                 removeDetachListener(existing.surfaceView)
+                resetSurfaceResizeTransform(existing.surfaceView)
                 player.clearVideoSurfaceView(existing.surfaceView)
             }
 
+            applySurfaceResizeTransform(surfaceView)
             player.setVideoSurfaceView(surfaceView)
             boundSurface = BoundSurface(target = target, surfaceView = surfaceView)
             installDetachListener(surfaceView)
@@ -200,6 +203,7 @@ class Media3PlaybackController(
             }
 
             removeDetachListener(surfaceView)
+            resetSurfaceResizeTransform(surfaceView)
             player.clearVideoSurfaceView(surfaceView)
             boundSurface = null
             ownership = VideoTargetOwnershipReducer.reduce(
@@ -426,6 +430,18 @@ class Media3PlaybackController(
             PlaybackResizeMode.ZOOM,
             -> C.VIDEO_SCALING_MODE_SCALE_TO_FIT_WITH_CROPPING
         }
+        boundSurface?.surfaceView?.let(::applySurfaceResizeTransform)
+    }
+
+    private fun applySurfaceResizeTransform(surfaceView: SurfaceView) {
+        val scale = if (resizeMode == PlaybackResizeMode.ZOOM) 1.12f else 1f
+        surfaceView.scaleX = scale
+        surfaceView.scaleY = scale
+    }
+
+    private fun resetSurfaceResizeTransform(surfaceView: SurfaceView) {
+        surfaceView.scaleX = 1f
+        surfaceView.scaleY = 1f
     }
 
     private fun installDetachListener(surfaceView: SurfaceView) {
@@ -439,6 +455,7 @@ class Media3PlaybackController(
                 }
 
                 player.clearVideoSurfaceView(surfaceView)
+                resetSurfaceResizeTransform(surfaceView)
                 removeDetachListener(surfaceView)
                 boundSurface = null
                 ownership = VideoTargetOwnershipReducer.reduce(
@@ -460,6 +477,7 @@ class Media3PlaybackController(
     private fun clearBoundSurface() {
         val existing = boundSurface ?: return
         removeDetachListener(existing.surfaceView)
+        resetSurfaceResizeTransform(existing.surfaceView)
         player.clearVideoSurfaceView(existing.surfaceView)
         boundSurface = null
         ownership = VideoTargetOwnershipReducer.reduce(
