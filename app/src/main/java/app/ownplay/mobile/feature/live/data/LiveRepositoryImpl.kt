@@ -157,6 +157,7 @@ class LiveRepositoryImpl(
                                     providerOrder = row.providerOrder,
                                     favorite = row.favorite,
                                     localName = row.localName,
+                                    localLogo = row.localLogo,
                                     hidden = row.hidden,
                                     manualOrder = row.manualOrder,
                                 )
@@ -207,6 +208,19 @@ class LiveRepositoryImpl(
             val current = catalogDao.getChannelPersonalization(channelId)
             catalogDao.upsertChannelPersonalization(
                 (current ?: ChannelPersonalizationEntity(channelId = channelId)).copy(localName = normalized),
+            )
+        }
+    }
+
+    override suspend fun setChannelLocalLogo(channelId: String, localLogo: String?) {
+        if (channelId.isBlank()) return
+        val normalized = LivePersonalizationPolicy.normalizeLocalLogo(localLogo)
+        if (!localLogo.isNullOrBlank() && normalized == null) return
+        database.withTransaction {
+            if (catalogDao.getLiveChannel(channelId) == null) return@withTransaction
+            val current = catalogDao.getChannelPersonalization(channelId)
+            catalogDao.upsertChannelPersonalization(
+                (current ?: ChannelPersonalizationEntity(channelId = channelId)).copy(localLogo = normalized),
             )
         }
     }

@@ -55,6 +55,7 @@ import app.ownplay.mobile.design.OwnPlaySpacing
 import app.ownplay.mobile.design.OwnPlayStatePanel
 import app.ownplay.mobile.design.OwnPlayTopBar
 import app.ownplay.mobile.feature.live.domain.LiveManagementCatalog
+import app.ownplay.mobile.feature.live.domain.LivePersonalizationPolicy
 import app.ownplay.mobile.feature.live.domain.LiveRepository
 import app.ownplay.mobile.feature.live.domain.ManageableLiveCategory
 import app.ownplay.mobile.feature.live.domain.ManageableLiveChannel
@@ -219,8 +220,11 @@ fun LiveManagementScreen(
                 onToggleFavorite = { channel ->
                     scope.launch { liveRepository.setChannelFavorite(channel.channelId, !channel.favorite) }
                 },
-                onRenameChannel = { channelId, localName ->
-                    scope.launch { liveRepository.setChannelLocalName(channelId, localName) }
+                onSavePersonalization = { channelId, localName, localLogo ->
+                    scope.launch {
+                        liveRepository.setChannelLocalName(channelId, localName)
+                        liveRepository.setChannelLocalLogo(channelId, localLogo)
+                    }
                 },
                 onMoveChannel = { channelId, direction ->
                     val currentIds = orderedChannels.map { it.channelId }
@@ -588,7 +592,7 @@ private fun ChannelManagement(
     onBack: () -> Unit,
     onToggleChannel: (ManageableLiveChannel) -> Unit,
     onToggleFavorite: (ManageableLiveChannel) -> Unit,
-    onRenameChannel: (String, String?) -> Unit,
+    onSavePersonalization: (String, String?, String?) -> Unit,
     onMoveChannel: (String, Int) -> Boolean,
     onResetOrder: () -> Unit,
     modifier: Modifier,
@@ -601,8 +605,10 @@ private fun ChannelManagement(
     }
     val reorderEnabled = normalizedQuery.isBlank()
     val listState = rememberLazyListState()
-    var renameChannelId by rememberSaveable(title) { mutableStateOf<String?>(null) }
-    var renameValue by rememberSaveable(title) { mutableStateOf("") }
+    var editChannelId by rememberSaveable(title) { mutableStateOf<String?>(null) }
+    var editNameValue by rememberSaveable(title) { mutableStateOf("") }
+    var editLogoValue by rememberSaveable(title) { mutableStateOf("") }
+    val editLogoValid = LivePersonalizationPolicy.isValidLocalLogoInput(editLogoValue)
 
     Column(modifier = modifier.fillMaxSize()) {
         ManagementHeader(title, "Channels · hold the grip and drag. Move to an edge to scroll.", onBack)
@@ -624,7 +630,7 @@ private fun ChannelManagement(
             onResetOrder = onResetOrder,
         )
 
-        renameChannelId?.let { channelId ->
+        editChannelId?.let { channelId ->
             val target = channels.firstOrNull { it.channelId == channelId }
             OwnPlayPanel(
                 modifier = Modifier
@@ -636,7 +642,7 @@ private fun ChannelManagement(
                     verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Xs),
                 ) {
                     Text(
-                        text = "Rename channel",
+                        text = "Channel personalization",
                         style = MaterialTheme.typography.titleSmall,
                         color = OwnPlayColors.TextPrimary,
                         fontWeight = FontWeight.SemiBold,
@@ -649,23 +655,48 @@ private fun ChannelManagement(
                         overflow = TextOverflow.Ellipsis,
                     )
                     OutlinedTextField(
-                        value = renameValue,
-                        onValueChange = { renameValue = it },
+                        value = editNameValue,
+                        onValueChange = { editNameValue = it },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
                         label = { Text("Local name") },
                         supportingText = { Text("Leave blank to restore the provider name.") },
                     )
+                    OutlinedTextField(
+                        value = editLogoValue,
+                        onValueChange = { editLogoValue = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        isError = !editLogoValid,
+                        label = { Text("Custom logo URL") },
+                        supportingText = {
+                            Text(
+                                if (editLogoValid) {
+                                    "HTTP/HTTPS only. Leave blank to restore the provider logo."
+                                } else {
+                                    "Enter a valid HTTP/HTTPS URL without embedded credentials."
+                                },
+                            )
+                        },
+                    )
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.End,
                     ) {
-                        TextButton(onClick = { renameChannelId = null; renameValue = "" }) { Text("Cancel") }
                         TextButton(
                             onClick = {
-                                onRenameChannel(channelId, renameValue)
-                                renameChannelId = null
-                                renameValue = ""
+                                editChannelId = null
+                                editNameValue = ""
+                                editLogoValue = ""
+                            },
+                        ) { Text("Cancel") }
+                        TextButton(
+                            enabled = editLogoValid,
+                            onClick = {
+                                onSavePersonalization(channelId, editNameValue, editLogoValue)
+                                editChannelId = null
+                                editNameValue = ""
+                                editLogoValue = ""
                             },
                         ) { Text("Save") }
                     }
@@ -722,6 +753,7 @@ private fun ChannelManagement(
                                     add(if (channel.hidden) "Hidden" else "Visible")
                                     if (channel.favorite) add("Favorite")
                                     if (channel.localName != null) add("Custom name")
+                                    if (channel.localLogo != null) add("Custom logo")
                                 }.joinToString(" • "),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = OwnPlayColors.TextSecondary,
@@ -736,12 +768,13 @@ private fun ChannelManagement(
                         }
                         TextButton(
                             onClick = {
-                                renameChannelId = channel.channelId
-                                renameValue = channel.localName ?: channel.name
+                                editChannelId = channel.channelId
+                                editNameValue = channel.localName.orEmpty()
+                                editLogoValue = channel.localLogo.orEmpty()
                             },
                             contentPadding = PaddingValues(horizontal = OwnPlaySpacing.Xs),
                         ) {
-                            Text("Rename", style = MaterialTheme.typography.labelMedium)
+                            Text("Edit", style = MaterialTheme.typography.labelMedium)
                         }
                         TextButton(
                             onClick = { onToggleChannel(channel) },

@@ -53,6 +53,7 @@ data class ManageableLiveChannel(
     val providerOrder: Int,
     val favorite: Boolean,
     val localName: String?,
+    val localLogo: String?,
     val hidden: Boolean,
     val manualOrder: Int?,
 )
@@ -105,6 +106,7 @@ interface LiveRepository {
     suspend fun setChannelHidden(channelId: String, hidden: Boolean)
     suspend fun setChannelFavorite(channelId: String, favorite: Boolean)
     suspend fun setChannelLocalName(channelId: String, localName: String?)
+    suspend fun setChannelLocalLogo(channelId: String, localLogo: String?)
     suspend fun setCategoryOrder(sourceId: String, orderedCategoryKeys: List<String>)
     suspend fun setChannelOrder(orderedChannelIds: List<String>)
     suspend fun resetCategoryOrder(sourceId: String, categoryKeys: List<String>)

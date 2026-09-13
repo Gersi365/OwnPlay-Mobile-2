@@ -38,6 +38,7 @@ data class ManageableLiveChannelView(
     val providerOrder: Int,
     val favorite: Boolean,
     val localName: String?,
+    val localLogo: String?,
     val hidden: Boolean,
     val manualOrder: Int?,
 )
@@ -190,6 +191,7 @@ interface CatalogDao {
             c.providerOrder AS providerOrder,
             COALESCE(p.favorite, 0) AS favorite,
             p.localName AS localName,
+            p.localLogo AS localLogo,
             COALESCE(p.hidden, 0) AS hidden,
             p.manualOrder AS manualOrder
         FROM live_channels AS c
