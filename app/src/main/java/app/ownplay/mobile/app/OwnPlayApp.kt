@@ -140,6 +140,7 @@ fun OwnPlayApp(
                                 liveRepository = services.liveRepository,
                                 playbackController = services.playbackController,
                                 showChannelLogos = settings.showChannelLogos,
+                                hideChannelPrefix = settings.hideChannelPrefix,
                                 autoFullscreenRequestToken = liveAutoFullscreenRequestToken,
                                 autoPreviewRequestToken = liveAutoPreviewRequestToken,
                                 onFullscreenChanged = { fullscreen ->
