@@ -1,6 +1,11 @@
 name: Stage 32 source patch helper
 
 on:
+  push:
+    branches:
+      - stage-32-interaction-orientation-contract
+    paths:
+      - tools/stage32_patch.py
   workflow_dispatch:
 
 permissions:
