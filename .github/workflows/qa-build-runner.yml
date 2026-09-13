@@ -1,0 +1,171 @@
+name: OwnPlay QA Build Runner
+
+on:
+  push:
+    branches:
+      - stage-31-qa-build-v27
+    paths:
+      - qa/build-request.env
+      - .github/workflows/qa-build-runner.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout runner branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Read and validate build request
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -f qa/build-request.env
+
+          set -a
+          source qa/build-request.env
+          set +a
+
+          [[ "${SOURCE_SHA:-}" =~ ^[0-9a-f]{40}$ ]]
+          [[ "${VERSION_CODE:-}" =~ ^[0-9]+$ ]]
+          test "${VERSION_NAME:-}" = "0.1.0-dev"
+          test "${BUILD_TYPE:-}" = "release"
+
+          echo "SOURCE_SHA=$SOURCE_SHA" >> "$GITHUB_ENV"
+          echo "VERSION_CODE=$VERSION_CODE" >> "$GITHUB_ENV"
+          echo "VERSION_NAME=$VERSION_NAME" >> "$GITHUB_ENV"
+
+      - name: Checkout exact authorized source
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git fetch --no-tags origin "$SOURCE_SHA"
+          git checkout --detach "$SOURCE_SHA"
+
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          test -z "$(git status --porcelain)"
+
+          echo "Validated source HEAD: $(git rev-parse HEAD)"
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK 36
+        shell: bash
+        run: |
+          sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Set up Gradle 9.6.0
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "9.6.0"
+          cache-read-only: true
+
+      - name: Apply build-only versionCode
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          path = Path("app/build.gradle.kts")
+          text = path.read_text()
+
+          old = "versionCode = 1"
+          new = f"versionCode = {os.environ['VERSION_CODE']}"
+
+          if text.count(old) != 1:
+              raise SystemExit("Expected exactly one versionCode = 1")
+
+          path.write_text(text.replace(old, new, 1))
+          PY
+
+          test "$(git diff --name-only)" = "app/build.gradle.kts"
+          grep -F "versionCode = $VERSION_CODE" app/build.gradle.kts
+          git diff --check
+
+      - name: Build unsigned release APK
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          gradle --no-daemon :app:assembleRelease
+
+          test -f app/build/outputs/apk/release/app-release-unsigned.apk
+
+      - name: Prepare QA artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          BT="$ANDROID_HOME/build-tools/36.0.0"
+          OUT="$RUNNER_TEMP/qa-output"
+          SHORT_SHA="${SOURCE_SHA:0:7}"
+          APK_NAME="OwnPlay-QA-${SHORT_SHA}-v${VERSION_CODE}-unsigned-aligned.apk"
+
+          mkdir -p "$OUT"
+
+          "$BT/zipalign" -p -f 4 \
+            app/build/outputs/apk/release/app-release-unsigned.apk \
+            "$OUT/$APK_NAME"
+
+          "$BT/zipalign" -c -v 4 "$OUT/$APK_NAME"
+
+          "$BT/aapt" dump badging "$OUT/$APK_NAME" \
+            | tee "$OUT/PACKAGE_BADGING.txt"
+
+          grep -q "package: name='app.ownplay.mobile'" \
+            "$OUT/PACKAGE_BADGING.txt"
+
+          grep -q "versionCode='$VERSION_CODE'" \
+            "$OUT/PACKAGE_BADGING.txt"
+
+          grep -q "versionName='$VERSION_NAME'" \
+            "$OUT/PACKAGE_BADGING.txt"
+
+          for abi in arm64-v8a armeabi-v7a x86 x86_64; do
+            unzip -l "$OUT/$APK_NAME" \
+              | grep -q "lib/$abi/libffmpegJNI.so"
+          done
+
+          sha256sum "$OUT/$APK_NAME" \
+            | tee "$OUT/UNSIGNED_APK_SHA256.txt"
+
+          cat > "$OUT/QA_BUILD_METADATA.txt" <<EOF
+          sourceSha=$SOURCE_SHA
+          package=app.ownplay.mobile
+          versionCode=$VERSION_CODE
+          versionName=$VERSION_NAME
+          buildType=release
+          sourceCheckoutCleanBeforeOverride=true
+          buildOnlyVersionCodeOverride=1-to-$VERSION_CODE
+          signingState=unsigned-aligned-awaiting-stable-qa-signer
+          buildTools=36.0.0
+          ffmpegJniAbis=arm64-v8a,armeabi-v7a,x86,x86_64
+          EOF
+
+      - name: Upload QA pre-sign artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ownplay-qa-presign-${{ env.VERSION_CODE }}
+          path: ${{ runner.temp }}/qa-output/
+          if-no-files-found: error
+          retention-days: 7
