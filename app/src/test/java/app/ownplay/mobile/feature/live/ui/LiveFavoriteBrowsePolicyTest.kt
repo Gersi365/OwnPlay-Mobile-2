@@ -1,8 +1,8 @@
 package app.ownplay.mobile.feature.live.ui
 
 import app.ownplay.mobile.feature.live.domain.LiveChannel
-import kotlin.test.Test
-import kotlin.test.assertEquals
+import org.junit.Assert.assertEquals
+import org.junit.Test
 
 class LiveFavoriteBrowsePolicyTest {
     @Test
