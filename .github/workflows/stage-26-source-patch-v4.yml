@@ -1,0 +1,98 @@
+name: Stage 26 source patch runner v4
+
+on:
+  push:
+    branches:
+      - stage-26-favorites-local-personalization
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event.head_commit.message == 'Fix Stage 26 channel-management selector'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout Stage 26 branch
+        uses: actions/checkout@v4
+        with:
+          ref: stage-26-favorites-local-personalization
+          fetch-depth: 0
+
+      - name: Verify source ancestry
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor 25a1f411ef998877735f89e28d14ca09d3fd48e5 HEAD
+
+      - name: Apply corrected Stage 26 source patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import textwrap
+
+          workflow = Path('.github/workflows/stage-26-source-patch.yml').read_text()
+          start_marker = "          python3 - <<'PY'\n"
+          end_marker = "\n          PY\n\n      - name: Commit Stage 26 source"
+          start = workflow.index(start_marker) + len(start_marker)
+          end = workflow.index(end_marker, start)
+          script = textwrap.dedent(workflow[start:end])
+
+          replacements = []
+          replacements.append((
+          '''replace_exact(
+              daos,
+              ''' + "'''" + '''            c.providerOrder AS providerOrder,\\n            COALESCE(p.hidden, 0) AS hidden,\\n            p.manualOrder AS manualOrder\\n''' + "'''" + ''',
+              ''' + "'''" + '''            c.providerOrder AS providerOrder,\\n            COALESCE(p.favorite, 0) AS favorite,\\n            p.localName AS localName,\\n            COALESCE(p.hidden, 0) AS hidden,\\n            p.manualOrder AS manualOrder\\n''' + "'''" + ''',
+          )''',
+          '''replace_exact(
+              daos,
+              ''' + "'''" + '''            COALESCE(p.localName, c.name) AS name,\\n            COALESCE(p.localLogo, c.logoUrl) AS logoUrl,\\n            c.providerOrder AS providerOrder,\\n            COALESCE(p.hidden, 0) AS hidden,\\n            p.manualOrder AS manualOrder\\n''' + "'''" + ''',
+              ''' + "'''" + '''            COALESCE(p.localName, c.name) AS name,\\n            COALESCE(p.localLogo, c.logoUrl) AS logoUrl,\\n            c.providerOrder AS providerOrder,\\n            COALESCE(p.favorite, 0) AS favorite,\\n            p.localName AS localName,\\n            COALESCE(p.hidden, 0) AS hidden,\\n            p.manualOrder AS manualOrder\\n''' + "'''" + ''',
+          )'''))
+
+          replacements.append((
+          '''replace_exact(
+              live_models,
+              ''' + "'''" + '''    val providerOrder: Int,\\n    val hidden: Boolean,\\n    val manualOrder: Int?,\\n)\\n''' + "'''" + ''',
+              ''' + "'''" + '''    val providerOrder: Int,\\n    val favorite: Boolean,\\n    val localName: String?,\\n    val hidden: Boolean,\\n    val manualOrder: Int?,\\n)\\n''' + "'''" + ''',
+          )''',
+          '''replace_exact(
+              live_models,
+              ''' + "'''" + '''data class ManageableLiveChannel(\\n    val channelId: String,\\n    val sourceId: String,\\n    val categoryKey: String?,\\n    val name: String,\\n    val logoUrl: String?,\\n    val providerOrder: Int,\\n    val hidden: Boolean,\\n    val manualOrder: Int?,\\n)\\n''' + "'''" + ''',
+              ''' + "'''" + '''data class ManageableLiveChannel(\\n    val channelId: String,\\n    val sourceId: String,\\n    val categoryKey: String?,\\n    val name: String,\\n    val logoUrl: String?,\\n    val providerOrder: Int,\\n    val favorite: Boolean,\\n    val localName: String?,\\n    val hidden: Boolean,\\n    val manualOrder: Int?,\\n)\\n''' + "'''" + ''',
+          )'''))
+
+          replacements.append((
+          '''replace_exact(
+              manage_ui,
+              ''' + "'''" + '''    val reorderEnabled = normalizedQuery.isBlank()\\n    val listState = rememberLazyListState()\\n\\n    Column(modifier = modifier.fillMaxSize()) {\\n''' + "'''" + ''',
+              ''' + "'''" + '''    val reorderEnabled = normalizedQuery.isBlank()\\n    val listState = rememberLazyListState()\\n    var renameChannelId by rememberSaveable(title) { mutableStateOf<String?>(null) }\\n    var renameValue by rememberSaveable(title) { mutableStateOf("") }\\n\\n    Column(modifier = modifier.fillMaxSize()) {\\n''' + "'''" + ''',
+          )''',
+          '''replace_exact(
+              manage_ui,
+              ''' + "'''" + '''    val filteredChannels = remember(channels, normalizedQuery) {\\n        if (normalizedQuery.isBlank()) channels\\n        else channels.filter { it.name.contains(normalizedQuery, ignoreCase = true) }\\n    }\\n    val reorderEnabled = normalizedQuery.isBlank()\\n    val listState = rememberLazyListState()\\n\\n    Column(modifier = modifier.fillMaxSize()) {\\n''' + "'''" + ''',
+              ''' + "'''" + '''    val filteredChannels = remember(channels, normalizedQuery) {\\n        if (normalizedQuery.isBlank()) channels\\n        else channels.filter { it.name.contains(normalizedQuery, ignoreCase = true) }\\n    }\\n    val reorderEnabled = normalizedQuery.isBlank()\\n    val listState = rememberLazyListState()\\n    var renameChannelId by rememberSaveable(title) { mutableStateOf<String?>(null) }\\n    var renameValue by rememberSaveable(title) { mutableStateOf("") }\\n\\n    Column(modifier = modifier.fillMaxSize()) {\\n''' + "'''" + ''',
+          )'''))
+
+          for index, (old, new) in enumerate(replacements, start=1):
+              if script.count(old) != 1:
+                  raise SystemExit(f'Expected one patch block {index}, found {script.count(old)}')
+              script = script.replace(old, new)
+
+          Path('/tmp/stage26.py').write_text(script)
+          PY
+          python3 /tmp/stage26.py
+
+      - name: Commit Stage 26 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "Gersi365"
+          git config user.email "Gersi365@outlook.com"
+          git add app/src/main app/src/test
+          git diff --cached --check
+          git commit -m "Stage 26: add favorites and local personalization"
+          git push origin HEAD:stage-26-favorites-local-personalization
