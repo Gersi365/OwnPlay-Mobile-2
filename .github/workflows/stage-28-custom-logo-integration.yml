@@ -1,0 +1,38 @@
+name: Stage 28 custom logo integration
+
+on:
+  push:
+    branches:
+      - stage-28-live-custom-logo-personalization
+    paths:
+      - .github/workflows/stage-28-custom-logo-integration.yml
+
+permissions:
+  contents: write
+
+jobs:
+  integrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: stage-28-live-custom-logo-personalization
+          fetch-depth: 0
+      - name: Apply deterministic Stage 28 patch
+        run: python3 tools/stage28_custom_logo.py
+      - name: Commit source changes
+        shell: bash
+        run: |
+          git diff --check
+          git status --short
+          git config user.name "Gersi365"
+          git config user.email "Gersi365@outlook.com"
+          git add app/src/main/java/app/ownplay/mobile/data/db/Daos.kt
+          git add app/src/main/java/app/ownplay/mobile/feature/live/domain/LiveModels.kt
+          git add app/src/main/java/app/ownplay/mobile/feature/live/domain/LivePersonalizationPolicy.kt
+          git add app/src/main/java/app/ownplay/mobile/feature/live/data/LiveRepositoryImpl.kt
+          git add app/src/main/java/app/ownplay/mobile/feature/settings/ui/LiveManagementScreen.kt
+          git add app/src/test/java/app/ownplay/mobile/feature/live/domain/LiveLogoPersonalizationPolicyTest.kt
+          git diff --cached --quiet && { echo "No Stage 28 source changes produced"; exit 1; }
+          git commit -m "Stage 28: add Live custom logo personalization"
+          git push origin HEAD:stage-28-live-custom-logo-personalization
