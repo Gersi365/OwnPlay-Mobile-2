@@ -1908,7 +1908,7 @@ private fun LibraryFullscreenPlayer(
                     Text(
                         text = when (playerState.phase) {
                             PlaybackPhase.BUFFERING -> "Buffering…"
-                            PlaybackPhase.ERROR -> "Playback unavailable"
+                            PlaybackPhase.ERROR -> playerState.errorMessage ?: "Playback unavailable"
                             else -> "Preparing duration…"
                         },
                         style = MaterialTheme.typography.bodySmall,

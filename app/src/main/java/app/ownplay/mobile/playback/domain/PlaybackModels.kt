@@ -111,4 +111,6 @@ data class PlaybackSnapshot(
     val audioChannelCount: Int? = null,
     val audioSampleRate: Int? = null,
     val errorCode: Int? = null,
+    val errorCodeName: String? = null,
+    val errorMessage: String? = null,
 )
