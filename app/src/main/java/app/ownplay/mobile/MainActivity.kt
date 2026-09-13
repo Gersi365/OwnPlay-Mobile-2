@@ -29,6 +29,7 @@ import app.ownplay.mobile.app.OwnPlayApp
 import app.ownplay.mobile.core.OwnPlayServices
 import app.ownplay.mobile.playback.domain.FullscreenOrientationLatch
 import app.ownplay.mobile.playback.domain.PhysicalOrientationBand
+import app.ownplay.mobile.playback.domain.PictureInPictureAspectRatioPolicy
 import app.ownplay.mobile.playback.domain.PictureInPicturePolicy
 import app.ownplay.mobile.playback.domain.PlaybackKind
 import app.ownplay.mobile.playback.domain.PlaybackSnapshot
@@ -48,6 +49,7 @@ class MainActivity : ComponentActivity() {
     private var resumePlaybackAfterBackground = false
     private var appPlaybackVolume = 1f
     private val systemAutoRotateEnabled = mutableStateOf(false)
+    private val pictureInPictureActive = mutableStateOf(false)
     private val liveAutoFullscreenRequestToken = mutableIntStateOf(0)
     private val liveAutoPreviewRequestToken = mutableIntStateOf(0)
     private val livePreviewLandscapeLatch = StableOrientationLatch(
@@ -92,6 +94,7 @@ class MainActivity : ComponentActivity() {
                 services = services,
                 liveAutoFullscreenRequestToken = liveAutoFullscreenRequestToken.intValue,
                 liveAutoPreviewRequestToken = liveAutoPreviewRequestToken.intValue,
+                pictureInPictureActive = pictureInPictureActive.value,
                 onExitConfirmed = { finish() },
                 onFullscreenChanged = ::handleContentFullscreenChanged,
             )
@@ -140,6 +143,7 @@ class MainActivity : ComponentActivity() {
         newConfig: Configuration,
     ) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        pictureInPictureActive.value = isInPictureInPictureMode
 
         if (isInPictureInPictureMode && resumePlaybackAfterBackground) {
             resumePlaybackAfterBackground = false
@@ -379,8 +383,12 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun buildPictureInPictureParams(): PictureInPictureParams {
+        val ratio = PictureInPictureAspectRatioPolicy.resolve(
+            videoWidth = playbackSnapshot.videoWidth,
+            videoHeight = playbackSnapshot.videoHeight,
+        )
         val builder = PictureInPictureParams.Builder()
-            .setAspectRatio(Rational(16, 9))
+            .setAspectRatio(Rational(ratio.width, ratio.height))
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             builder
                 .setAutoEnterEnabled(canEnterPictureInPicture())
