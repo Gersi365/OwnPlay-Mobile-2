@@ -214,6 +214,12 @@ fun LiveManagementScreen(
                 onToggleChannel = { channel ->
                     scope.launch { liveRepository.setChannelHidden(channel.channelId, !channel.hidden) }
                 },
+                onToggleFavorite = { channel ->
+                    scope.launch { liveRepository.setChannelFavorite(channel.channelId, !channel.favorite) }
+                },
+                onRenameChannel = { channelId, localName ->
+                    scope.launch { liveRepository.setChannelLocalName(channelId, localName) }
+                },
                 onMoveChannel = { channelId, direction ->
                     val currentIds = orderedChannels.map { it.channelId }
                     val movedIds = ManualOrderPolicy.move(currentIds, channelId, direction)
@@ -576,6 +582,8 @@ private fun ChannelManagement(
     channels: List<ManageableLiveChannel>,
     onBack: () -> Unit,
     onToggleChannel: (ManageableLiveChannel) -> Unit,
+    onToggleFavorite: (ManageableLiveChannel) -> Unit,
+    onRenameChannel: (String, String?) -> Unit,
     onMoveChannel: (String, Int) -> Boolean,
     onResetOrder: () -> Unit,
     modifier: Modifier,
@@ -588,6 +596,8 @@ private fun ChannelManagement(
     }
     val reorderEnabled = normalizedQuery.isBlank()
     val listState = rememberLazyListState()
+    var renameChannelId by rememberSaveable(title) { mutableStateOf<String?>(null) }
+    var renameValue by rememberSaveable(title) { mutableStateOf("") }
 
     Column(modifier = modifier.fillMaxSize()) {
         ManagementHeader(title, "Channels · hold the grip and drag. Move to an edge to scroll.", onBack)
@@ -608,6 +618,55 @@ private fun ChannelManagement(
             hasManualOrder = channels.any { it.manualOrder != null },
             onResetOrder = onResetOrder,
         )
+
+        renameChannelId?.let { channelId ->
+            val target = channels.firstOrNull { it.channelId == channelId }
+            OwnPlayPanel(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = OwnPlaySpacing.Lg, vertical = OwnPlaySpacing.Xs),
+            ) {
+                Column(
+                    modifier = Modifier.padding(OwnPlaySpacing.Md),
+                    verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Xs),
+                ) {
+                    Text(
+                        text = "Rename channel",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = OwnPlayColors.TextPrimary,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        text = target?.name ?: "Channel",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = OwnPlayColors.TextSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    OutlinedTextField(
+                        value = renameValue,
+                        onValueChange = { renameValue = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        label = { Text("Local name") },
+                        supportingText = { Text("Leave blank to restore the provider name.") },
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End,
+                    ) {
+                        TextButton(onClick = { renameChannelId = null; renameValue = "" }) { Text("Cancel") }
+                        TextButton(
+                            onClick = {
+                                onRenameChannel(channelId, renameValue)
+                                renameChannelId = null
+                                renameValue = ""
+                            },
+                        ) { Text("Save") }
+                    }
+                }
+            }
+        }
 
         LazyColumn(
             modifier = Modifier.weight(1f),
@@ -654,11 +713,30 @@ private fun ChannelManagement(
                                 overflow = TextOverflow.Ellipsis,
                             )
                             Text(
-                                text = if (channel.hidden) "Hidden" else "Visible",
+                                text = buildList {
+                                    add(if (channel.hidden) "Hidden" else "Visible")
+                                    if (channel.favorite) add("Favorite")
+                                    if (channel.localName != null) add("Custom name")
+                                }.joinToString(" • "),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = OwnPlayColors.TextSecondary,
                                 maxLines = 1,
                             )
+                        }
+                        TextButton(
+                            onClick = { onToggleFavorite(channel) },
+                            contentPadding = PaddingValues(horizontal = OwnPlaySpacing.Xs),
+                        ) {
+                            Text(if (channel.favorite) "★" else "☆", style = MaterialTheme.typography.labelLarge)
+                        }
+                        TextButton(
+                            onClick = {
+                                renameChannelId = channel.channelId
+                                renameValue = channel.localName ?: channel.name
+                            },
+                            contentPadding = PaddingValues(horizontal = OwnPlaySpacing.Xs),
+                        ) {
+                            Text("Rename", style = MaterialTheme.typography.labelMedium)
                         }
                         TextButton(
                             onClick = { onToggleChannel(channel) },

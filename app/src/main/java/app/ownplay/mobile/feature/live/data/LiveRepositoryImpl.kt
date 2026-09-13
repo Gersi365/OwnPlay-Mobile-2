@@ -15,6 +15,7 @@ import app.ownplay.mobile.feature.live.domain.LiveProgram
 import app.ownplay.mobile.feature.live.domain.LiveCategory
 import app.ownplay.mobile.feature.live.domain.LiveChannel
 import app.ownplay.mobile.feature.live.domain.LivePlaybackResolution
+import app.ownplay.mobile.feature.live.domain.LivePersonalizationPolicy
 import app.ownplay.mobile.feature.live.domain.ManageableLiveCategory
 import app.ownplay.mobile.feature.live.domain.ManageableLiveChannel
 import app.ownplay.mobile.feature.live.domain.LiveRepository
@@ -81,6 +82,7 @@ class LiveRepositoryImpl(
                                 name = row.name,
                                 logoUrl = row.logoUrl,
                                 sortOrder = row.sortOrder,
+                                favorite = row.favorite,
                             )
                         },
                     )
@@ -123,6 +125,8 @@ class LiveRepositoryImpl(
                                     name = row.name,
                                     logoUrl = row.logoUrl,
                                     providerOrder = row.providerOrder,
+                                    favorite = row.favorite,
+                                    localName = row.localName,
                                     hidden = row.hidden,
                                     manualOrder = row.manualOrder,
                                 )
@@ -149,6 +153,29 @@ class LiveRepositoryImpl(
             val current = catalogDao.getChannelPersonalization(channelId)
             catalogDao.upsertChannelPersonalization(
                 (current ?: ChannelPersonalizationEntity(channelId = channelId)).copy(hidden = hidden),
+            )
+        }
+    }
+
+    override suspend fun setChannelFavorite(channelId: String, favorite: Boolean) {
+        if (channelId.isBlank()) return
+        database.withTransaction {
+            if (catalogDao.getLiveChannel(channelId) == null) return@withTransaction
+            val current = catalogDao.getChannelPersonalization(channelId)
+            catalogDao.upsertChannelPersonalization(
+                (current ?: ChannelPersonalizationEntity(channelId = channelId)).copy(favorite = favorite),
+            )
+        }
+    }
+
+    override suspend fun setChannelLocalName(channelId: String, localName: String?) {
+        if (channelId.isBlank()) return
+        val normalized = LivePersonalizationPolicy.normalizeLocalName(localName)
+        database.withTransaction {
+            if (catalogDao.getLiveChannel(channelId) == null) return@withTransaction
+            val current = catalogDao.getChannelPersonalization(channelId)
+            catalogDao.upsertChannelPersonalization(
+                (current ?: ChannelPersonalizationEntity(channelId = channelId)).copy(localName = normalized),
             )
         }
     }

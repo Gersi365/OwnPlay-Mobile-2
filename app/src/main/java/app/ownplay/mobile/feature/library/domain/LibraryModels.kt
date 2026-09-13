@@ -31,6 +31,7 @@ data class LibraryMovie(
     val providerOrder: Int,
     val resumePositionMs: Long?,
     val durationMs: Long?,
+    val favorite: Boolean = false,
 )
 
 data class LibrarySeries(
@@ -43,6 +44,7 @@ data class LibrarySeries(
     val description: String?,
     val rating: String?,
     val providerOrder: Int,
+    val favorite: Boolean = false,
 )
 
 data class LibraryEpisode(
@@ -146,4 +148,6 @@ interface LibraryRepository {
     suspend fun resolveMoviePlayback(movieId: String, startMode: LibraryStartMode): LibraryPlaybackResolution
     suspend fun resolveEpisodePlayback(episodeId: String, startMode: LibraryStartMode): LibraryPlaybackResolution
     suspend fun saveProgress(update: PlaybackProgressUpdate)
+    suspend fun setMovieFavorite(movieId: String, favorite: Boolean)
+    suspend fun setSeriesFavorite(seriesId: String, favorite: Boolean)
 }

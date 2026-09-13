@@ -42,6 +42,8 @@ internal enum class LibraryActionGlyph {
     RESTART,
     BACK,
     DISMISS,
+    FAVORITE_OFF,
+    FAVORITE_ON,
 }
 
 internal enum class LibraryStateTone {
@@ -387,6 +389,8 @@ private val LibraryActionGlyph.symbol: String
         LibraryActionGlyph.RESTART -> "↺"
         LibraryActionGlyph.BACK -> "‹"
         LibraryActionGlyph.DISMISS -> "×"
+        LibraryActionGlyph.FAVORITE_OFF -> "☆"
+        LibraryActionGlyph.FAVORITE_ON -> "★"
     }
 
 private val OwnPlayShapeHeaderSpacing = 12.dp

@@ -309,6 +309,9 @@ fun LibraryShell(
                 },
                 onResume = { startMovie(selectedMovie.movieId, LibraryStartMode.RESUME) },
                 onBeginning = { startMovie(selectedMovie.movieId, LibraryStartMode.BEGINNING) },
+                onFavoriteToggle = {
+                    scope.launch { libraryRepository.setMovieFavorite(selectedMovie.movieId, !selectedMovie.favorite) }
+                },
                 onDownloadAction = { action ->
                     performDownloadAction(
                         item = downloadItem,
@@ -338,6 +341,9 @@ fun LibraryShell(
             },
             onResumeEpisode = { episode -> startEpisode(episode.episodeId, LibraryStartMode.RESUME) },
             onBeginningEpisode = { episode -> startEpisode(episode.episodeId, LibraryStartMode.BEGINNING) },
+            onFavoriteToggle = {
+                scope.launch { libraryRepository.setSeriesFavorite(selectedSeries.seriesId, !selectedSeries.favorite) }
+            },
             downloadForEpisode = { episode ->
                 downloadFor(episode.sourceId, LibraryMediaKind.EPISODE, episode.episodeId)
             },
@@ -1259,6 +1265,7 @@ private fun MovieDetail(
     onBack: () -> Unit,
     onResume: () -> Unit,
     onBeginning: () -> Unit,
+    onFavoriteToggle: () -> Unit,
     onDownloadAction: (DownloadAction) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -1273,6 +1280,8 @@ private fun MovieDetail(
             label = "MOVIE",
             rating = movie.rating,
             artworkUrl = movie.backdropUrl ?: movie.posterUrl,
+            favorite = movie.favorite,
+            onFavoriteToggle = onFavoriteToggle,
             onBack = onBack,
         )
         Column(
@@ -1316,6 +1325,7 @@ private fun SeriesDetail(
     onBack: () -> Unit,
     onResumeEpisode: (LibraryEpisode) -> Unit,
     onBeginningEpisode: (LibraryEpisode) -> Unit,
+    onFavoriteToggle: () -> Unit,
     downloadForEpisode: (LibraryEpisode) -> DownloadItem?,
     onDownloadAction: (LibraryEpisode, DownloadItem?, DownloadAction) -> Unit,
     modifier: Modifier = Modifier,
@@ -1345,6 +1355,8 @@ private fun SeriesDetail(
             label = "SERIES",
             rating = series.rating,
             artworkUrl = series.backdropUrl ?: series.posterUrl,
+            favorite = series.favorite,
+            onFavoriteToggle = onFavoriteToggle,
             onBack = onBack,
         )
         Column(
@@ -1421,6 +1433,8 @@ private fun LibraryHero(
     label: String,
     rating: String?,
     artworkUrl: String?,
+    favorite: Boolean,
+    onFavoriteToggle: () -> Unit,
     onBack: () -> Unit,
 ) {
     Box(
@@ -1454,6 +1468,16 @@ private fun LibraryHero(
             visualSize = 36.dp,
             modifier = Modifier
                 .align(Alignment.TopStart)
+                .padding(OwnPlaySpacing.Md),
+        )
+        LibraryIconAction(
+            glyph = if (favorite) LibraryActionGlyph.FAVORITE_ON else LibraryActionGlyph.FAVORITE_OFF,
+            contentDescription = if (favorite) "Remove from favorites" else "Add to favorites",
+            onClick = onFavoriteToggle,
+            emphasized = favorite,
+            visualSize = 36.dp,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
                 .padding(OwnPlaySpacing.Md),
         )
         Column(
