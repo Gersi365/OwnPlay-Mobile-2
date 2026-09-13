@@ -18,17 +18,36 @@ Source-only hardening from Stage 31 exact HEAD `5fab72511e11033778733f63b8bc8932
 - the Options surface remains OwnPlay glass styling and is responsive (`86%` width, capped at `320dp`) for portrait and landscape layouts
 - focused unit coverage includes stable Live Preview landscape entry as well as fullscreen exit sequencing
 
-## Included fullscreen playback enhancements
+## Fullscreen playback controls and interaction ownership
 
 - fullscreen Touch Lock is shared across Live and Library playback through the player interaction environment
 - activating `Lock touch` dismisses Options and blocks the fullscreen interaction layer from accidental taps/gestures while leaving a compact OwnPlay glass unlock affordance available
 - Back while Touch Lock is active unlocks touch first instead of leaving playback
+- Touch Lock is cleared when playback leaves fullscreen and when the Activity enters PiP; the lock overlay is never rendered over PiP
+- Live `Options` is always reachable in fullscreen, including streams that expose no selectable audio or subtitle tracks, because Picture, Touch Lock, and Stream Info do not depend on track availability
+- Live and Library suspend overlay auto-hide while Options is open, so the panel cannot disappear on the normal four-second player-control timer while the user is interacting with it
+- Live disables underlying tap, brightness/volume, and horizontal channel gestures while Options owns interaction
 - picture presentation modes are available as `Fit`, `Fill`, and `Zoom`
 - picture-mode changes alter only video presentation; they do not reload media, create another player, or transfer ownership to another playback session
-- Stream Info is informational and reads from the active Media3 playback state rather than provider labels or guessed metadata
-- Stream Info exposes the detected/requested stream format plus available video resolution, frame rate, video codec/bitrate, audio codec, channel count, and sample rate
+- the shared `PlaybackOptionsPanel` obtains the active playback controller and interaction state from the centralized player composition environment, so Live and Library use the same Picture / Touch Lock / Stream Info behavior without duplicate player/control plumbing
+
+## Stream diagnostics and format handling
+
+- Stream Info reads from the active Media3 playback state rather than provider display labels
+- Stream Info exposes available video resolution, frame rate, video codec/bitrate, audio codec, channel count, and sample rate
+- an explicitly known or safely inferred HLS source is displayed as `HLS`; unresolved `AUTO` is displayed as `Auto`, not the misleading `Auto-detected`
 - Stream Info does not display media URLs, usernames, passwords, tokens, or other provider credentials
-- the shared `PlaybackOptionsPanel` obtains the active playback controller and interaction state from the centralized player composition environment, so Live and Library use the same behavior without duplicate player/control plumbing
+- `.m3u8` paths and explicit HLS query hints are conservatively inferred as HLS and passed to Media3 with `MimeTypes.APPLICATION_M3U8`
+- a truly extensionless HTTP(S) `AUTO` stream gets one controlled format-recovery attempt as HLS only when Media3 reports `UnrecognizedInputFormatException`
+- that opaque-stream recovery is one-shot format disambiguation, not a general retry policy; known `.ts`, `.mp4`, local/offline URIs, explicit HLS, and non-format playback failures are not reclassified
+- the recovery remains inside the same Media3 player/session and does not create another video surface or expose the stream URI in logs
+
+## PiP and lifecycle hardening
+
+- PiP aspect ratio now follows the active renderer video dimensions when they are valid and within Android platform ratio bounds; `16:9` remains the safe fallback before dimensions are known or for invalid/extreme values
+- renderer `VideoSize` is retained separately from track-format metadata so PiP geometry prefers the actual active output dimensions
+- entering PiP clears Touch Lock presentation state before the normal fullscreen surface is restored later
+- destination changes away from an active playback destination await `stop(clearMedia = true)` before mounting the next destination, removing the old-stop/new-load race where a delayed stop could clear freshly loaded media
 
 ## Presentation invariants
 
@@ -40,18 +59,19 @@ Source-only hardening from Stage 31 exact HEAD `5fab72511e11033778733f63b8bc8932
 - Touch Lock must not create a second player, media session, or video surface
 - Touch Lock changes interaction ownership only; media playback continues in the same session
 - Fit / Fill / Zoom change the active video surface presentation only
+- opaque HLS format recovery reuses the same player/session and is limited to one attempt per load
 - Live Preview retains no visible transport controls
 - Live fullscreen retains the transient OwnPlay EPG/channel overlay instead of generic player chrome
 - player options retain the OwnPlay dark-glass / blue-accent visual language; no stock Material dialog or generic preference-style surface is introduced
 
 ## Explicitly deferred
 
-The following playback enhancements remain separate work so they do not expand this physical-QA boundary:
+The following playback enhancements remain separate work and are not required for the Stage 32 correction contract:
 
-- Live transport-format preference (`Prefer MPEG-TS` / `Prefer HLS`)
+- user-selectable Live transport preference (`Prefer MPEG-TS` / `Prefer HLS`)
 - adaptive video-quality selection
 - preferred audio/subtitle language
-- broader smart-retry policy
+- broader smart-retry / reconnect policy beyond the one-shot opaque-format disambiguation above
 
 ## Data / release invariants
 
@@ -63,8 +83,9 @@ The following playback enhancements remain separate work so they do not expand t
 
 ## Validation evidence
 
-Code checkpoint `114c364d48a2e40d33fd39fddfb4f2f5527e7318` passed GitHub Actions run `34765789891`, job `103746392510`, using `bash tools/validate-source-no-apk.sh`:
+Final code checkpoint `0df9fc68fb5e964251a4079a1dd6977b53874895` passed GitHub Actions run `34767945269`, job `103752224247`, using `bash tools/validate-source-no-apk.sh`:
 
+- exact source checkout: PASS
 - debug source compile: PASS
 - unit tests: PASS
 - lint: PASS
@@ -75,7 +96,7 @@ The build emitted the same two pre-existing non-blocking Kotlin Elvis warnings i
 
 This audit-document commit must also receive the standard exact-head source-only validation before Stage 32 is reported as final SOURCE PASS.
 
-Physical QA remains `NOT_YET_VERIFIED` for orientation timing and OEM Auto-rotate behavior, empty-category gesture ergonomics, PiP transitions, portrait Library playback, Touch Lock input leakage/ergonomics, Fit/Fill/Zoom crop and scaling behavior, Stream Info accuracy against real provider streams, and final visual acceptance. Those checks require an explicitly authorized QA APK and on-device testing.
+Physical QA remains `NOT_YET_VERIFIED` for orientation timing and OEM Auto-rotate behavior, empty-category gesture ergonomics, PiP transitions and dynamic PiP geometry, portrait Library playback, Touch Lock input leakage/ergonomics, Options interaction behavior, Fit/Fill/Zoom crop and scaling behavior, Stream Info accuracy against real provider streams, one-shot opaque-HLS recovery against a real provider endpoint, and final visual acceptance. Those checks require an explicitly authorized QA APK and on-device testing.
 
 ## Audit note
 
