@@ -1,0 +1,219 @@
+name: Stage 25 source patch runner
+
+on:
+  push:
+    branches:
+      - stage-25-subtitles-player-completeness
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event.head_commit.message == 'Add Stage 25 source patch runner'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout Stage 25 branch
+        uses: actions/checkout@v4
+        with:
+          ref: stage-25-subtitles-player-completeness
+          fetch-depth: 0
+
+      - name: Apply Stage 25 source patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_exact(path: str, old: str, new: str, expected: int = 1) -> None:
+              target = Path(path)
+              text = target.read_text()
+              count = text.count(old)
+              if count != expected:
+                  raise SystemExit(f"{path}: expected {expected} matches, found {count} for {old!r}")
+              target.write_text(text.replace(old, new))
+
+          # Playback domain models.
+          models = "app/src/main/java/app/ownplay/mobile/playback/domain/PlaybackModels.kt"
+          replace_exact(
+              models,
+              '''data class PlaybackAudioTrack(\n    val selectionId: String,\n    val label: String? = null,\n    val language: String? = null,\n    val mimeType: String? = null,\n    val codecs: String? = null,\n    val channelCount: Int? = null,\n    val sampleRate: Int? = null,\n    val selected: Boolean = false,\n    val supported: Boolean = true,\n) {\n    init {\n        require(selectionId.isNotBlank()) { "Audio track selection id must not be blank." }\n    }\n}\n\ndata class PlaybackSnapshot(\n''',
+              '''data class PlaybackAudioTrack(\n    val selectionId: String,\n    val label: String? = null,\n    val language: String? = null,\n    val mimeType: String? = null,\n    val codecs: String? = null,\n    val channelCount: Int? = null,\n    val sampleRate: Int? = null,\n    val selected: Boolean = false,\n    val supported: Boolean = true,\n) {\n    init {\n        require(selectionId.isNotBlank()) { "Audio track selection id must not be blank." }\n    }\n}\n\ndata class PlaybackSubtitleTrack(\n    val selectionId: String,\n    val label: String? = null,\n    val language: String? = null,\n    val mimeType: String? = null,\n    val selected: Boolean = false,\n    val supported: Boolean = true,\n) {\n    init {\n        require(selectionId.isNotBlank()) { "Subtitle track selection id must not be blank." }\n    }\n}\n\ndata class PlaybackSubtitleCue(\n    val text: String,\n) {\n    init {\n        require(text.isNotBlank()) { "Subtitle cue text must not be blank." }\n    }\n}\n\nsealed interface PlaybackSubtitleSelection {\n    data object Off : PlaybackSubtitleSelection\n    data object Auto : PlaybackSubtitleSelection\n    data class Track(val selectionId: String) : PlaybackSubtitleSelection {\n        init {\n            require(selectionId.isNotBlank()) { "Subtitle selection id must not be blank." }\n        }\n    }\n}\n\ndata class PlaybackSnapshot(\n''',
+          )
+          replace_exact(
+              models,
+              '''    val audioSampleRate: Int? = null,\n    val errorCode: Int? = null,\n''',
+              '''    val audioSampleRate: Int? = null,\n    val subtitleTracks: List<PlaybackSubtitleTrack> = emptyList(),\n    val subtitleSelection: PlaybackSubtitleSelection = PlaybackSubtitleSelection.Auto,\n    val subtitleCues: List<PlaybackSubtitleCue> = emptyList(),\n    val playbackSpeed: Float = 1f,\n    val errorCode: Int? = null,\n''',
+          )
+
+          Path("app/src/main/java/app/ownplay/mobile/playback/domain/SubtitleTrackPolicy.kt").write_text('''package app.ownplay.mobile.playback.domain\n\nimport java.util.Locale\n\ndata class SubtitleTrackSelectionKey(\n    val groupIndex: Int,\n    val trackIndex: Int,\n)\n\nobject SubtitleTrackPolicy {\n    fun selectionId(groupIndex: Int, trackIndex: Int): String {\n        require(groupIndex >= 0) { "Subtitle group index must be non-negative." }\n        require(trackIndex >= 0) { "Subtitle track index must be non-negative." }\n        return "$groupIndex:$trackIndex"\n    }\n\n    fun parseSelectionId(selectionId: String): SubtitleTrackSelectionKey? {\n        val parts = selectionId.split(':')\n        if (parts.size != 2) return null\n        val groupIndex = parts[0].toIntOrNull() ?: return null\n        val trackIndex = parts[1].toIntOrNull() ?: return null\n        if (groupIndex < 0 || trackIndex < 0) return null\n        return SubtitleTrackSelectionKey(groupIndex, trackIndex)\n    }\n\n    fun primaryLabel(track: PlaybackSubtitleTrack, ordinal: Int): String {\n        val explicit = track.label?.trim()?.takeIf { it.isNotEmpty() }\n        if (explicit != null) return explicit\n        val language = track.language?.trim()?.takeIf { it.isNotEmpty() }\n        if (language != null) return language.uppercase(Locale.US)\n        return "Subtitle ${ordinal.coerceAtLeast(1)}"\n    }\n\n    fun detailLabel(track: PlaybackSubtitleTrack): String {\n        val parts = mutableListOf<String>()\n        track.language\n            ?.trim()\n            ?.takeIf { it.isNotEmpty() }\n            ?.uppercase(Locale.US)\n            ?.let(parts::add)\n        track.mimeType\n            ?.trim()\n            ?.takeIf { it.isNotEmpty() }\n            ?.let { mime -> parts += formatLabel(mime) }\n        if (!track.supported) parts += "Unsupported"\n        return parts.distinct().joinToString(" • ").ifBlank { "Text subtitle track" }\n    }\n\n    private fun formatLabel(mimeType: String): String = when {\n        mimeType.contains("vtt", ignoreCase = true) -> "WebVTT"\n        mimeType.contains("ttml", ignoreCase = true) -> "TTML"\n        mimeType.contains("subrip", ignoreCase = true) -> "SubRip"\n        mimeType.contains("ssa", ignoreCase = true) -> "SSA/ASS"\n        mimeType.contains("cea-608", ignoreCase = true) -> "CEA-608"\n        mimeType.contains("cea-708", ignoreCase = true) -> "CEA-708"\n        else -> mimeType.substringAfter('/', mimeType)\n    }\n}\n''')
+
+          Path("app/src/main/java/app/ownplay/mobile/playback/domain/PlaybackSpeedPolicy.kt").write_text('''package app.ownplay.mobile.playback.domain\n\nimport kotlin.math.abs\n\nobject PlaybackSpeedPolicy {\n    val supportedSpeeds: List<Float> = listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f)\n\n    fun normalize(requested: Float): Float {\n        if (!requested.isFinite()) return 1f\n        return supportedSpeeds.minBy { candidate -> abs(candidate - requested) }\n    }\n\n    fun label(speed: Float): String {\n        val normalized = normalize(speed)\n        return if (normalized % 1f == 0f) {\n            "${normalized.toInt()}.0×"\n        } else {\n            "${normalized}×"\n        }\n    }\n}\n''')
+
+          # Controller interface.
+          controller_interface = "app/src/main/java/app/ownplay/mobile/playback/PlaybackController.kt"
+          replace_exact(
+              controller_interface,
+              "import app.ownplay.mobile.playback.domain.PlaybackSnapshot\n",
+              "import app.ownplay.mobile.playback.domain.PlaybackSnapshot\nimport app.ownplay.mobile.playback.domain.PlaybackSubtitleSelection\n",
+          )
+          replace_exact(
+              controller_interface,
+              '''    suspend fun selectAudioTrack(selectionId: String?)\n\n    suspend fun seekTo(positionMs: Long)\n''',
+              '''    suspend fun selectAudioTrack(selectionId: String?)\n\n    suspend fun selectSubtitle(selection: PlaybackSubtitleSelection)\n\n    suspend fun setPlaybackSpeed(speed: Float)\n\n    suspend fun seekTo(positionMs: Long)\n''',
+          )
+
+          # Media3 controller: track discovery, text cues and VOD speed.
+          controller = "app/src/main/java/app/ownplay/mobile/playback/Media3PlaybackController.kt"
+          replace_exact(
+              controller,
+              "import androidx.media3.common.PlaybackException\nimport androidx.media3.common.Player\n",
+              "import androidx.media3.common.PlaybackException\nimport androidx.media3.common.PlaybackParameters\nimport androidx.media3.common.Player\n",
+          )
+          replace_exact(
+              controller,
+              "import androidx.media3.common.util.UnstableApi\n",
+              "import androidx.media3.common.text.CueGroup\nimport androidx.media3.common.util.UnstableApi\n",
+          )
+          replace_exact(
+              controller,
+              "import app.ownplay.mobile.playback.domain.PlaybackPhase\nimport app.ownplay.mobile.playback.domain.PlaybackSnapshot\n",
+              "import app.ownplay.mobile.playback.domain.PlaybackPhase\nimport app.ownplay.mobile.playback.domain.PlaybackSnapshot\nimport app.ownplay.mobile.playback.domain.PlaybackSpeedPolicy\nimport app.ownplay.mobile.playback.domain.PlaybackSubtitleCue\nimport app.ownplay.mobile.playback.domain.PlaybackSubtitleSelection\nimport app.ownplay.mobile.playback.domain.PlaybackSubtitleTrack\n",
+          )
+          replace_exact(
+              controller,
+              "import app.ownplay.mobile.playback.domain.PlayerLocalControlPolicy\n",
+              "import app.ownplay.mobile.playback.domain.PlayerLocalControlPolicy\nimport app.ownplay.mobile.playback.domain.SubtitleTrackPolicy\n",
+          )
+          replace_exact(
+              controller,
+              '''    private var currentMedia: PlaybackMedia? = null\n    private var released = false\n''',
+              '''    private var currentMedia: PlaybackMedia? = null\n    private var subtitleSelection: PlaybackSubtitleSelection = PlaybackSubtitleSelection.Auto\n    private var currentSubtitleCues: List<PlaybackSubtitleCue> = emptyList()\n    private var released = false\n''',
+          )
+          replace_exact(
+              controller,
+              '''        override fun onTracksChanged(tracks: Tracks) {\n            refreshSnapshot()\n        }\n\n        override fun onPlayerError(error: PlaybackException) {\n''',
+              '''        override fun onTracksChanged(tracks: Tracks) {\n            refreshSnapshot()\n        }\n\n        override fun onCues(cueGroup: CueGroup) {\n            currentSubtitleCues = cueGroup.cues.mapNotNull { cue ->\n                cue.text?.toString()?.trim()?.takeIf { it.isNotEmpty() }?.let(::PlaybackSubtitleCue)\n            }\n            refreshSnapshot()\n        }\n\n        override fun onPlaybackParametersChanged(playbackParameters: PlaybackParameters) {\n            refreshSnapshot()\n        }\n\n        override fun onPlayerError(error: PlaybackException) {\n''',
+          )
+          replace_exact(
+              controller,
+              '''            currentMedia = request.media\n            player.trackSelectionParameters = player.trackSelectionParameters\n                .buildUpon()\n                .clearOverridesOfType(C.TRACK_TYPE_AUDIO)\n                .build()\n''',
+              '''            currentMedia = request.media\n            subtitleSelection = PlaybackSubtitleSelection.Auto\n            currentSubtitleCues = emptyList()\n            player.trackSelectionParameters = player.trackSelectionParameters\n                .buildUpon()\n                .clearOverridesOfType(C.TRACK_TYPE_AUDIO)\n                .clearOverridesOfType(C.TRACK_TYPE_TEXT)\n                .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)\n                .build()\n            player.setPlaybackSpeed(1f)\n''',
+          )
+          replace_exact(
+              controller,
+              '''    override suspend fun seekTo(positionMs: Long) {\n''',
+              '''    override suspend fun selectSubtitle(selection: PlaybackSubtitleSelection) {\n        mutateOnPlayerThread {\n            val builder = player.trackSelectionParameters\n                .buildUpon()\n                .clearOverridesOfType(C.TRACK_TYPE_TEXT)\n            when (selection) {\n                PlaybackSubtitleSelection.Off -> {\n                    player.trackSelectionParameters = builder\n                        .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)\n                        .build()\n                    subtitleSelection = selection\n                    currentSubtitleCues = emptyList()\n                }\n\n                PlaybackSubtitleSelection.Auto -> {\n                    player.trackSelectionParameters = builder\n                        .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)\n                        .build()\n                    subtitleSelection = selection\n                }\n\n                is PlaybackSubtitleSelection.Track -> {\n                    val key = SubtitleTrackPolicy.parseSelectionId(selection.selectionId)\n                        ?: return@mutateOnPlayerThread\n                    val textGroups = player.currentTracks.groups.filter { it.type == C.TRACK_TYPE_TEXT }\n                    val group = textGroups.getOrNull(key.groupIndex) ?: return@mutateOnPlayerThread\n                    if (key.trackIndex !in 0 until group.length || !group.isTrackSupported(key.trackIndex)) {\n                        return@mutateOnPlayerThread\n                    }\n                    player.trackSelectionParameters = builder\n                        .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)\n                        .setOverrideForType(\n                            TrackSelectionOverride(group.mediaTrackGroup, key.trackIndex),\n                        )\n                        .build()\n                    subtitleSelection = selection\n                }\n            }\n            refreshSnapshot()\n        }\n    }\n\n    override suspend fun setPlaybackSpeed(speed: Float) {\n        mutateOnPlayerThread {\n            val requested = PlaybackSpeedPolicy.normalize(speed)\n            val applied = if (currentMedia?.kind == app.ownplay.mobile.playback.domain.PlaybackKind.LIVE) 1f else requested\n            player.setPlaybackSpeed(applied)\n            refreshSnapshot()\n        }\n    }\n\n    override suspend fun seekTo(positionMs: Long) {\n''',
+          )
+          replace_exact(
+              controller,
+              '''        mutateOnPlayerThread {\n            player.stop()\n            if (clearMedia) {\n''',
+              '''        mutateOnPlayerThread {\n            player.stop()\n            currentSubtitleCues = emptyList()\n            if (clearMedia) {\n''',
+          )
+          replace_exact(
+              controller,
+              '''        val media = currentMedia\n        val audio = currentAudioTrackStatus()\n        val errorCodeName = errorCode?.let { PlaybackException.getErrorCodeName(it) }\n''',
+              '''        val media = currentMedia\n        val audio = currentAudioTrackStatus()\n        val subtitles = currentSubtitleTrackStatus()\n        val errorCodeName = errorCode?.let { PlaybackException.getErrorCodeName(it) }\n''',
+          )
+          replace_exact(
+              controller,
+              '''            audioSampleRate = audio.sampleRate,\n            errorCode = errorCode,\n''',
+              '''            audioSampleRate = audio.sampleRate,\n            subtitleTracks = subtitles.tracks,\n            subtitleSelection = subtitleSelection,\n            subtitleCues = currentSubtitleCues,\n            playbackSpeed = player.playbackParameters.speed,\n            errorCode = errorCode,\n''',
+          )
+          replace_exact(
+              controller,
+              '''    private fun Int.toPlaybackPhase(): PlaybackPhase = when (this) {\n''',
+              '''    private data class SubtitleTrackStatus(\n        val tracks: List<PlaybackSubtitleTrack> = emptyList(),\n    )\n\n    private fun currentSubtitleTrackStatus(): SubtitleTrackStatus {\n        val groups = player.currentTracks.groups.filter { it.type == C.TRACK_TYPE_TEXT }\n        if (groups.isEmpty()) return SubtitleTrackStatus()\n\n        val tracks = mutableListOf<PlaybackSubtitleTrack>()\n        groups.forEachIndexed { groupIndex, group ->\n            for (trackIndex in 0 until group.length) {\n                val format = group.getTrackFormat(trackIndex)\n                tracks += PlaybackSubtitleTrack(\n                    selectionId = SubtitleTrackPolicy.selectionId(groupIndex, trackIndex),\n                    label = format.label,\n                    language = format.language,\n                    mimeType = format.sampleMimeType,\n                    selected = group.isTrackSelected(trackIndex),\n                    supported = group.isTrackSupported(trackIndex),\n                )\n            }\n        }\n        return SubtitleTrackStatus(tracks = tracks)\n    }\n\n    private fun Int.toPlaybackPhase(): PlaybackPhase = when (this) {\n''',
+          )
+
+          # Combined low-noise playback options UI.
+          Path("app/src/main/java/app/ownplay/mobile/playback/ui/PlaybackOptionsPanel.kt").write_text('''package app.ownplay.mobile.playback.ui\n\nimport androidx.compose.foundation.BorderStroke\nimport androidx.compose.foundation.clickable\nimport androidx.compose.foundation.layout.Arrangement\nimport androidx.compose.foundation.layout.Column\nimport androidx.compose.foundation.layout.Row\nimport androidx.compose.foundation.layout.fillMaxWidth\nimport androidx.compose.foundation.layout.heightIn\nimport androidx.compose.foundation.layout.padding\nimport androidx.compose.foundation.layout.width\nimport androidx.compose.foundation.lazy.LazyColumn\nimport androidx.compose.foundation.lazy.itemsIndexed\nimport androidx.compose.material3.MaterialTheme\nimport androidx.compose.material3.Surface\nimport androidx.compose.material3.Text\nimport androidx.compose.runtime.Composable\nimport androidx.compose.ui.Alignment\nimport androidx.compose.ui.Modifier\nimport androidx.compose.ui.graphics.Color\nimport androidx.compose.ui.unit.dp\nimport app.ownplay.mobile.design.OwnPlayColors\nimport app.ownplay.mobile.design.OwnPlayShapeTokens\nimport app.ownplay.mobile.design.OwnPlaySpacing\nimport app.ownplay.mobile.playback.domain.AudioTrackPolicy\nimport app.ownplay.mobile.playback.domain.PlaybackAudioTrack\nimport app.ownplay.mobile.playback.domain.PlaybackSpeedPolicy\nimport app.ownplay.mobile.playback.domain.PlaybackSubtitleSelection\nimport app.ownplay.mobile.playback.domain.PlaybackSubtitleTrack\nimport app.ownplay.mobile.playback.domain.SubtitleTrackPolicy\n\n@Composable\nfun PlaybackOptionsPanel(\n    audioTracks: List<PlaybackAudioTrack>,\n    subtitleTracks: List<PlaybackSubtitleTrack>,\n    subtitleSelection: PlaybackSubtitleSelection,\n    playbackSpeed: Float,\n    allowSpeed: Boolean,\n    onSelectAudio: (String?) -> Unit,\n    onSelectSubtitle: (PlaybackSubtitleSelection) -> Unit,\n    onSelectSpeed: (Float) -> Unit,\n    onDismiss: () -> Unit,\n    modifier: Modifier = Modifier,\n) {\n    Surface(\n        modifier = modifier.width(304.dp),\n        color = Color.Black.copy(alpha = 0.80f),\n        shape = OwnPlayShapeTokens.Medium,\n        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.10f)),\n        tonalElevation = 0.dp,\n        shadowElevation = 0.dp,\n    ) {\n        Column(\n            modifier = Modifier.padding(OwnPlaySpacing.Md),\n            verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm),\n        ) {\n            Row(\n                modifier = Modifier.fillMaxWidth(),\n                horizontalArrangement = Arrangement.SpaceBetween,\n                verticalAlignment = Alignment.CenterVertically,\n            ) {\n                Text(\n                    text = "Options",\n                    style = MaterialTheme.typography.titleMedium,\n                    color = OwnPlayColors.TextPrimary,\n                )\n                Text(\n                    text = "Done",\n                    modifier = Modifier\n                        .clickable(onClick = onDismiss)\n                        .padding(horizontal = OwnPlaySpacing.Sm, vertical = OwnPlaySpacing.Xs),\n                    style = MaterialTheme.typography.labelLarge,\n                    color = OwnPlayColors.Accent,\n                )\n            }\n\n            LazyColumn(\n                modifier = Modifier.heightIn(max = 420.dp),\n                verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Xs),\n            ) {\n                if (audioTracks.isNotEmpty()) {\n                    item(key = "audio-header") { OptionSectionLabel("Audio") }\n                    item(key = "audio-auto") {\n                        PlaybackOptionRow(\n                            title = "Auto",\n                            detail = "Player default",\n                            selected = false,\n                            supported = true,\n                            onClick = { onSelectAudio(null) },\n                        )\n                    }\n                    itemsIndexed(\n                        items = audioTracks,\n                        key = { _, track -> "audio-${track.selectionId}" },\n                    ) { index, track ->\n                        PlaybackOptionRow(\n                            title = AudioTrackPolicy.primaryLabel(track, index + 1),\n                            detail = AudioTrackPolicy.detailLabel(track),\n                            selected = track.selected,\n                            supported = track.supported,\n                            onClick = { onSelectAudio(track.selectionId) },\n                        )\n                    }\n                }\n\n                if (subtitleTracks.isNotEmpty()) {\n                    item(key = "subtitle-header") { OptionSectionLabel("Subtitles & CC") }\n                    item(key = "subtitle-off") {\n                        PlaybackOptionRow(\n                            title = "Off",\n                            detail = "Hide captions",\n                            selected = subtitleSelection == PlaybackSubtitleSelection.Off,\n                            supported = true,\n                            onClick = { onSelectSubtitle(PlaybackSubtitleSelection.Off) },\n                        )\n                    }\n                    item(key = "subtitle-auto") {\n                        PlaybackOptionRow(\n                            title = "Auto",\n                            detail = "Use stream defaults and forced captions",\n                            selected = subtitleSelection == PlaybackSubtitleSelection.Auto,\n                            supported = true,\n                            onClick = { onSelectSubtitle(PlaybackSubtitleSelection.Auto) },\n                        )\n                    }\n                    itemsIndexed(\n                        items = subtitleTracks,\n                        key = { _, track -> "subtitle-${track.selectionId}" },\n                    ) { index, track ->\n                        PlaybackOptionRow(\n                            title = SubtitleTrackPolicy.primaryLabel(track, index + 1),\n                            detail = SubtitleTrackPolicy.detailLabel(track),\n                            selected = subtitleSelection is PlaybackSubtitleSelection.Track &&\n                                subtitleSelection.selectionId == track.selectionId,\n                            supported = track.supported,\n                            onClick = {\n                                onSelectSubtitle(PlaybackSubtitleSelection.Track(track.selectionId))\n                            },\n                        )\n                    }\n                }\n\n                if (allowSpeed) {\n                    item(key = "speed-header") { OptionSectionLabel("Playback speed") }\n                    items(\n                        count = PlaybackSpeedPolicy.supportedSpeeds.size,\n                        key = { index -> "speed-${PlaybackSpeedPolicy.supportedSpeeds[index]}" },\n                    ) { index ->\n                        val speed = PlaybackSpeedPolicy.supportedSpeeds[index]\n                        PlaybackOptionRow(\n                            title = PlaybackSpeedPolicy.label(speed),\n                            detail = if (speed == 1f) "Normal" else "Video on demand only",\n                            selected = PlaybackSpeedPolicy.normalize(playbackSpeed) == speed,\n                            supported = true,\n                            onClick = { onSelectSpeed(speed) },\n                        )\n                    }\n                }\n            }\n        }\n    }\n}\n\n@Composable\nprivate fun OptionSectionLabel(text: String) {\n    Text(\n        text = text,\n        modifier = Modifier.padding(top = OwnPlaySpacing.Xs, bottom = 2.dp),\n        style = MaterialTheme.typography.labelMedium,\n        color = OwnPlayColors.Accent,\n    )\n}\n\n@Composable\nprivate fun PlaybackOptionRow(\n    title: String,\n    detail: String,\n    selected: Boolean,\n    supported: Boolean,\n    onClick: () -> Unit,\n) {\n    Surface(\n        modifier = Modifier\n            .fillMaxWidth()\n            .clickable(enabled = supported, onClick = onClick),\n        color = if (selected) {\n            OwnPlayColors.Accent.copy(alpha = 0.14f)\n        } else {\n            Color.White.copy(alpha = 0.025f)\n        },\n        shape = OwnPlayShapeTokens.Small,\n        border = BorderStroke(\n            width = 1.dp,\n            color = if (selected) OwnPlayColors.Accent.copy(alpha = 0.40f) else Color.Transparent,\n        ),\n        tonalElevation = 0.dp,\n    ) {\n        Row(\n            modifier = Modifier.padding(horizontal = OwnPlaySpacing.Md, vertical = OwnPlaySpacing.Sm),\n            horizontalArrangement = Arrangement.SpaceBetween,\n            verticalAlignment = Alignment.CenterVertically,\n        ) {\n            Column(\n                modifier = Modifier.weight(1f),\n                verticalArrangement = Arrangement.spacedBy(1.dp),\n            ) {\n                Text(\n                    text = title,\n                    style = MaterialTheme.typography.bodyLarge,\n                    color = if (supported) OwnPlayColors.TextPrimary else OwnPlayColors.TextSecondary,\n                )\n                Text(\n                    text = detail,\n                    style = MaterialTheme.typography.bodySmall,\n                    color = OwnPlayColors.TextSecondary,\n                    maxLines = 1,\n                )\n            }\n            if (selected) {\n                Text(\n                    text = "●",\n                    style = MaterialTheme.typography.labelMedium,\n                    color = OwnPlayColors.Accent,\n                )\n            }\n        }\n    }\n}\n''')
+
+          Path("app/src/main/java/app/ownplay/mobile/playback/ui/PlaybackSubtitleOverlay.kt").write_text('''package app.ownplay.mobile.playback.ui\n\nimport androidx.compose.foundation.layout.fillMaxWidth\nimport androidx.compose.foundation.layout.padding\nimport androidx.compose.material3.MaterialTheme\nimport androidx.compose.material3.Surface\nimport androidx.compose.material3.Text\nimport androidx.compose.runtime.Composable\nimport androidx.compose.ui.Modifier\nimport androidx.compose.ui.graphics.Color\nimport androidx.compose.ui.text.font.FontWeight\nimport androidx.compose.ui.text.style.TextAlign\nimport androidx.compose.ui.unit.dp\nimport app.ownplay.mobile.design.OwnPlayShapeTokens\nimport app.ownplay.mobile.playback.domain.PlaybackSubtitleCue\n\n@Composable\nfun PlaybackSubtitleOverlay(\n    cues: List<PlaybackSubtitleCue>,\n    modifier: Modifier = Modifier,\n) {\n    if (cues.isEmpty()) return\n    val text = cues.joinToString(separator = "\\n") { cue -> cue.text }.trim()\n    if (text.isEmpty()) return\n\n    Surface(\n        modifier = modifier,\n        color = Color.Black.copy(alpha = 0.66f),\n        shape = OwnPlayShapeTokens.Small,\n        tonalElevation = 0.dp,\n        shadowElevation = 0.dp,\n    ) {\n        Text(\n            text = text,\n            modifier = Modifier\n                .fillMaxWidth()\n                .padding(horizontal = 12.dp, vertical = 7.dp),\n            style = MaterialTheme.typography.bodyLarge,\n            color = Color.White,\n            fontWeight = FontWeight.Medium,\n            textAlign = TextAlign.Center,\n        )\n    }\n}\n''')
+
+          # Library fullscreen: captions remain visible when chrome auto-hides; one Options panel.
+          library = "app/src/main/java/app/ownplay/mobile/feature/library/ui/LibraryShell.kt"
+          replace_exact(
+              library,
+              "import app.ownplay.mobile.playback.ui.AudioTrackSelectorPanel\n",
+              "import app.ownplay.mobile.playback.ui.PlaybackOptionsPanel\nimport app.ownplay.mobile.playback.ui.PlaybackSubtitleOverlay\n",
+          )
+          replace_exact(
+              library,
+              "    var audioSelectorVisible by remember(playback.contentId, playback.offline) { mutableStateOf(false) }\n",
+              "    var optionsVisible by remember(playback.contentId, playback.offline) { mutableStateOf(false) }\n",
+          )
+          replace_exact(
+              library,
+              "        if (!overlayVisible) audioSelectorVisible = false\n",
+              "        if (!overlayVisible) optionsVisible = false\n",
+          )
+          replace_exact(
+              library,
+              '''        PlayerLocalControlHudOverlay(\n            modifier = Modifier.align(Alignment.Center),\n        )\n\n        if (overlayVisible) {\n''',
+              '''        PlayerLocalControlHudOverlay(\n            modifier = Modifier.align(Alignment.Center),\n        )\n\n        PlaybackSubtitleOverlay(\n            cues = playerState.subtitleCues,\n            modifier = Modifier\n                .align(Alignment.BottomCenter)\n                .fillMaxWidth(0.86f)\n                .padding(bottom = if (overlayVisible) 104.dp else 24.dp),\n        )\n\n        if (overlayVisible) {\n''',
+          )
+          replace_exact(
+              library,
+              '''                    if (playerState.audioTracks.isNotEmpty()) {\n                        PlayerGlassPillAction(\n                            text = "Audio",\n                            emphasized = audioSelectorVisible,\n                            onClick = { audioSelectorVisible = !audioSelectorVisible },\n                        )\n                    }\n''',
+              '''                    PlayerGlassPillAction(\n                        text = "Options",\n                        emphasized = optionsVisible,\n                        onClick = { optionsVisible = !optionsVisible },\n                    )\n''',
+          )
+          replace_exact(
+              library,
+              '''            if (audioSelectorVisible && playerState.audioTracks.isNotEmpty()) {\n                AudioTrackSelectorPanel(\n                    tracks = playerState.audioTracks,\n                    onSelect = { selectionId ->\n                        scope.launch { playbackController.selectAudioTrack(selectionId) }\n                        audioSelectorVisible = false\n                    },\n                    onDismiss = { audioSelectorVisible = false },\n                    modifier = Modifier\n                        .align(Alignment.CenterEnd)\n                        .padding(OwnPlaySpacing.Lg),\n                )\n            }\n''',
+              '''            if (optionsVisible) {\n                PlaybackOptionsPanel(\n                    audioTracks = playerState.audioTracks,\n                    subtitleTracks = playerState.subtitleTracks,\n                    subtitleSelection = playerState.subtitleSelection,\n                    playbackSpeed = playerState.playbackSpeed,\n                    allowSpeed = true,\n                    onSelectAudio = { selectionId ->\n                        scope.launch { playbackController.selectAudioTrack(selectionId) }\n                    },\n                    onSelectSubtitle = { selection ->\n                        scope.launch { playbackController.selectSubtitle(selection) }\n                    },\n                    onSelectSpeed = { speed ->\n                        scope.launch { playbackController.setPlaybackSpeed(speed) }\n                    },\n                    onDismiss = { optionsVisible = false },\n                    modifier = Modifier\n                        .align(Alignment.CenterEnd)\n                        .padding(OwnPlaySpacing.Lg),\n                )\n            }\n''',
+          )
+
+          # Live fullscreen: captions supported, but speed remains fixed at 1x.
+          live = "app/src/main/java/app/ownplay/mobile/feature/live/ui/LiveShell.kt"
+          replace_exact(
+              live,
+              "import app.ownplay.mobile.playback.ui.AudioTrackSelectorPanel\n",
+              "import app.ownplay.mobile.playback.ui.PlaybackOptionsPanel\nimport app.ownplay.mobile.playback.ui.PlaybackSubtitleOverlay\n",
+          )
+          replace_exact(
+              live,
+              "    var audioSelectorVisible by remember(channel.channelId) { mutableStateOf(false) }\n",
+              "    var optionsVisible by remember(channel.channelId) { mutableStateOf(false) }\n",
+          )
+          replace_exact(
+              live,
+              "        if (!overlayVisible) audioSelectorVisible = false\n",
+              "        if (!overlayVisible) optionsVisible = false\n",
+          )
+          replace_exact(
+              live,
+              '''        PlayerLocalControlHudOverlay(modifier = Modifier.align(Alignment.Center))\n\n        if (overlayVisible) {\n''',
+              '''        PlayerLocalControlHudOverlay(modifier = Modifier.align(Alignment.Center))\n\n        PlaybackSubtitleOverlay(\n            cues = playbackSnapshot.subtitleCues,\n            modifier = Modifier\n                .align(Alignment.BottomCenter)\n                .fillMaxWidth(0.86f)\n                .padding(bottom = if (overlayVisible) 96.dp else 24.dp),\n        )\n\n        if (overlayVisible) {\n''',
+          )
+          replace_exact(
+              live,
+              '''                if (audioTracks.isNotEmpty()) {\n                    PlayerGlassPillAction(\n                        text = "Audio",\n                        emphasized = audioSelectorVisible,\n                        onClick = { audioSelectorVisible = !audioSelectorVisible },\n                    )\n                }\n''',
+              '''                if (audioTracks.isNotEmpty() || playbackSnapshot.subtitleTracks.isNotEmpty()) {\n                    PlayerGlassPillAction(\n                        text = "Options",\n                        emphasized = optionsVisible,\n                        onClick = { optionsVisible = !optionsVisible },\n                    )\n                }\n''',
+          )
+          replace_exact(
+              live,
+              '''            if (audioSelectorVisible && audioTracks.isNotEmpty()) {\n                AudioTrackSelectorPanel(\n                    tracks = audioTracks,\n                    onSelect = { selectionId ->\n                        controllerScope.launch { playbackController.selectAudioTrack(selectionId) }\n                        audioSelectorVisible = false\n                    },\n                    onDismiss = { audioSelectorVisible = false },\n                    modifier = Modifier\n                        .align(Alignment.CenterEnd)\n                        .padding(OwnPlaySpacing.Lg),\n                )\n            }\n''',
+              '''            if (optionsVisible && (audioTracks.isNotEmpty() || playbackSnapshot.subtitleTracks.isNotEmpty())) {\n                PlaybackOptionsPanel(\n                    audioTracks = audioTracks,\n                    subtitleTracks = playbackSnapshot.subtitleTracks,\n                    subtitleSelection = playbackSnapshot.subtitleSelection,\n                    playbackSpeed = playbackSnapshot.playbackSpeed,\n                    allowSpeed = false,\n                    onSelectAudio = { selectionId ->\n                        controllerScope.launch { playbackController.selectAudioTrack(selectionId) }\n                    },\n                    onSelectSubtitle = { selection ->\n                        controllerScope.launch { playbackController.selectSubtitle(selection) }\n                    },\n                    onSelectSpeed = { },\n                    onDismiss = { optionsVisible = false },\n                    modifier = Modifier\n                        .align(Alignment.CenterEnd)\n                        .padding(OwnPlaySpacing.Lg),\n                )\n            }\n''',
+          )
+
+          # Focused unit tests.
+          Path("app/src/test/java/app/ownplay/mobile/playback/domain/SubtitleTrackPolicyTest.kt").write_text('''package app.ownplay.mobile.playback.domain\n\nimport org.junit.Assert.assertEquals\nimport org.junit.Assert.assertNull\nimport org.junit.Assert.assertTrue\nimport org.junit.Test\n\nclass SubtitleTrackPolicyTest {\n    @Test\n    fun `selection id round trips valid indexes`() {\n        val id = SubtitleTrackPolicy.selectionId(2, 4)\n        assertEquals(SubtitleTrackSelectionKey(2, 4), SubtitleTrackPolicy.parseSelectionId(id))\n    }\n\n    @Test\n    fun `invalid selection id is rejected`() {\n        assertNull(SubtitleTrackPolicy.parseSelectionId("bad"))\n        assertNull(SubtitleTrackPolicy.parseSelectionId("-1:0"))\n    }\n\n    @Test\n    fun `language is used when provider label is absent`() {\n        val label = SubtitleTrackPolicy.primaryLabel(\n            PlaybackSubtitleTrack(selectionId = "0:0", language = "en"),\n            ordinal = 1,\n        )\n        assertEquals("EN", label)\n    }\n\n    @Test\n    fun `detail describes common caption format`() {\n        val detail = SubtitleTrackPolicy.detailLabel(\n            PlaybackSubtitleTrack(selectionId = "0:0", mimeType = "text/vtt"),\n        )\n        assertTrue(detail.contains("WebVTT"))\n    }\n}\n''')
+
+          Path("app/src/test/java/app/ownplay/mobile/playback/domain/PlaybackSpeedPolicyTest.kt").write_text('''package app.ownplay.mobile.playback.domain\n\nimport org.junit.Assert.assertEquals\nimport org.junit.Test\n\nclass PlaybackSpeedPolicyTest {\n    @Test\n    fun `supported speeds include normal and common vod choices`() {\n        assertEquals(listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f), PlaybackSpeedPolicy.supportedSpeeds)\n    }\n\n    @Test\n    fun `requested speed normalizes to nearest supported choice`() {\n        assertEquals(1.25f, PlaybackSpeedPolicy.normalize(1.3f))\n        assertEquals(1f, PlaybackSpeedPolicy.normalize(Float.NaN))\n    }\n\n    @Test\n    fun `labels are stable`() {\n        assertEquals("1.0×", PlaybackSpeedPolicy.label(1f))\n        assertEquals("1.5×", PlaybackSpeedPolicy.label(1.5f))\n    }\n}\n''')
+          PY
+
+          git diff --check
+          git status --short
+
+      - name: Commit Stage 25 source change
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "Gersi365"
+          git config user.email "Gersi365@outlook.com"
+          git add app/src/main app/src/test
+          test -n "$(git status --porcelain app/src/main app/src/test)"
+          git commit -m "Stage 25: add subtitles and VOD playback options"
+          git push origin HEAD:stage-25-subtitles-player-completeness
