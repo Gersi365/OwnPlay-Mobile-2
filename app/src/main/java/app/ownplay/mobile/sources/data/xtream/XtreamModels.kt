@@ -42,6 +42,24 @@ data class XtreamSeries(
     val providerOrder: Int,
 )
 
+data class XtreamMediaInfo(
+    val title: String? = null,
+    val posterUrl: String? = null,
+    val backdropUrl: String? = null,
+    val plot: String? = null,
+    val releaseDate: String? = null,
+    val durationSeconds: Long? = null,
+    val rating: String? = null,
+    val genre: String? = null,
+    val director: String? = null,
+    val cast: String? = null,
+)
+
+data class XtreamVodInfo(
+    val streamId: String,
+    val metadata: XtreamMediaInfo,
+)
+
 data class XtreamEpisode(
     val episodeId: String,
     val seasonNumber: Int,
@@ -54,6 +72,7 @@ data class XtreamEpisode(
 data class XtreamSeriesInfo(
     val seriesId: String,
     val episodes: List<XtreamEpisode>,
+    val metadata: XtreamMediaInfo? = null,
 )
 
 data class XtreamEpgEntry(
