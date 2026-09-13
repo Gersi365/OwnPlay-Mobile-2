@@ -605,6 +605,7 @@ private fun LiveBrowseAndPreview(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .fillParentMaxHeight(0.65f)
                         .liveHorizontalNavigationGestures(
                             enabled = categorySwipeEnabled,
                             onPrevious = onPreviousCategoryGesture,
