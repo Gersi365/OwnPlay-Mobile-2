@@ -91,6 +91,37 @@ data class PlaybackAudioTrack(
     }
 }
 
+data class PlaybackSubtitleTrack(
+    val selectionId: String,
+    val label: String? = null,
+    val language: String? = null,
+    val mimeType: String? = null,
+    val selected: Boolean = false,
+    val supported: Boolean = true,
+) {
+    init {
+        require(selectionId.isNotBlank()) { "Subtitle track selection id must not be blank." }
+    }
+}
+
+data class PlaybackSubtitleCue(
+    val text: String,
+) {
+    init {
+        require(text.isNotBlank()) { "Subtitle cue text must not be blank." }
+    }
+}
+
+sealed interface PlaybackSubtitleSelection {
+    data object Off : PlaybackSubtitleSelection
+    data object Auto : PlaybackSubtitleSelection
+    data class Track(val selectionId: String) : PlaybackSubtitleSelection {
+        init {
+            require(selectionId.isNotBlank()) { "Subtitle selection id must not be blank." }
+        }
+    }
+}
+
 data class PlaybackSnapshot(
     val mediaId: String? = null,
     val title: String? = null,
@@ -110,6 +141,10 @@ data class PlaybackSnapshot(
     val audioCodecs: String? = null,
     val audioChannelCount: Int? = null,
     val audioSampleRate: Int? = null,
+    val subtitleTracks: List<PlaybackSubtitleTrack> = emptyList(),
+    val subtitleSelection: PlaybackSubtitleSelection = PlaybackSubtitleSelection.Auto,
+    val subtitleCues: List<PlaybackSubtitleCue> = emptyList(),
+    val playbackSpeed: Float = 1f,
     val errorCode: Int? = null,
     val errorCodeName: String? = null,
     val errorMessage: String? = null,

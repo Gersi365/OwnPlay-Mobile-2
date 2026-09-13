@@ -12,9 +12,11 @@ import androidx.media3.common.Format
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
+import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
+import androidx.media3.common.text.CueGroup
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
@@ -28,9 +30,14 @@ import app.ownplay.mobile.playback.domain.PlaybackLoadRequest
 import app.ownplay.mobile.playback.domain.PlaybackMedia
 import app.ownplay.mobile.playback.domain.PlaybackPhase
 import app.ownplay.mobile.playback.domain.PlaybackSnapshot
+import app.ownplay.mobile.playback.domain.PlaybackSpeedPolicy
+import app.ownplay.mobile.playback.domain.PlaybackSubtitleCue
+import app.ownplay.mobile.playback.domain.PlaybackSubtitleSelection
+import app.ownplay.mobile.playback.domain.PlaybackSubtitleTrack
 import app.ownplay.mobile.playback.domain.PlaybackStartPolicy
 import app.ownplay.mobile.playback.domain.PlaybackStreamFormat
 import app.ownplay.mobile.playback.domain.PlayerLocalControlPolicy
+import app.ownplay.mobile.playback.domain.SubtitleTrackPolicy
 import app.ownplay.mobile.playback.domain.VideoTarget
 import app.ownplay.mobile.playback.domain.VideoTargetEvent
 import app.ownplay.mobile.playback.domain.VideoTargetOwnership
@@ -62,6 +69,8 @@ class Media3PlaybackController(
     private var boundSurface: BoundSurface? = null
     private var boundSurfaceDetachListener: View.OnAttachStateChangeListener? = null
     private var currentMedia: PlaybackMedia? = null
+    private var subtitleSelection: PlaybackSubtitleSelection = PlaybackSubtitleSelection.Auto
+    private var currentSubtitleCues: List<PlaybackSubtitleCue> = emptyList()
     private var released = false
 
     private val listener = object : Player.Listener {
@@ -84,6 +93,17 @@ class Media3PlaybackController(
             refreshSnapshot()
         }
 
+        override fun onCues(cueGroup: CueGroup) {
+            currentSubtitleCues = cueGroup.cues.mapNotNull { cue ->
+                cue.text?.toString()?.trim()?.takeIf { it.isNotEmpty() }?.let(::PlaybackSubtitleCue)
+            }
+            refreshSnapshot()
+        }
+
+        override fun onPlaybackParametersChanged(playbackParameters: PlaybackParameters) {
+            refreshSnapshot()
+        }
+
         override fun onPlayerError(error: PlaybackException) {
             Log.w(
                 "OwnPlayPlayback",
@@ -100,10 +120,15 @@ class Media3PlaybackController(
     override suspend fun load(request: PlaybackLoadRequest) {
         mutateOnPlayerThread {
             currentMedia = request.media
+            subtitleSelection = PlaybackSubtitleSelection.Auto
+            currentSubtitleCues = emptyList()
             player.trackSelectionParameters = player.trackSelectionParameters
                 .buildUpon()
                 .clearOverridesOfType(C.TRACK_TYPE_AUDIO)
+                .clearOverridesOfType(C.TRACK_TYPE_TEXT)
+                .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
                 .build()
+            player.setPlaybackSpeed(1f)
             val mediaItemBuilder = MediaItem.Builder()
                 .setMediaId(request.media.id)
                 .setUri(request.media.uri)
@@ -235,6 +260,57 @@ class Media3PlaybackController(
         }
     }
 
+    override suspend fun selectSubtitle(selection: PlaybackSubtitleSelection) {
+        mutateOnPlayerThread {
+            val builder = player.trackSelectionParameters
+                .buildUpon()
+                .clearOverridesOfType(C.TRACK_TYPE_TEXT)
+            when (selection) {
+                PlaybackSubtitleSelection.Off -> {
+                    player.trackSelectionParameters = builder
+                        .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+                        .build()
+                    subtitleSelection = selection
+                    currentSubtitleCues = emptyList()
+                }
+
+                PlaybackSubtitleSelection.Auto -> {
+                    player.trackSelectionParameters = builder
+                        .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+                        .build()
+                    subtitleSelection = selection
+                }
+
+                is PlaybackSubtitleSelection.Track -> {
+                    val key = SubtitleTrackPolicy.parseSelectionId(selection.selectionId)
+                        ?: return@mutateOnPlayerThread
+                    val textGroups = player.currentTracks.groups.filter { it.type == C.TRACK_TYPE_TEXT }
+                    val group = textGroups.getOrNull(key.groupIndex) ?: return@mutateOnPlayerThread
+                    if (key.trackIndex !in 0 until group.length || !group.isTrackSupported(key.trackIndex)) {
+                        return@mutateOnPlayerThread
+                    }
+                    player.trackSelectionParameters = builder
+                        .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+                        .setOverrideForType(
+                            TrackSelectionOverride(group.mediaTrackGroup, key.trackIndex),
+                        )
+                        .build()
+                    subtitleSelection = selection
+                }
+            }
+            refreshSnapshot()
+        }
+    }
+
+    override suspend fun setPlaybackSpeed(speed: Float) {
+        mutateOnPlayerThread {
+            val requested = PlaybackSpeedPolicy.normalize(speed)
+            val applied = if (currentMedia?.kind == app.ownplay.mobile.playback.domain.PlaybackKind.LIVE) 1f else requested
+            player.setPlaybackSpeed(applied)
+            refreshSnapshot()
+        }
+    }
+
     override suspend fun seekTo(positionMs: Long) {
         mutateOnPlayerThread {
             player.seekTo(positionMs.coerceAtLeast(0L))
@@ -264,6 +340,7 @@ class Media3PlaybackController(
     override suspend fun stop(clearMedia: Boolean) {
         mutateOnPlayerThread {
             player.stop()
+            currentSubtitleCues = emptyList()
             if (clearMedia) {
                 clearBoundSurface()
                 player.clearMediaItems()
@@ -371,6 +448,7 @@ class Media3PlaybackController(
 
         val media = currentMedia
         val audio = currentAudioTrackStatus()
+        val subtitles = currentSubtitleTrackStatus()
         val errorCodeName = errorCode?.let { PlaybackException.getErrorCodeName(it) }
         val errorMessage = errorCode?.let(PlaybackFailureDiagnostics::safeMessage)
         mutableState.value = PlaybackSnapshot(
@@ -392,6 +470,10 @@ class Media3PlaybackController(
             audioCodecs = audio.codecs,
             audioChannelCount = audio.channelCount,
             audioSampleRate = audio.sampleRate,
+            subtitleTracks = subtitles.tracks,
+            subtitleSelection = subtitleSelection,
+            subtitleCues = currentSubtitleCues,
+            playbackSpeed = player.playbackParameters.speed,
             errorCode = errorCode,
             errorCodeName = errorCodeName,
             errorMessage = errorMessage,
@@ -453,6 +535,31 @@ class Media3PlaybackController(
             channelCount = format?.channelCount?.takeIf { it > 0 },
             sampleRate = format?.sampleRate?.takeIf { it > 0 },
         )
+    }
+
+    private data class SubtitleTrackStatus(
+        val tracks: List<PlaybackSubtitleTrack> = emptyList(),
+    )
+
+    private fun currentSubtitleTrackStatus(): SubtitleTrackStatus {
+        val groups = player.currentTracks.groups.filter { it.type == C.TRACK_TYPE_TEXT }
+        if (groups.isEmpty()) return SubtitleTrackStatus()
+
+        val tracks = mutableListOf<PlaybackSubtitleTrack>()
+        groups.forEachIndexed { groupIndex, group ->
+            for (trackIndex in 0 until group.length) {
+                val format = group.getTrackFormat(trackIndex)
+                tracks += PlaybackSubtitleTrack(
+                    selectionId = SubtitleTrackPolicy.selectionId(groupIndex, trackIndex),
+                    label = format.label,
+                    language = format.language,
+                    mimeType = format.sampleMimeType,
+                    selected = group.isTrackSelected(trackIndex),
+                    supported = group.isTrackSupported(trackIndex),
+                )
+            }
+        }
+        return SubtitleTrackStatus(tracks = tracks)
     }
 
     private fun Int.toPlaybackPhase(): PlaybackPhase = when (this) {

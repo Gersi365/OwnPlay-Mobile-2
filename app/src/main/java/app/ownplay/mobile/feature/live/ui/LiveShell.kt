@@ -79,7 +79,8 @@ import app.ownplay.mobile.playback.domain.PlaybackMedia
 import app.ownplay.mobile.playback.domain.PlaybackPhase
 import app.ownplay.mobile.playback.domain.PlaybackSnapshot
 import app.ownplay.mobile.playback.domain.VideoTarget
-import app.ownplay.mobile.playback.ui.AudioTrackSelectorPanel
+import app.ownplay.mobile.playback.ui.PlaybackOptionsPanel
+import app.ownplay.mobile.playback.ui.PlaybackSubtitleOverlay
 import app.ownplay.mobile.playback.ui.PlayerGlassGlyph
 import app.ownplay.mobile.playback.ui.PlayerGlassIconAction
 import app.ownplay.mobile.playback.ui.PlayerGlassPillAction
@@ -833,7 +834,7 @@ private fun FullscreenLive(
     modifier: Modifier = Modifier,
 ) {
     var overlayVisible by remember(channel.channelId) { mutableStateOf(true) }
-    var audioSelectorVisible by remember(channel.channelId) { mutableStateOf(false) }
+    var optionsVisible by remember(channel.channelId) { mutableStateOf(false) }
     val interactionSource = remember { MutableInteractionSource() }
 
     LaunchedEffect(
@@ -851,7 +852,7 @@ private fun FullscreenLive(
     }
 
     LaunchedEffect(overlayVisible) {
-        if (!overlayVisible) audioSelectorVisible = false
+        if (!overlayVisible) optionsVisible = false
     }
 
     Box(
@@ -879,6 +880,14 @@ private fun FullscreenLive(
         )
 
         PlayerLocalControlHudOverlay(modifier = Modifier.align(Alignment.Center))
+
+        PlaybackSubtitleOverlay(
+            cues = playbackSnapshot.subtitleCues,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth(0.86f)
+                .padding(bottom = if (overlayVisible) 96.dp else 24.dp),
+        )
 
         if (overlayVisible) {
             PlayerGlassScrims()
@@ -949,23 +958,30 @@ private fun FullscreenLive(
                         )
                     }
                 }
-                if (audioTracks.isNotEmpty()) {
+                if (audioTracks.isNotEmpty() || playbackSnapshot.subtitleTracks.isNotEmpty()) {
                     PlayerGlassPillAction(
-                        text = "Audio",
-                        emphasized = audioSelectorVisible,
-                        onClick = { audioSelectorVisible = !audioSelectorVisible },
+                        text = "Options",
+                        emphasized = optionsVisible,
+                        onClick = { optionsVisible = !optionsVisible },
                     )
                 }
             }
 
-            if (audioSelectorVisible && audioTracks.isNotEmpty()) {
-                AudioTrackSelectorPanel(
-                    tracks = audioTracks,
-                    onSelect = { selectionId ->
+            if (optionsVisible && (audioTracks.isNotEmpty() || playbackSnapshot.subtitleTracks.isNotEmpty())) {
+                PlaybackOptionsPanel(
+                    audioTracks = audioTracks,
+                    subtitleTracks = playbackSnapshot.subtitleTracks,
+                    subtitleSelection = playbackSnapshot.subtitleSelection,
+                    playbackSpeed = playbackSnapshot.playbackSpeed,
+                    allowSpeed = false,
+                    onSelectAudio = { selectionId ->
                         controllerScope.launch { playbackController.selectAudioTrack(selectionId) }
-                        audioSelectorVisible = false
                     },
-                    onDismiss = { audioSelectorVisible = false },
+                    onSelectSubtitle = { selection ->
+                        controllerScope.launch { playbackController.selectSubtitle(selection) }
+                    },
+                    onSelectSpeed = { },
+                    onDismiss = { optionsVisible = false },
                     modifier = Modifier
                         .align(Alignment.CenterEnd)
                         .padding(OwnPlaySpacing.Lg),

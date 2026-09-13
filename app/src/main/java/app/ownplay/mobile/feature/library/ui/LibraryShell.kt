@@ -92,7 +92,8 @@ import app.ownplay.mobile.playback.domain.PlaybackMedia
 import app.ownplay.mobile.playback.domain.PlaybackPhase
 import app.ownplay.mobile.playback.domain.PlaybackSnapshot
 import app.ownplay.mobile.playback.domain.VideoTarget
-import app.ownplay.mobile.playback.ui.AudioTrackSelectorPanel
+import app.ownplay.mobile.playback.ui.PlaybackOptionsPanel
+import app.ownplay.mobile.playback.ui.PlaybackSubtitleOverlay
 import app.ownplay.mobile.playback.ui.PlayerGlassGlyph
 import app.ownplay.mobile.playback.ui.PlayerGlassIconAction
 import app.ownplay.mobile.playback.ui.PlayerGlassPillAction
@@ -1701,7 +1702,7 @@ private fun LibraryFullscreenPlayer(
     val scope = rememberCoroutineScope()
     val interactionSource = remember { MutableInteractionSource() }
     var overlayVisible by remember(playback.contentId, playback.offline) { mutableStateOf(true) }
-    var audioSelectorVisible by remember(playback.contentId, playback.offline) { mutableStateOf(false) }
+    var optionsVisible by remember(playback.contentId, playback.offline) { mutableStateOf(false) }
     var pendingSeekMs by remember(playback.contentId, playback.offline) { mutableStateOf<Long?>(null) }
 
     suspend fun persistSnapshot(snapshot: PlaybackSnapshot) {
@@ -1750,7 +1751,7 @@ private fun LibraryFullscreenPlayer(
     }
 
     LaunchedEffect(overlayVisible) {
-        if (!overlayVisible) audioSelectorVisible = false
+        if (!overlayVisible) optionsVisible = false
     }
 
     LaunchedEffect(playback.contentId, playback.offline) {
@@ -1796,6 +1797,14 @@ private fun LibraryFullscreenPlayer(
 
         PlayerLocalControlHudOverlay(
             modifier = Modifier.align(Alignment.Center),
+        )
+
+        PlaybackSubtitleOverlay(
+            cues = playerState.subtitleCues,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth(0.86f)
+                .padding(bottom = if (overlayVisible) 104.dp else 24.dp),
         )
 
         if (overlayVisible) {
@@ -1927,24 +1936,31 @@ private fun LibraryFullscreenPlayer(
                             onClick = { scope.launch { playbackController.retry() } },
                         )
                     }
-                    if (playerState.audioTracks.isNotEmpty()) {
-                        PlayerGlassPillAction(
-                            text = "Audio",
-                            emphasized = audioSelectorVisible,
-                            onClick = { audioSelectorVisible = !audioSelectorVisible },
-                        )
-                    }
+                    PlayerGlassPillAction(
+                        text = "Options",
+                        emphasized = optionsVisible,
+                        onClick = { optionsVisible = !optionsVisible },
+                    )
                 }
             }
 
-            if (audioSelectorVisible && playerState.audioTracks.isNotEmpty()) {
-                AudioTrackSelectorPanel(
-                    tracks = playerState.audioTracks,
-                    onSelect = { selectionId ->
+            if (optionsVisible) {
+                PlaybackOptionsPanel(
+                    audioTracks = playerState.audioTracks,
+                    subtitleTracks = playerState.subtitleTracks,
+                    subtitleSelection = playerState.subtitleSelection,
+                    playbackSpeed = playerState.playbackSpeed,
+                    allowSpeed = true,
+                    onSelectAudio = { selectionId ->
                         scope.launch { playbackController.selectAudioTrack(selectionId) }
-                        audioSelectorVisible = false
                     },
-                    onDismiss = { audioSelectorVisible = false },
+                    onSelectSubtitle = { selection ->
+                        scope.launch { playbackController.selectSubtitle(selection) }
+                    },
+                    onSelectSpeed = { speed ->
+                        scope.launch { playbackController.setPlaybackSpeed(speed) }
+                    },
+                    onDismiss = { optionsVisible = false },
                     modifier = Modifier
                         .align(Alignment.CenterEnd)
                         .padding(OwnPlaySpacing.Lg),
