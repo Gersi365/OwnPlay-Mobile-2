@@ -6,6 +6,9 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PINNED_GRADLE_VERSION="9.6.0"
+FFMPEG_AAR="app/libs/media3-decoder-ffmpeg-1.11.0-ffmpeg6.0.aar"
+FFMPEG_PROVENANCE="docs/third_party/FFMPEG_AUDIO_DECODER.md"
+PINNED_FFMPEG_AAR_SHA256="3997eab5910483a4b7ab2928def2894379b2d9664ac54291c488669380f98734"
 cd "$ROOT_DIR"
 
 find_packaged_artifacts() {
@@ -39,7 +42,35 @@ verify_public_repo_hygiene() {
   fi
 }
 
+verify_ffmpeg_aar_integrity() {
+  if [[ ! -f "$FFMPEG_AAR" ]] || ! git cat-file -e "HEAD:$FFMPEG_AAR"; then
+    echo "ERROR: Pinned FFmpeg decoder AAR is missing from committed HEAD: $FFMPEG_AAR" >&2
+    exit 7
+  fi
+
+  local documented_sha actual_sha
+  documented_sha="$(
+    sed -nE 's/^- AAR SHA-256: `([0-9a-f]{64})`$/\1/p' "$FFMPEG_PROVENANCE" \
+      | head -n 1
+  )"
+  if [[ "$documented_sha" != "$PINNED_FFMPEG_AAR_SHA256" ]]; then
+    echo "ERROR: FFmpeg provenance checksum does not match the pinned source-validation checksum." >&2
+    exit 7
+  fi
+
+  actual_sha="$(sha256sum "$FFMPEG_AAR" | awk '{ print $1 }')"
+  if [[ "$actual_sha" != "$PINNED_FFMPEG_AAR_SHA256" ]]; then
+    echo "ERROR: FFmpeg decoder AAR checksum mismatch." >&2
+    echo "Expected: $PINNED_FFMPEG_AAR_SHA256" >&2
+    echo "Actual:   $actual_sha" >&2
+    exit 7
+  fi
+
+  echo "Validated FFmpeg decoder AAR SHA-256: $actual_sha"
+}
+
 verify_public_repo_hygiene
+verify_ffmpeg_aar_integrity
 
 existing_artifacts="$(find_packaged_artifacts)"
 if [[ -n "$existing_artifacts" ]]; then
