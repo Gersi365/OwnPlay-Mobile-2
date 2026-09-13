@@ -330,18 +330,10 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun setContentOrientation(kind: ContentFullscreenKind) {
-        requestedOrientation = when (kind) {
-            ContentFullscreenKind.NONE -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-            ContentFullscreenKind.LIVE -> if (systemAutoRotateEnabled.value) {
-                ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-            } else {
-                ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-            }
-            ContentFullscreenKind.LIBRARY -> if (systemAutoRotateEnabled.value) {
-                ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
-            } else {
-                ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-            }
+        requestedOrientation = when {
+            !kind.isFullscreen -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            systemAutoRotateEnabled.value -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            else -> ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
         }
     }
 
