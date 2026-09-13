@@ -47,12 +47,22 @@ if [[ -n "$existing_artifacts" ]]; then
   exit 2
 fi
 
-# Require the baseline in HEAD, then reject staged, unstaged, untracked, and
-# ignored schema changes both before and after Room generation.
-schema_file="app/schemas/app.ownplay.mobile.data.db.OwnPlayDatabase/1.json"
+# Keep the committed Room schema set aligned with the current @Database version.
+database_source="app/src/main/java/app/ownplay/mobile/data/db/OwnPlayDatabase.kt"
+schema_dir="app/schemas/app.ownplay.mobile.data.db.OwnPlayDatabase"
+database_version="$(
+  sed -nE 's/^[[:space:]]*version[[:space:]]*=[[:space:]]*([0-9]+),[[:space:]]*$/\1/p' "$database_source" \
+    | head -n 1
+)"
+if [[ -z "$database_version" ]]; then
+  echo "ERROR: Could not determine OwnPlayDatabase version from $database_source." >&2
+  exit 5
+fi
+schema_file="$schema_dir/$database_version.json"
+
 verify_room_schema_tree() {
   if [[ ! -f "$schema_file" ]] || ! git cat-file -e "HEAD:$schema_file"; then
-    echo "ERROR: Room schema v1 must exist and be committed in HEAD." >&2
+    echo "ERROR: Room schema v$database_version must exist and be committed in HEAD: $schema_file" >&2
     exit 5
   fi
   local schema_status
@@ -84,7 +94,7 @@ fi
 
 verify_room_schema_tree
 
-echo "PASS: generated Room schemas match committed HEAD; schema tree is clean."
+echo "PASS: Room schema v$database_version matches committed HEAD; schema tree is clean."
 
 created_artifacts="$(find_packaged_artifacts)"
 if [[ -n "$created_artifacts" ]]; then
