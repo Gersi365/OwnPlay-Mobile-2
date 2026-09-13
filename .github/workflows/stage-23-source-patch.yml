@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   patch:
-    if: github.event.head_commit.message == 'Repair Stage 23 source patch runner'
+    if: github.event.head_commit.message == 'Apply Stage 23 follow-up patch'
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout Stage 23 branch
@@ -19,24 +19,21 @@ jobs:
           ref: stage-23-library-curation-and-visibility
           fetch-depth: 0
 
-      - name: Apply deterministic source patches
+      - name: Apply follow-up source patch
         shell: bash
         run: |
           set -euo pipefail
-          python3 .github/stage23_patch_core.py
-          python3 .github/stage23_patch_downloads.py
-          python3 .github/stage23_patch_browse.py
-          python3 .github/stage23_patch_library.py
+          python3 .github/stage23_patch_followup.py
           git diff --check
           git status --short
 
-      - name: Commit Stage 23 source changes
+      - name: Commit follow-up source change
         shell: bash
         run: |
           set -euo pipefail
           git config user.name "Gersi365"
           git config user.email "Gersi365@outlook.com"
-          git add app/src/main/java app/src/test/java
+          git add app/src/main/java
           test -n "$(git status --porcelain)"
-          git commit -m "Stage 23: refine Library browsing and visibility"
+          git commit -m "Stage 23: clear hidden state when deleting downloads"
           git push origin HEAD:stage-23-library-curation-and-visibility
