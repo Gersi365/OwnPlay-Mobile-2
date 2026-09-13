@@ -1,0 +1,68 @@
+name: Stage 26 source patch runner v2
+
+on:
+  push:
+    branches:
+      - stage-26-favorites-local-personalization
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event.head_commit.message == 'Fix Stage 26 patch selector'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout Stage 26 branch
+        uses: actions/checkout@v4
+        with:
+          ref: stage-26-favorites-local-personalization
+          fetch-depth: 0
+
+      - name: Verify source ancestry
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor 25a1f411ef998877735f89e28d14ca09d3fd48e5 HEAD
+
+      - name: Apply corrected Stage 26 source patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import textwrap
+
+          workflow = Path('.github/workflows/stage-26-source-patch.yml').read_text()
+          start_marker = "          python3 - <<'PY'\n"
+          end_marker = "\n          PY\n\n      - name: Commit Stage 26 source"
+          start = workflow.index(start_marker) + len(start_marker)
+          end = workflow.index(end_marker, start)
+          script = textwrap.dedent(workflow[start:end])
+
+          old = '''replace_exact(
+              daos,
+              ''' + "'''" + '''            c.providerOrder AS providerOrder,\\n            COALESCE(p.hidden, 0) AS hidden,\\n            p.manualOrder AS manualOrder\\n''' + "'''" + ''',
+              ''' + "'''" + '''            c.providerOrder AS providerOrder,\\n            COALESCE(p.favorite, 0) AS favorite,\\n            p.localName AS localName,\\n            COALESCE(p.hidden, 0) AS hidden,\\n            p.manualOrder AS manualOrder\\n''' + "'''" + ''',
+          )'''
+          new = '''replace_exact(
+              daos,
+              ''' + "'''" + '''            COALESCE(p.localName, c.name) AS name,\\n            COALESCE(p.localLogo, c.logoUrl) AS logoUrl,\\n            c.providerOrder AS providerOrder,\\n            COALESCE(p.hidden, 0) AS hidden,\\n            p.manualOrder AS manualOrder\\n''' + "'''" + ''',
+              ''' + "'''" + '''            COALESCE(p.localName, c.name) AS name,\\n            COALESCE(p.localLogo, c.logoUrl) AS logoUrl,\\n            c.providerOrder AS providerOrder,\\n            COALESCE(p.favorite, 0) AS favorite,\\n            p.localName AS localName,\\n            COALESCE(p.hidden, 0) AS hidden,\\n            p.manualOrder AS manualOrder\\n''' + "'''" + ''',
+          )'''
+          if script.count(old) != 1:
+              raise SystemExit(f'Expected one ambiguous DAO patch block, found {script.count(old)}')
+          Path('/tmp/stage26.py').write_text(script.replace(old, new))
+          PY
+          python3 /tmp/stage26.py
+
+      - name: Commit Stage 26 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "Gersi365"
+          git config user.email "Gersi365@outlook.com"
+          git add app/src/main app/src/test
+          git diff --cached --check
+          git commit -m "Stage 26: add favorites and local personalization"
+          git push origin HEAD:stage-26-favorites-local-personalization
