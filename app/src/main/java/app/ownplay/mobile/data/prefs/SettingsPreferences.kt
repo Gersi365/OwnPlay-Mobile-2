@@ -64,6 +64,10 @@ class SettingsPreferences(
         it[SHOW_CHANNEL_LOGOS] = enabled
     }
 
+    suspend fun setHideChannelPrefix(enabled: Boolean) = edit {
+        it[HIDE_CHANNEL_PREFIX] = enabled
+    }
+
     suspend fun markDownloadNotificationPermissionPrompted() = edit {
         it[DOWNLOAD_NOTIFICATION_PERMISSION_PROMPTED] = true
     }
@@ -74,6 +78,7 @@ class SettingsPreferences(
         preferences[AUTO_REFRESH_PROVIDERS] = snapshot.autoRefreshProviders
         preferences[PROVIDER_REFRESH_INTERVAL] = snapshot.providerRefreshInterval.name
         preferences[SHOW_CHANNEL_LOGOS] = snapshot.showChannelLogos
+        preferences[HIDE_CHANNEL_PREFIX] = snapshot.hideChannelPrefix
     }
 
     private suspend fun edit(block: (androidx.datastore.preferences.core.MutablePreferences) -> Unit) {
@@ -88,6 +93,7 @@ class SettingsPreferences(
             ?.let { stored -> runCatching { ProviderRefreshInterval.valueOf(stored) }.getOrNull() }
             ?: ProviderRefreshInterval.SIX_HOURS,
         showChannelLogos = preferences[SHOW_CHANNEL_LOGOS] ?: true,
+        hideChannelPrefix = preferences[HIDE_CHANNEL_PREFIX] ?: false,
     )
 
     private companion object {
@@ -96,6 +102,7 @@ class SettingsPreferences(
         val AUTO_REFRESH_PROVIDERS = booleanPreferencesKey("auto_refresh_providers")
         val PROVIDER_REFRESH_INTERVAL = stringPreferencesKey("provider_refresh_interval")
         val SHOW_CHANNEL_LOGOS = booleanPreferencesKey("show_channel_logos")
+        val HIDE_CHANNEL_PREFIX = booleanPreferencesKey("hide_channel_prefix")
         val DOWNLOAD_NOTIFICATION_PERMISSION_PROMPTED =
             booleanPreferencesKey("download_notification_permission_prompted")
     }
