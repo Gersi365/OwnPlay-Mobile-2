@@ -16,6 +16,7 @@ import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
+import androidx.media3.common.VideoSize
 import androidx.media3.common.text.CueGroup
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
@@ -29,6 +30,7 @@ import app.ownplay.mobile.playback.domain.PlaybackAudioTrack
 import app.ownplay.mobile.playback.domain.PlaybackLoadRequest
 import app.ownplay.mobile.playback.domain.PlaybackMedia
 import app.ownplay.mobile.playback.domain.PlaybackPhase
+import app.ownplay.mobile.playback.domain.PlaybackResizeMode
 import app.ownplay.mobile.playback.domain.PlaybackSnapshot
 import app.ownplay.mobile.playback.domain.PlaybackSpeedPolicy
 import app.ownplay.mobile.playback.domain.PlaybackSubtitleCue
@@ -50,6 +52,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
+@OptIn(UnstableApi::class)
 class Media3PlaybackController(
     context: Context,
 ) : PlaybackController {
@@ -71,6 +74,7 @@ class Media3PlaybackController(
     private var currentMedia: PlaybackMedia? = null
     private var subtitleSelection: PlaybackSubtitleSelection = PlaybackSubtitleSelection.Auto
     private var currentSubtitleCues: List<PlaybackSubtitleCue> = emptyList()
+    private var resizeMode: PlaybackResizeMode = PlaybackResizeMode.FIT
     private var released = false
 
     private val listener = object : Player.Listener {
@@ -90,6 +94,10 @@ class Media3PlaybackController(
         }
 
         override fun onTracksChanged(tracks: Tracks) {
+            refreshSnapshot()
+        }
+
+        override fun onVideoSizeChanged(videoSize: VideoSize) {
             refreshSnapshot()
         }
 
@@ -122,6 +130,7 @@ class Media3PlaybackController(
             currentMedia = request.media
             subtitleSelection = PlaybackSubtitleSelection.Auto
             currentSubtitleCues = emptyList()
+            applyVideoResizeMode(PlaybackResizeMode.FIT)
             player.trackSelectionParameters = player.trackSelectionParameters
                 .buildUpon()
                 .clearOverridesOfType(C.TRACK_TYPE_AUDIO)
@@ -312,6 +321,13 @@ class Media3PlaybackController(
         }
     }
 
+    override suspend fun setVideoResizeMode(mode: PlaybackResizeMode) {
+        mutateOnPlayerThread {
+            applyVideoResizeMode(mode)
+            refreshSnapshot()
+        }
+    }
+
     override suspend fun seekTo(positionMs: Long) {
         mutateOnPlayerThread {
             player.seekTo(positionMs.coerceAtLeast(0L))
@@ -346,6 +362,7 @@ class Media3PlaybackController(
                 clearBoundSurface()
                 player.clearMediaItems()
                 currentMedia = null
+                resizeMode = PlaybackResizeMode.FIT
             }
             refreshSnapshot(errorCode = null)
         }
@@ -377,7 +394,6 @@ class Media3PlaybackController(
         }
     }
 
-    @OptIn(UnstableApi::class)
     private fun createPlayer(context: Context): ExoPlayer {
         if (!FfmpegLibrary.isAvailable()) {
             Log.w("OwnPlayPlayback", "Media3 FFmpeg audio decoder is unavailable; using device decoders only.")
@@ -400,6 +416,16 @@ class Media3PlaybackController(
             .setHandleAudioBecomingNoisy(true)
             .setLooper(Looper.getMainLooper())
             .build()
+    }
+
+    private fun applyVideoResizeMode(mode: PlaybackResizeMode) {
+        resizeMode = mode
+        player.videoScalingMode = when (mode) {
+            PlaybackResizeMode.FIT -> C.VIDEO_SCALING_MODE_SCALE_TO_FIT
+            PlaybackResizeMode.FILL,
+            PlaybackResizeMode.ZOOM,
+            -> C.VIDEO_SCALING_MODE_SCALE_TO_FIT_WITH_CROPPING
+        }
     }
 
     private fun installDetachListener(surfaceView: SurfaceView) {
@@ -448,6 +474,7 @@ class Media3PlaybackController(
         }
 
         val media = currentMedia
+        val videoFormat = player.videoFormat
         val audio = currentAudioTrackStatus()
         val subtitles = currentSubtitleTrackStatus()
         val errorCodeName = errorCode?.let { PlaybackException.getErrorCodeName(it) }
@@ -456,6 +483,7 @@ class Media3PlaybackController(
             mediaId = media?.id,
             title = media?.title,
             kind = media?.kind,
+            streamFormat = media?.streamFormat,
             phase = if (errorCode != null) PlaybackPhase.ERROR else player.playbackState.toPlaybackPhase(),
             playWhenReady = player.playWhenReady,
             isPlaying = player.isPlaying,
@@ -463,6 +491,14 @@ class Media3PlaybackController(
             positionMs = player.currentPosition.coerceAtLeast(0L),
             durationMs = player.duration.takeUnless { it == C.TIME_UNSET || it < 0L },
             activeTarget = ownership.activeTarget,
+            resizeMode = resizeMode,
+            videoWidth = videoFormat?.width?.takeIf { it > 0 },
+            videoHeight = videoFormat?.height?.takeIf { it > 0 },
+            videoFrameRate = videoFormat?.frameRate?.takeIf { it > 0f },
+            videoMimeType = videoFormat?.sampleMimeType,
+            videoCodecs = videoFormat?.codecs,
+            videoBitrate = videoFormat?.averageBitrate?.takeIf { it > 0 }
+                ?: videoFormat?.peakBitrate?.takeIf { it > 0 },
             audioTracks = audio.tracks,
             audioTrackPresent = audio.present,
             audioTrackSupported = audio.supported,
