@@ -33,11 +33,12 @@ import app.ownplay.mobile.playback.domain.PlaybackPhase
 import app.ownplay.mobile.playback.domain.PlaybackResizeMode
 import app.ownplay.mobile.playback.domain.PlaybackSnapshot
 import app.ownplay.mobile.playback.domain.PlaybackSpeedPolicy
+import app.ownplay.mobile.playback.domain.PlaybackStreamFormat
+import app.ownplay.mobile.playback.domain.PlaybackStreamFormatPolicy
 import app.ownplay.mobile.playback.domain.PlaybackSubtitleCue
 import app.ownplay.mobile.playback.domain.PlaybackSubtitleSelection
 import app.ownplay.mobile.playback.domain.PlaybackSubtitleTrack
 import app.ownplay.mobile.playback.domain.PlaybackStartPolicy
-import app.ownplay.mobile.playback.domain.PlaybackStreamFormat
 import app.ownplay.mobile.playback.domain.PlayerLocalControlPolicy
 import app.ownplay.mobile.playback.domain.SubtitleTrackPolicy
 import app.ownplay.mobile.playback.domain.VideoTarget
@@ -72,6 +73,8 @@ class Media3PlaybackController(
     private var boundSurface: BoundSurface? = null
     private var boundSurfaceDetachListener: View.OnAttachStateChangeListener? = null
     private var currentMedia: PlaybackMedia? = null
+    private var currentStreamFormat: PlaybackStreamFormat? = null
+    private var currentVideoSize: VideoSize? = null
     private var subtitleSelection: PlaybackSubtitleSelection = PlaybackSubtitleSelection.Auto
     private var currentSubtitleCues: List<PlaybackSubtitleCue> = emptyList()
     private var resizeMode: PlaybackResizeMode = PlaybackResizeMode.FIT
@@ -98,6 +101,7 @@ class Media3PlaybackController(
         }
 
         override fun onVideoSizeChanged(videoSize: VideoSize) {
+            currentVideoSize = videoSize
             refreshSnapshot()
         }
 
@@ -127,7 +131,13 @@ class Media3PlaybackController(
 
     override suspend fun load(request: PlaybackLoadRequest) {
         mutateOnPlayerThread {
+            val effectiveStreamFormat = when (request.media.streamFormat) {
+                PlaybackStreamFormat.HLS -> PlaybackStreamFormat.HLS
+                PlaybackStreamFormat.AUTO -> PlaybackStreamFormatPolicy.infer(request.media.uri)
+            }
             currentMedia = request.media
+            currentStreamFormat = effectiveStreamFormat
+            currentVideoSize = null
             subtitleSelection = PlaybackSubtitleSelection.Auto
             currentSubtitleCues = emptyList()
             applyVideoResizeMode(PlaybackResizeMode.FIT)
@@ -142,7 +152,7 @@ class Media3PlaybackController(
                 .setMediaId(request.media.id)
                 .setUri(request.media.uri)
 
-            if (request.media.streamFormat == PlaybackStreamFormat.HLS) {
+            if (effectiveStreamFormat == PlaybackStreamFormat.HLS) {
                 mediaItemBuilder.setMimeType(MimeTypes.APPLICATION_M3U8)
             }
 
@@ -366,6 +376,8 @@ class Media3PlaybackController(
                 clearBoundSurface()
                 player.clearMediaItems()
                 currentMedia = null
+                currentStreamFormat = null
+                currentVideoSize = null
                 resizeMode = PlaybackResizeMode.FIT
             }
             refreshSnapshot(errorCode = null)
@@ -383,6 +395,8 @@ class Media3PlaybackController(
                 player.removeListener(listener)
                 player.release()
                 currentMedia = null
+                currentStreamFormat = null
+                currentVideoSize = null
                 released = true
                 mutableState.value = PlaybackSnapshot(phase = PlaybackPhase.RELEASED)
             }
@@ -493,6 +507,7 @@ class Media3PlaybackController(
 
         val media = currentMedia
         val videoFormat = player.videoFormat
+        val videoSize = currentVideoSize
         val audio = currentAudioTrackStatus()
         val subtitles = currentSubtitleTrackStatus()
         val errorCodeName = errorCode?.let { PlaybackException.getErrorCodeName(it) }
@@ -501,7 +516,7 @@ class Media3PlaybackController(
             mediaId = media?.id,
             title = media?.title,
             kind = media?.kind,
-            streamFormat = media?.streamFormat,
+            streamFormat = currentStreamFormat,
             phase = if (errorCode != null) PlaybackPhase.ERROR else player.playbackState.toPlaybackPhase(),
             playWhenReady = player.playWhenReady,
             isPlaying = player.isPlaying,
@@ -510,8 +525,10 @@ class Media3PlaybackController(
             durationMs = player.duration.takeUnless { it == C.TIME_UNSET || it < 0L },
             activeTarget = ownership.activeTarget,
             resizeMode = resizeMode,
-            videoWidth = videoFormat?.width?.takeIf { it > 0 },
-            videoHeight = videoFormat?.height?.takeIf { it > 0 },
+            videoWidth = videoSize?.width?.takeIf { it > 0 }
+                ?: videoFormat?.width?.takeIf { it > 0 },
+            videoHeight = videoSize?.height?.takeIf { it > 0 }
+                ?: videoFormat?.height?.takeIf { it > 0 },
             videoFrameRate = videoFormat?.frameRate?.takeIf { it > 0f },
             videoMimeType = videoFormat?.sampleMimeType,
             videoCodecs = videoFormat?.codecs,
