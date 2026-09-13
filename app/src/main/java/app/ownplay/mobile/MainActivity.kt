@@ -1,6 +1,5 @@
 package app.ownplay.mobile
 
-import android.Manifest
 import android.app.PictureInPictureParams
 import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
@@ -41,7 +40,6 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         ownPlayApplication = application as OwnPlayApplication
         services = ownPlayApplication.services
-        requestLegacyPublicDownloadsPermissionIfNeeded()
 
         lifecycleScope.launch {
             combine(
@@ -245,20 +243,4 @@ class MainActivity : ComponentActivity() {
     private fun supportsPictureInPicture(): Boolean =
         packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)
 
-    private fun requestLegacyPublicDownloadsPermissionIfNeeded() {
-        if (Build.VERSION.SDK_INT > Build.VERSION_CODES.P) {
-            return
-        }
-        if (checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED) {
-            return
-        }
-        requestPermissions(
-            arrayOf(Manifest.permission.WRITE_EXTERNAL_STORAGE),
-            REQUEST_PUBLIC_DOWNLOADS_PERMISSION,
-        )
-    }
-
-    private companion object {
-        const val REQUEST_PUBLIC_DOWNLOADS_PERMISSION = 1801
-    }
 }

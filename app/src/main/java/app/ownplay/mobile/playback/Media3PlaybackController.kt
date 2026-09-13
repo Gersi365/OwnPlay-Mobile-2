@@ -6,6 +6,7 @@ import android.util.Log
 import android.view.SurfaceView
 import android.view.View
 import androidx.annotation.OptIn
+import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.Format
 import androidx.media3.common.MediaItem
@@ -84,6 +85,10 @@ class Media3PlaybackController(
         }
 
         override fun onPlayerError(error: PlaybackException) {
+            Log.w(
+                "OwnPlayPlayback",
+                "Playback failure: ${error.getErrorCodeName()} (${error.errorCode})",
+            )
             refreshSnapshot(errorCode = error.errorCode)
         }
     }
@@ -246,7 +251,11 @@ class Media3PlaybackController(
 
     override suspend fun retry() {
         mutateOnPlayerThread {
-            mutableState.value = mutableState.value.copy(errorCode = null)
+            mutableState.value = mutableState.value.copy(
+                errorCode = null,
+                errorCodeName = null,
+                errorMessage = null,
+            )
             player.prepare()
             refreshSnapshot(errorCode = null)
         }
@@ -303,8 +312,14 @@ class Media3PlaybackController(
         val dataSourceFactory = DefaultDataSource.Factory(context, httpDataSourceFactory)
         val mediaSourceFactory = DefaultMediaSourceFactory(context)
             .setDataSourceFactory(dataSourceFactory)
+        val audioAttributes = AudioAttributes.Builder()
+            .setUsage(C.USAGE_MEDIA)
+            .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
+            .build()
         return ExoPlayer.Builder(context, renderersFactory)
             .setMediaSourceFactory(mediaSourceFactory)
+            .setAudioAttributes(audioAttributes, true)
+            .setHandleAudioBecomingNoisy(true)
             .setLooper(Looper.getMainLooper())
             .build()
     }
@@ -356,6 +371,8 @@ class Media3PlaybackController(
 
         val media = currentMedia
         val audio = currentAudioTrackStatus()
+        val errorCodeName = errorCode?.let { PlaybackException.getErrorCodeName(it) }
+        val errorMessage = errorCode?.let(PlaybackFailureDiagnostics::safeMessage)
         mutableState.value = PlaybackSnapshot(
             mediaId = media?.id,
             title = media?.title,
@@ -376,6 +393,8 @@ class Media3PlaybackController(
             audioChannelCount = audio.channelCount,
             audioSampleRate = audio.sampleRate,
             errorCode = errorCode,
+            errorCodeName = errorCodeName,
+            errorMessage = errorMessage,
         )
     }
 

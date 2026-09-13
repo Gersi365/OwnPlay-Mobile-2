@@ -930,7 +930,7 @@ private fun FullscreenLive(
                     Text(
                         text = when {
                             resolutionError != null -> resolutionError
-                            playbackSnapshot.phase == PlaybackPhase.ERROR -> "Playback unavailable"
+                            playbackSnapshot.phase == PlaybackPhase.ERROR -> playbackSnapshot.errorMessage ?: "Playback unavailable"
                             audioCompatibilityMessage != null -> audioCompatibilityMessage
                             playbackSnapshot.phase == PlaybackPhase.BUFFERING -> "Buffering live stream…"
                             guide.now != null -> "Now ${programTimeRange(guide.now)} • ${guide.now.title}"
