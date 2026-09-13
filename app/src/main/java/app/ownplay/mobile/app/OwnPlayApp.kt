@@ -101,6 +101,7 @@ fun OwnPlayApp(
                     AppDestination.Library -> LibraryShell(
                         libraryRepository = services.libraryRepository,
                         downloadRepository = services.downloadRepository,
+                        libraryVisibilityPreferences = services.libraryVisibilityPreferences,
                         playbackController = services.playbackController,
                         resumePlaybackEnabled = settings.resumePlaybackEnabled,
                         initialOfflineDownloadId = pendingOfflineDownloadId,
@@ -111,6 +112,7 @@ fun OwnPlayApp(
                     AppDestination.Settings -> SettingsShell(
                         sourceRepository = services.sourceRepository,
                         settingsPreferences = services.settingsPreferences,
+                        libraryVisibilityPreferences = services.libraryVisibilityPreferences,
                         backupRepository = services.backupRepository,
                         liveRepository = services.liveRepository,
                         downloadRepository = services.downloadRepository,

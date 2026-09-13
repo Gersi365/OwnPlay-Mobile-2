@@ -38,6 +38,8 @@ import app.ownplay.mobile.design.OwnPlayShapeTokens
 import app.ownplay.mobile.design.OwnPlaySpacing
 import app.ownplay.mobile.design.OwnPlayStatePanel
 import app.ownplay.mobile.design.OwnPlayTopBar
+import app.ownplay.mobile.data.prefs.LibraryVisibilityPreferences
+import app.ownplay.mobile.data.prefs.LibraryVisibilitySnapshot
 import app.ownplay.mobile.downloads.domain.DownloadItem
 import app.ownplay.mobile.downloads.domain.DownloadOperationResult
 import app.ownplay.mobile.downloads.domain.DownloadRepository
@@ -47,12 +49,15 @@ import kotlinx.coroutines.launch
 @Composable
 fun DownloadManagementScreen(
     downloadRepository: DownloadRepository,
+    libraryVisibilityPreferences: LibraryVisibilityPreferences,
     onPlayOffline: (String) -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val downloadsFlow = remember(downloadRepository) { downloadRepository.observeDownloads() }
     val downloads by downloadsFlow.collectAsState(initial = emptyList())
+    val visibilityFlow = remember(libraryVisibilityPreferences) { libraryVisibilityPreferences.visibility }
+    val visibility by visibilityFlow.collectAsState(initial = LibraryVisibilitySnapshot())
     val scope = rememberCoroutineScope()
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var pendingRemoval by remember { mutableStateOf<DownloadItem?>(null) }
@@ -60,16 +65,19 @@ fun DownloadManagementScreen(
 
     pendingRemoval?.let { item ->
         OwnPlayModal(
-            title = "Remove download?",
-            message = "Remove ${item.title} from this device and OwnPlay Downloads?",
-            confirmLabel = "Remove",
+            title = "Delete download?",
+            message = "Delete ${item.title} from this device and OwnPlay Downloads? This removes the offline file.",
+            confirmLabel = "Delete",
             dismissLabel = "Cancel",
             onConfirm = {
                 pendingRemoval = null
                 scope.launch {
                     errorMessage = when (val result = downloadRepository.remove(item.downloadId)) {
                         is DownloadOperationResult.Failure -> result.safeMessage
-                        is DownloadOperationResult.Success -> null
+                        is DownloadOperationResult.Success -> {
+                            libraryVisibilityPreferences.showDownload(item.downloadId)
+                            null
+                        }
                     }
                 }
             },
@@ -130,6 +138,7 @@ fun DownloadManagementScreen(
                 items(downloads, key = { it.downloadId }) { item ->
                     DownloadManagementRow(
                         item = item,
+                        hiddenFromLibrary = visibility.isDownloadHidden(item.downloadId),
                         onPrimary = {
                             if (item.state == DownloadState.COMPLETED) {
                                 errorMessage = null
@@ -140,6 +149,15 @@ fun DownloadManagementScreen(
                                         is DownloadOperationResult.Failure -> result.safeMessage
                                         is DownloadOperationResult.Success -> null
                                     }
+                                }
+                            }
+                        },
+                        onToggleLibraryVisibility = {
+                            scope.launch {
+                                if (visibility.isDownloadHidden(item.downloadId)) {
+                                    libraryVisibilityPreferences.showDownload(item.downloadId)
+                                } else {
+                                    libraryVisibilityPreferences.hideDownload(item.downloadId)
                                 }
                             }
                         },
@@ -164,7 +182,9 @@ private suspend fun primaryAction(
 @Composable
 private fun DownloadManagementRow(
     item: DownloadItem,
+    hiddenFromLibrary: Boolean,
     onPrimary: () -> Unit,
+    onToggleLibraryVisibility: () -> Unit,
     onRemove: () -> Unit,
 ) {
     Surface(
@@ -203,7 +223,7 @@ private fun DownloadManagementRow(
                     maxLines = 2,
                 )
                 Text(
-                    text = downloadStatus(item),
+                    text = downloadStatus(item, hiddenFromLibrary),
                     style = MaterialTheme.typography.bodySmall,
                     color = if (item.state == DownloadState.COMPLETED) {
                         OwnPlayColors.Accent
@@ -239,8 +259,15 @@ private fun DownloadManagementRow(
                             item.state == DownloadState.FAILED,
                         onClick = onPrimary,
                     )
+                    if (item.state == DownloadState.COMPLETED) {
+                        DownloadManagementAction(
+                            text = if (hiddenFromLibrary) "Show in Library" else "Hide from Library",
+                            emphasized = false,
+                            onClick = onToggleLibraryVisibility,
+                        )
+                    }
                     DownloadManagementAction(
-                        text = "Remove",
+                        text = "Delete",
                         emphasized = false,
                         onClick = onRemove,
                     )
@@ -284,13 +311,18 @@ private fun primaryLabel(state: DownloadState): String = when (state) {
     DownloadState.COMPLETED -> "Play Offline"
 }
 
-private fun downloadStatus(item: DownloadItem): String {
+private fun downloadStatus(item: DownloadItem, hiddenFromLibrary: Boolean): String {
     val progress = item.progressFraction?.let { " · ${(it * 100).toInt()}%" }.orEmpty()
+    val libraryVisibility = if (item.state == DownloadState.COMPLETED && hiddenFromLibrary) {
+        " · hidden from Library"
+    } else {
+        ""
+    }
     return when (item.state) {
         DownloadState.QUEUED -> "Queued$progress"
         DownloadState.DOWNLOADING -> "Downloading$progress"
         DownloadState.PAUSED -> "Paused$progress"
         DownloadState.FAILED -> "Needs attention"
-        DownloadState.COMPLETED -> "Downloaded · verified offline"
+        DownloadState.COMPLETED -> "Downloaded · verified offline$libraryVisibility"
     }
 }

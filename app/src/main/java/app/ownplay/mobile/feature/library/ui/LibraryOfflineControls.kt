@@ -26,6 +26,7 @@ import kotlin.math.roundToInt
 internal fun LibraryOfflineControls(
     item: DownloadItem,
     onAction: (DownloadAction) -> Unit,
+    onHideFromLibrary: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val primaryAction = DownloadStatePolicy.primaryAction(item)
@@ -80,8 +81,8 @@ internal fun LibraryOfflineControls(
                 },
             )
             LibrarySecondaryAction(
-                text = "Remove",
-                onClick = { onAction(DownloadAction.REMOVE) },
+                text = "Hide",
+                onClick = onHideFromLibrary,
                 modifier = Modifier.weight(0.66f),
             )
         }

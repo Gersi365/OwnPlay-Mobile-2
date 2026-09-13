@@ -41,6 +41,7 @@ internal enum class LibraryActionGlyph {
     PLAY,
     RESTART,
     BACK,
+    DISMISS,
 }
 
 internal enum class LibraryStateTone {
@@ -212,6 +213,7 @@ internal fun LibraryIconAction(
 internal fun LibraryShelfSection(
     title: String,
     actionLabel: String? = null,
+    onActionClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
     prominent: Boolean = false,
     content: @Composable ColumnScope.() -> Unit,
@@ -223,6 +225,7 @@ internal fun LibraryShelfSection(
         LibraryShelfHeader(
             title = title,
             actionLabel = actionLabel,
+            onActionClick = onActionClick,
             prominent = prominent,
         )
         content()
@@ -233,6 +236,7 @@ internal fun LibraryShelfSection(
 internal fun LibraryShelfHeader(
     title: String,
     actionLabel: String? = null,
+    onActionClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
     prominent: Boolean = false,
 ) {
@@ -251,11 +255,23 @@ internal fun LibraryShelfHeader(
             color = OwnPlayColors.TextPrimary,
             fontWeight = FontWeight.SemiBold,
         )
-        actionLabel?.let {
+        actionLabel?.let { label ->
             Text(
-                text = it,
+                text = label,
+                modifier = if (onActionClick != null) {
+                    Modifier
+                        .clickable(role = Role.Button, onClick = onActionClick)
+                        .padding(horizontal = 8.dp, vertical = 8.dp)
+                } else {
+                    Modifier
+                },
                 style = MaterialTheme.typography.labelSmall,
-                color = OwnPlayColors.TextMuted.copy(alpha = 0.72f),
+                color = if (onActionClick != null) {
+                    OwnPlayColors.Accent
+                } else {
+                    OwnPlayColors.TextMuted.copy(alpha = 0.72f)
+                },
+                fontWeight = if (onActionClick != null) FontWeight.SemiBold else FontWeight.Medium,
                 maxLines = 1,
             )
         }
@@ -370,6 +386,7 @@ private val LibraryActionGlyph.symbol: String
         LibraryActionGlyph.PLAY -> "▶"
         LibraryActionGlyph.RESTART -> "↺"
         LibraryActionGlyph.BACK -> "‹"
+        LibraryActionGlyph.DISMISS -> "×"
     }
 
 private val OwnPlayShapeHeaderSpacing = 12.dp
