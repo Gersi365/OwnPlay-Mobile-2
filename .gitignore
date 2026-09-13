@@ -14,6 +14,19 @@ captures/
 .externalNativeBuild/
 .cxx/
 
+# Local secrets / signing material
+.env
+.env.local
+.env.*.local
+secrets.properties
+keystore.properties
+*.jks
+*.keystore
+*.p12
+*.pfx
+*.key
+*.pem
+
 # OS files
 .DS_Store
 Thumbs.db
