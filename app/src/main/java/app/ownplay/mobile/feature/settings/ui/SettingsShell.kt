@@ -179,16 +179,21 @@ private fun MainSettings(
     Column(
         modifier = modifier.fillMaxSize().verticalScroll(rememberScrollState()),
     ) {
-        OwnPlayTopBar(showTagline = true)
+        OwnPlayTopBar(showTagline = false)
         Column(
             modifier = Modifier.padding(horizontal = OwnPlaySpacing.Lg),
             verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Lg),
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text("Settings", style = MaterialTheme.typography.headlineMedium, color = OwnPlayColors.TextPrimary)
+                Text(
+                    "Settings",
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = OwnPlayColors.TextPrimary,
+                    fontWeight = FontWeight.SemiBold,
+                )
                 Text(
                     "Personalize your viewing experience",
-                    style = MaterialTheme.typography.bodyMedium,
+                    style = MaterialTheme.typography.bodySmall,
                     color = OwnPlayColors.TextSecondary,
                 )
             }
