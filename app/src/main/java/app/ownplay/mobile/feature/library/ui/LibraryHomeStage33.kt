@@ -57,6 +57,7 @@ import app.ownplay.mobile.design.OwnPlaySearchField
 import app.ownplay.mobile.design.OwnPlayShapeTokens
 import app.ownplay.mobile.design.OwnPlaySpacing
 import app.ownplay.mobile.design.OwnPlayTopBar
+import app.ownplay.mobile.downloads.domain.DownloadAction
 import app.ownplay.mobile.downloads.domain.DownloadItem
 import app.ownplay.mobile.downloads.domain.DownloadState
 import app.ownplay.mobile.feature.library.domain.ContinueWatchingItem
@@ -82,6 +83,8 @@ internal fun LibraryHomeStage33(
     onMovieSelected: (LibraryMovie) -> Unit,
     onSeriesSelected: (LibrarySeries) -> Unit,
     onDownloadedSelected: (DownloadItem) -> Unit,
+    onDownloadedAction: (DownloadItem, DownloadAction) -> Unit,
+    onDownloadedHide: (DownloadItem) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var searchVisible by rememberSaveable(catalog?.activeSourceId) { mutableStateOf(false) }
@@ -329,6 +332,8 @@ internal fun LibraryHomeStage33(
                             DownloadedRowStage33(
                                 items = visibleDownloads,
                                 onSelected = onDownloadedSelected,
+                                onAction = onDownloadedAction,
+                                onHide = onDownloadedHide,
                             )
                         }
                     }
@@ -636,9 +641,11 @@ private fun ContinueWatchingCardStage33(
 private fun DownloadedRowStage33(
     items: List<DownloadItem>,
     onSelected: (DownloadItem) -> Unit,
+    onAction: (DownloadItem, DownloadAction) -> Unit,
+    onHide: (DownloadItem) -> Unit,
 ) {
     BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-        val posterWidth = (maxWidth * 0.39f).coerceIn(126.dp, 148.dp)
+        val itemWidth = (maxWidth * 0.84f).coerceIn(244.dp, 292.dp)
         val state = rememberLazyListState()
         val fling = rememberSnapFlingBehavior(state, SnapPosition.Start)
         LazyRow(
@@ -648,20 +655,70 @@ private fun DownloadedRowStage33(
             horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),
         ) {
             items(items, key = { it.downloadId }) { item ->
-                val eyebrow = when (item.state) {
-                    DownloadState.COMPLETED -> "DOWNLOADED"
+                val mediaLabel = item.mediaKind.name
+                val stateLabel = when (item.state) {
+                    DownloadState.COMPLETED -> "OFFLINE"
                     DownloadState.DOWNLOADING -> "DOWNLOADING"
                     DownloadState.QUEUED -> "QUEUED"
                     DownloadState.PAUSED -> "PAUSED"
                     DownloadState.FAILED -> "NEEDS ATTENTION"
                 }
-                PosterCardStage33(
-                    title = item.metadata?.title ?: item.title,
-                    artworkUrl = item.metadata?.posterUrl,
-                    eyebrow = eyebrow,
-                    cardWidth = posterWidth,
-                    onClick = { onSelected(item) },
-                )
+                val displayTitle = item.metadata?.title ?: item.title
+                Column(
+                    modifier = Modifier.width(itemWidth),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.Top,
+                    ) {
+                        PosterCardStage33(
+                            title = displayTitle,
+                            artworkUrl = item.metadata?.posterUrl ?: item.metadata?.backdropUrl,
+                            eyebrow = mediaLabel,
+                            cardWidth = 104.dp,
+                            onClick = { onSelected(item) },
+                        )
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            Text(
+                                text = "$mediaLabel • $stateLabel",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = OwnPlayColors.Accent.copy(alpha = 0.88f),
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                            )
+                            Text(
+                                text = displayTitle,
+                                style = MaterialTheme.typography.titleSmall,
+                                color = OwnPlayColors.TextPrimary,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 3,
+                            )
+                            item.metadata?.releaseDate?.takeIf(String::isNotBlank)?.let { releaseDate ->
+                                Text(
+                                    text = releaseDate,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = OwnPlayColors.TextMuted,
+                                    maxLines = 1,
+                                )
+                            }
+                            LibrarySecondaryAction(
+                                text = "Details",
+                                onClick = { onSelected(item) },
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
+                    }
+                    LibraryOfflineControls(
+                        item = item,
+                        onAction = { action -> onAction(item, action) },
+                        onHideFromLibrary = { onHide(item) },
+                    )
+                }
             }
         }
     }
