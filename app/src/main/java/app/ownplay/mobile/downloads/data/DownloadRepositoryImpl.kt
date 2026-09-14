@@ -63,26 +63,28 @@ internal class DownloadRepositoryImpl(
             downloadDao.observeAll(),
             libraryDao.observeAllIncompleteProgress(),
         ) { downloads, progress ->
-            val progressByKey = progress.associateBy { row ->
-                ProgressKey(
-                    sourceId = row.sourceId,
-                    mediaKind = row.mediaKind.uppercase(Locale.US),
-                    contentId = row.contentId,
+            withContext(Dispatchers.IO) {
+                val progressByKey = progress.associateBy { row ->
+                    ProgressKey(
+                        sourceId = row.sourceId,
+                        mediaKind = row.mediaKind.uppercase(Locale.US),
+                        contentId = row.contentId,
+                    )
+                }
+                DownloadOrderingPolicy.ordered(
+                    downloads.mapNotNull { row ->
+                        row.toDomainOrNull(
+                            progress = progressByKey[
+                                ProgressKey(
+                                    sourceId = row.sourceId,
+                                    mediaKind = row.mediaKind.uppercase(Locale.US),
+                                    contentId = row.contentId,
+                                )
+                            ],
+                        )
+                    },
                 )
             }
-            DownloadOrderingPolicy.ordered(
-                downloads.mapNotNull { row ->
-                    row.toDomainOrNull(
-                        progress = progressByKey[
-                            ProgressKey(
-                                sourceId = row.sourceId,
-                                mediaKind = row.mediaKind.uppercase(Locale.US),
-                                contentId = row.contentId,
-                            )
-                        ],
-                    )
-                },
-            )
         }
 
     override suspend fun requestDownload(
