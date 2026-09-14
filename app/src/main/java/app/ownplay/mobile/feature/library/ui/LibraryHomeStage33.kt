@@ -101,6 +101,8 @@ internal fun LibraryHomeStage33(
     }
     val movies = catalog?.movies.orEmpty()
     val series = catalog?.series.orEmpty()
+    val moviesByCategory = remember(movies) { movies.groupBy { it.categoryKey } }
+    val seriesByCategory = remember(series) { series.groupBy { it.categoryKey } }
     val visibleContinueWatching = catalog?.continueWatching.orEmpty().filterNot { item ->
         visibility.isContinueWatchingHidden(item.sourceId, item.mediaKind, item.contentId)
     }
@@ -110,10 +112,10 @@ internal fun LibraryHomeStage33(
 
     if (browseAllKind != null) {
         val allMovies = if (browseAllKind == LibraryBrowseKind.MOVIES) {
-            browseAllCategoryKey?.let { key -> movies.filter { it.categoryKey == key } } ?: movies
+            browseAllCategoryKey?.let { key -> moviesByCategory[key].orEmpty() } ?: movies
         } else emptyList()
         val allSeries = if (browseAllKind == LibraryBrowseKind.SERIES) {
-            browseAllCategoryKey?.let { key -> series.filter { it.categoryKey == key } } ?: series
+            browseAllCategoryKey?.let { key -> seriesByCategory[key].orEmpty() } ?: series
         } else emptyList()
         LibraryAllGridStage33(
             kind = browseAllKind,
@@ -261,7 +263,7 @@ internal fun LibraryHomeStage33(
                                 onMovieSelected = onMovieSelected,
                             )
                             else -> movieCategories.forEach { category ->
-                                val categoryMovies = movies.filter { it.categoryKey == category.categoryKey }
+                                val categoryMovies = moviesByCategory[category.categoryKey].orEmpty()
                                 if (categoryMovies.isNotEmpty()) {
                                     LibraryCategoryMovieShelfStage33(
                                         title = category.name,
@@ -296,7 +298,7 @@ internal fun LibraryHomeStage33(
                                 onSeriesSelected = onSeriesSelected,
                             )
                             else -> seriesCategories.forEach { category ->
-                                val categorySeries = series.filter { it.categoryKey == category.categoryKey }
+                                val categorySeries = seriesByCategory[category.categoryKey].orEmpty()
                                 if (categorySeries.isNotEmpty()) {
                                     LibraryCategorySeriesShelfStage33(
                                         title = category.name,
