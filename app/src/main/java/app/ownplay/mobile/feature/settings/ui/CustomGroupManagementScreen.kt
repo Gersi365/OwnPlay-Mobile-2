@@ -118,7 +118,7 @@ private fun CustomGroupListScreen(
             TextButton(
                 enabled = normalizedNewName != null,
                 onClick = {
-                    val sourceId = catalog.activeSourceId ?: return@TextButton
+                    val sourceId = catalog.activeSourceId
                     val name = normalizedNewName ?: return@TextButton
                     newGroupName = ""
                     scope.launch { liveRepository.createCustomGroup(sourceId, name) }

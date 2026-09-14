@@ -12,9 +12,6 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
-import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
 
 class OkHttpXtreamClient(
@@ -105,19 +102,47 @@ class OkHttpXtreamClient(
         }
     }
 
+    override suspend fun vodInfo(
+        baseUrl: String,
+        credential: SourceCredential.Xtream,
+        streamId: String,
+    ): XtreamResult<XtreamVodInfo> {
+        val url = XtreamUrlBuilder.apiUrl(
+            baseUrl = baseUrl,
+            credential = credential,
+            action = "get_vod_info",
+            extra = mapOf("vod_id" to streamId),
+        )
+        return when (val root = getJson(url)) {
+            is XtreamResult.Failure -> root
+            is XtreamResult.Success -> {
+                val rootObject = root.value.asObject()
+                    ?: return XtreamResult.Failure("XTREAM_VOD_INFO_FORMAT")
+                val info = rootObject["info"]?.asObject().orEmptyObject()
+                val movieData = rootObject["movie_data"]?.asObject().orEmptyObject()
+                val resolvedStreamId = movieData["stream_id"]?.text()?.takeIf(String::isNotBlank) ?: streamId
+                XtreamResult.Success(
+                    XtreamVodInfo(
+                        streamId = resolvedStreamId,
+                        metadata = parseMediaInfo(info, movieData),
+                    ),
+                )
+            }
+        }
+    }
+
     override suspend fun series(
         baseUrl: String,
         credential: SourceCredential.Xtream,
     ): XtreamResult<List<XtreamSeries>> {
         return mapArray(XtreamUrlBuilder.apiUrl(baseUrl, credential, "get_series")) { obj, index ->
-            val seriesId = obj["series_id"]?.text()?.takeIf(String::isNotBlank) ?: return@mapArray null
-            val backdrops = obj["backdrop_path"]?.asArray()
+            val streamId = obj["series_id"]?.text()?.takeIf(String::isNotBlank) ?: return@mapArray null
             XtreamSeries(
-                seriesId = seriesId,
+                seriesId = streamId,
                 categoryId = obj["category_id"]?.text()?.trim()?.takeIf(String::isNotEmpty),
                 name = obj["name"]?.text().orEmpty().ifBlank { "Untitled series" },
                 posterUrl = obj["cover"]?.text(),
-                backdropUrl = backdrops?.firstOrNull()?.text(),
+                backdropUrl = obj.backdropText(),
                 description = obj["plot"]?.text(),
                 rating = obj["rating"]?.text(),
                 providerOrder = obj["num"]?.asPrimitive()?.intOrNull ?: index,
@@ -139,12 +164,14 @@ class OkHttpXtreamClient(
         return when (val root = getJson(url)) {
             is XtreamResult.Failure -> root
             is XtreamResult.Success -> {
-                val episodesObject = root.value.asObject()?.get("episodes")?.asObject()
-                    ?: return XtreamResult.Success(XtreamSeriesInfo(seriesId, emptyList()))
+                val rootObject = root.value.asObject()
+                    ?: return XtreamResult.Failure("XTREAM_SERIES_INFO_FORMAT")
+                val info = rootObject["info"]?.asObject().orEmptyObject()
+                val episodesObject = rootObject["episodes"]?.asObject()
                 val episodes = buildList {
-                    episodesObject.entries
-                        .sortedBy { it.key.toIntOrNull() ?: Int.MAX_VALUE }
-                        .forEach { (seasonKey, value) ->
+                    episodesObject?.entries
+                        ?.sortedBy { it.key.toIntOrNull() ?: Int.MAX_VALUE }
+                        ?.forEach { (seasonKey, value) ->
                             val season = seasonKey.toIntOrNull() ?: 0
                             value.asArray().orEmpty().forEachIndexed { index, element ->
                                 val obj = element.asObject() ?: return@forEachIndexed
@@ -162,7 +189,13 @@ class OkHttpXtreamClient(
                             }
                         }
                 }
-                XtreamResult.Success(XtreamSeriesInfo(seriesId, episodes))
+                XtreamResult.Success(
+                    XtreamSeriesInfo(
+                        seriesId = seriesId,
+                        episodes = episodes,
+                        metadata = parseMediaInfo(info),
+                    ),
+                )
             }
         }
     }
@@ -245,15 +278,55 @@ class OkHttpXtreamClient(
         }
     }
 
+    private fun parseMediaInfo(primary: JsonObject, fallback: JsonObject = emptyJsonObject()): XtreamMediaInfo =
+        XtreamMediaInfo(
+            title = primary.firstText("name", "title") ?: fallback.firstText("name", "title"),
+            posterUrl = primary.firstText("movie_image", "cover", "stream_icon", "poster")
+                ?: fallback.firstText("movie_image", "cover", "stream_icon", "poster"),
+            backdropUrl = primary.backdropText() ?: fallback.backdropText(),
+            plot = primary.firstText("plot", "description") ?: fallback.firstText("plot", "description"),
+            releaseDate = primary.firstText("releasedate", "releaseDate", "release_date", "year")
+                ?: fallback.firstText("releasedate", "releaseDate", "release_date", "year"),
+            durationSeconds = parseDurationSeconds(primary) ?: parseDurationSeconds(fallback),
+            rating = primary.firstText("rating", "rating_5based") ?: fallback.firstText("rating", "rating_5based"),
+            genre = primary.firstText("genre", "genres") ?: fallback.firstText("genre", "genres"),
+            director = primary.firstText("director") ?: fallback.firstText("director"),
+            cast = primary.firstText("cast", "actors") ?: fallback.firstText("cast", "actors"),
+        )
+
     private fun parseDurationSeconds(obj: JsonObject): Long? {
-        obj["duration_secs"]?.asPrimitive()?.longOrNull?.let { return it }
-        val duration = obj["duration"]?.text() ?: return null
-        val parts = duration.split(':').mapNotNull(String::toLongOrNull)
-        return when (parts.size) {
-            3 -> parts[0] * 3600 + parts[1] * 60 + parts[2]
-            2 -> parts[0] * 60 + parts[1]
-            else -> duration.toLongOrNull()
-        }
+        obj["duration_secs"]?.asPrimitive()?.longOrNull?.takeIf { it >= 0L }?.let { return it }
+        obj["duration_seconds"]?.asPrimitive()?.longOrNull?.takeIf { it >= 0L }?.let { return it }
+        val duration = obj["duration"]?.text()?.trim()?.takeIf(String::isNotEmpty) ?: return null
+        if (!duration.contains(':')) return duration.toLongOrNull()?.takeIf { it >= 0L }
+
+        val rawParts = duration.split(':')
+        if (rawParts.size !in 2..3) return null
+        val parts = rawParts.map { part -> part.toLongOrNull() ?: return null }
+        if (parts.any { it < 0L }) return null
+        if (parts.last() > 59L) return null
+        if (parts.size == 3 && parts[1] > 59L) return null
+        return runCatching {
+            when (parts.size) {
+                3 -> Math.addExact(
+                    Math.addExact(Math.multiplyExact(parts[0], 3_600L), Math.multiplyExact(parts[1], 60L)),
+                    parts[2],
+                )
+                2 -> Math.addExact(Math.multiplyExact(parts[0], 60L), parts[1])
+                else -> null
+            }
+        }.getOrNull()
+    }
+
+    private fun JsonObject.backdropText(): String? {
+        val backdropPath = this["backdrop_path"]
+        return backdropPath?.asArray()?.firstOrNull()?.text()?.trim()?.takeIf(String::isNotEmpty)
+            ?: backdropPath?.text()?.trim()?.takeIf(String::isNotEmpty)
+            ?: firstText("backdrop", "backdrop_url")
+    }
+
+    private fun JsonObject.firstText(vararg keys: String): String? = keys.firstNotNullOfOrNull { key ->
+        this[key]?.text()?.trim()?.takeIf(String::isNotEmpty)
     }
 
     private fun JsonObject.liveCategoryId(): String? =
@@ -278,4 +351,6 @@ class OkHttpXtreamClient(
     private fun JsonElement.asArray(): JsonArray? = this as? JsonArray
     private fun JsonElement.asPrimitive(): JsonPrimitive? = this as? JsonPrimitive
     private fun JsonElement.text(): String? = (this as? JsonPrimitive)?.contentOrNull
+    private fun JsonObject?.orEmptyObject(): JsonObject = this ?: emptyJsonObject()
+    private fun emptyJsonObject(): JsonObject = JsonObject(emptyMap())
 }

@@ -11,6 +11,7 @@ import app.ownplay.mobile.data.security.KeystoreCredentialStore
 import app.ownplay.mobile.downloads.data.DownloadRepositoryImpl
 import app.ownplay.mobile.downloads.data.DownloadStreamResolver
 import app.ownplay.mobile.downloads.domain.DownloadRepository
+import app.ownplay.mobile.feature.library.data.LibraryDownloadMetadataResolver
 import app.ownplay.mobile.feature.library.data.LibraryRepositoryImpl
 import app.ownplay.mobile.feature.library.domain.LibraryRepository
 import app.ownplay.mobile.feature.live.data.LiveRepositoryImpl
@@ -153,6 +154,10 @@ class OwnPlayServices private constructor(
             credentialStore = credentialStore,
             xtreamClient = xtreamClient,
         )
+    }
+
+    val libraryDownloadMetadataResolver: LibraryDownloadMetadataResolver by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        LibraryDownloadMetadataResolver(database.libraryDao())
     }
 
     val downloadRepository: DownloadRepository by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {

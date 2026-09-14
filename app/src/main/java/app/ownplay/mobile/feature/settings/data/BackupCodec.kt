@@ -158,6 +158,7 @@ internal object BackupCodec {
         put("autoRefreshProviders", JsonPrimitive(settings.autoRefreshProviders))
         put("providerRefreshInterval", JsonPrimitive(settings.providerRefreshInterval.name))
         put("showChannelLogos", JsonPrimitive(settings.showChannelLogos))
+        put("hideChannelPrefix", JsonPrimitive(settings.hideChannelPrefix))
     }
 
     private fun decodeSettings(value: JsonObject): SettingsSnapshot = SettingsSnapshot(
@@ -166,6 +167,7 @@ internal object BackupCodec {
         autoRefreshProviders = value.requiredBoolean("autoRefreshProviders"),
         providerRefreshInterval = ProviderRefreshInterval.valueOf(value.requiredString("providerRefreshInterval")),
         showChannelLogos = value.requiredBoolean("showChannelLogos"),
+        hideChannelPrefix = value.optionalBoolean("hideChannelPrefix") ?: false,
     )
 
     private fun encodeSource(value: BackupSourceRecord) = buildJsonObject {
@@ -294,6 +296,12 @@ internal object BackupCodec {
 
     private fun JsonObject.requiredBoolean(name: String): Boolean =
         this[name]?.jsonPrimitive?.booleanOrNull ?: throw IllegalArgumentException("Invalid $name.")
+
+    private fun JsonObject.optionalBoolean(name: String): Boolean? {
+        val element = this[name] ?: return null
+        if (element is JsonNull) return null
+        return element.jsonPrimitive.booleanOrNull ?: throw IllegalArgumentException("Invalid $name.")
+    }
 
     private fun JsonObject.requiredObject(name: String): JsonObject =
         this[name]?.jsonObject ?: throw IllegalArgumentException("Invalid $name.")

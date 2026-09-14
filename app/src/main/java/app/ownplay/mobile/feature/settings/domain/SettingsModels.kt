@@ -22,6 +22,7 @@ data class SettingsSnapshot(
     val autoRefreshProviders: Boolean = true,
     val providerRefreshInterval: ProviderRefreshInterval = ProviderRefreshInterval.SIX_HOURS,
     val showChannelLogos: Boolean = true,
+    val hideChannelPrefix: Boolean = false,
 )
 
 object ProviderRefreshSchedulePolicy {

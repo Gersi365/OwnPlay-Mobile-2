@@ -30,7 +30,14 @@ object LiveGuidePolicy {
             return LiveNowNext(now = current, next = next)
         }
 
-        // Some Xtream providers omit timestamps in get_short_epg while retaining list order.
+        // Some Xtream providers omit timing entirely in get_short_epg while retaining list order.
+        // Only use list-order fallback when timing is genuinely absent; never relabel stale timed
+        // programs as current after their end time has passed.
+        val timingAbsent = usable.all { program ->
+            program.startEpochSeconds == null && program.endEpochSeconds == null
+        }
+        if (!timingAbsent) return LiveNowNext()
+
         return LiveNowNext(
             now = usable.getOrNull(0),
             next = usable.getOrNull(1),

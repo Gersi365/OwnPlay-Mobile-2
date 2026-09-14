@@ -140,6 +140,7 @@ fun OwnPlayApp(
                                 liveRepository = services.liveRepository,
                                 playbackController = services.playbackController,
                                 showChannelLogos = settings.showChannelLogos,
+                                hideChannelPrefix = settings.hideChannelPrefix,
                                 autoFullscreenRequestToken = liveAutoFullscreenRequestToken,
                                 autoPreviewRequestToken = liveAutoPreviewRequestToken,
                                 onFullscreenChanged = { fullscreen ->
@@ -152,6 +153,7 @@ fun OwnPlayApp(
                             AppDestination.Library -> LibraryShell(
                                 libraryRepository = services.libraryRepository,
                                 downloadRepository = services.downloadRepository,
+                                downloadMetadataResolver = services.libraryDownloadMetadataResolver,
                                 libraryVisibilityPreferences = services.libraryVisibilityPreferences,
                                 playbackController = services.playbackController,
                                 resumePlaybackEnabled = settings.resumePlaybackEnabled,

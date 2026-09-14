@@ -38,6 +38,48 @@ class LibraryPoliciesTest {
     }
 
     @Test
+    fun `detail without progress exposes only play from beginning`() {
+        assertEquals(
+            LibraryDetailStartActions(
+                primary = LibraryStartMode.BEGINNING,
+                secondary = null,
+            ),
+            LibraryDetailStartPolicy.actions(
+                hasProgress = false,
+                preferResume = true,
+            ),
+        )
+    }
+
+    @Test
+    fun `detail with progress keeps resume available when resume is preferred`() {
+        assertEquals(
+            LibraryDetailStartActions(
+                primary = LibraryStartMode.RESUME,
+                secondary = LibraryStartMode.BEGINNING,
+            ),
+            LibraryDetailStartPolicy.actions(
+                hasProgress = true,
+                preferResume = true,
+            ),
+        )
+    }
+
+    @Test
+    fun `detail with progress keeps resume available when play is preferred`() {
+        assertEquals(
+            LibraryDetailStartActions(
+                primary = LibraryStartMode.BEGINNING,
+                secondary = LibraryStartMode.RESUME,
+            ),
+            LibraryDetailStartPolicy.actions(
+                hasProgress = true,
+                preferResume = false,
+            ),
+        )
+    }
+
+    @Test
     fun `completion threshold is explicit at ninety five percent`() {
         assertFalse(
             LibraryCompletionPolicy.isComplete(

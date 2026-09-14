@@ -6,6 +6,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class BackupCodecTest {
@@ -17,12 +18,23 @@ class BackupCodecTest {
         val decoded = BackupCodec.decode(encoded)
 
         assertEquals(document, decoded)
+        assertTrue(decoded.settings.hideChannelPrefix)
         assertFalse(encoded.contains("credential", ignoreCase = true))
         assertFalse(encoded.contains("username", ignoreCase = true))
         assertFalse(encoded.contains("password", ignoreCase = true))
         assertFalse(encoded.contains("streamLocator", ignoreCase = true))
         assertFalse(encoded.contains("localReference", ignoreCase = true))
         assertNull(decoded.sources.single { it.type == "M3U" }.safeBaseLocator)
+    }
+
+    @Test
+    fun `legacy version one backup without channel prefix setting defaults to visible prefix`() {
+        val encoded = BackupCodec.encode(sampleDocument())
+            .replace(",\"hideChannelPrefix\":true", "")
+
+        val decoded = BackupCodec.decode(encoded)
+
+        assertFalse(decoded.settings.hideChannelPrefix)
     }
 
     @Test
@@ -70,6 +82,7 @@ class BackupCodecTest {
             autoRefreshProviders = true,
             providerRefreshInterval = ProviderRefreshInterval.TWELVE_HOURS,
             showChannelLogos = true,
+            hideChannelPrefix = true,
         ),
         sources = listOf(
             BackupSourceRecord(

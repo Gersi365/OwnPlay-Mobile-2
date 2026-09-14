@@ -22,7 +22,10 @@ import app.ownplay.mobile.feature.library.domain.LibraryCompletionPolicy
 import app.ownplay.mobile.feature.library.domain.LibraryDownloadedMedia
 import app.ownplay.mobile.feature.library.domain.LibraryEpisode
 import app.ownplay.mobile.feature.library.domain.LibraryMediaKind
+import app.ownplay.mobile.feature.library.domain.LibraryMediaMetadata
 import app.ownplay.mobile.feature.library.domain.LibraryMovie
+import app.ownplay.mobile.feature.library.domain.LibraryMovieDetail
+import app.ownplay.mobile.feature.library.domain.LibraryMovieDetailResult
 import app.ownplay.mobile.feature.library.domain.LibraryOrderingPolicy
 import app.ownplay.mobile.feature.library.domain.LibraryPlaybackResolution
 import app.ownplay.mobile.feature.library.domain.LibraryRepository
@@ -35,6 +38,7 @@ import app.ownplay.mobile.feature.library.domain.PlaybackProgressUpdate
 import app.ownplay.mobile.feature.library.domain.ResolvedLibraryPlayback
 import app.ownplay.mobile.sources.data.StableIdentity
 import app.ownplay.mobile.sources.data.xtream.XtreamClient
+import app.ownplay.mobile.sources.data.xtream.XtreamMediaInfo
 import app.ownplay.mobile.sources.data.xtream.XtreamResult
 import app.ownplay.mobile.sources.domain.Source
 import app.ownplay.mobile.sources.domain.SourceCredential
@@ -62,35 +66,69 @@ class LibraryRepositoryImpl(
     @OptIn(ExperimentalCoroutinesApi::class)
     override fun observeCatalog(): Flow<LibraryCatalog> =
         sourceRepository.observeActiveSource().flatMapLatest { source ->
-            if (source == null) {
-                flowOf(LibraryCatalog())
-            } else {
-                observeRows(source.sourceId).map { rows -> rows.toCatalog(source) }
-            }
+            if (source == null) flowOf(LibraryCatalog()) else observeRows(source.sourceId).map { it.toCatalog(source) }
         }
+
+    override suspend fun loadMovieDetail(movieId: String): LibraryMovieDetailResult {
+        if (movieId.isBlank()) return movieFailure("INVALID_MOVIE", "This movie cannot be opened.")
+        return try {
+            val movie = libraryDao.getMovie(movieId)
+                ?: return movieFailure("MOVIE_NOT_FOUND", "This movie is no longer available.")
+            if (!movie.available) return movieFailure("MOVIE_UNAVAILABLE", "This movie is currently unavailable.")
+            val progress = libraryDao.getProgress(movie.sourceId, LibraryMediaKind.MOVIE.name, movie.movieId)
+            val favorite = libraryDao.getMediaFavorite(movie.sourceId, FAVORITE_KIND_MOVIE, movie.movieId) != null
+            val movieModel = movie.toDomain(progress = progress, favorite = favorite)
+            val cached = LibraryMovieDetail(
+                movie = movieModel,
+                metadata = movie.baseMetadata(),
+            )
+            val source = sourceDao.get(movie.sourceId)
+                ?: return LibraryMovieDetailResult.Success(cached, "Provider metadata is unavailable.")
+            val credential = playableXtreamCredential(source)
+                ?: return LibraryMovieDetailResult.Success(cached, "Provider metadata is unavailable.")
+            when (
+                val result = xtreamClient.vodInfo(
+                    baseUrl = source.baseLocator,
+                    credential = credential,
+                    streamId = movie.providerStreamId,
+                )
+            ) {
+                is XtreamResult.Failure -> LibraryMovieDetailResult.Success(
+                    detail = cached,
+                    refreshWarning = "Provider metadata could not be refreshed.",
+                )
+                is XtreamResult.Success -> LibraryMovieDetailResult.Success(
+                    detail = cached.copy(
+                        metadata = result.value.metadata.toLibraryMetadata(
+                            fallbackTitle = movie.name,
+                            fallbackPoster = movie.posterUrl,
+                            fallbackBackdrop = movie.backdropUrl,
+                            fallbackRating = movie.rating,
+                        ),
+                    ),
+                )
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            movieFailure("MOVIE_DETAIL_FAILED", "Movie details could not be prepared.")
+        }
+    }
 
     override suspend fun loadSeriesDetail(seriesId: String): LibrarySeriesDetailResult {
-        if (seriesId.isBlank()) {
-            return seriesFailure("INVALID_SERIES", "This series cannot be opened.")
-        }
-
+        if (seriesId.isBlank()) return seriesFailure("INVALID_SERIES", "This series cannot be opened.")
         return try {
             val series = libraryDao.getSeries(seriesId)
                 ?: return seriesFailure("SERIES_NOT_FOUND", "This series is no longer available.")
-            if (!series.available) {
-                return seriesFailure("SERIES_UNAVAILABLE", "This series is currently unavailable.")
-            }
+            if (!series.available) return seriesFailure("SERIES_UNAVAILABLE", "This series is currently unavailable.")
 
             val cached = cachedSeriesDetail(series)
             val source = sourceDao.get(series.sourceId)
                 ?: return cached.orFailure("SOURCE_NOT_FOUND", "The series source is no longer available.")
-            if (!source.enabled) {
-                return cached.orFailure("SOURCE_DISABLED", "The series source is disabled.")
-            }
+            if (!source.enabled) return cached.orFailure("SOURCE_DISABLED", "The series source is disabled.")
             if (source.type != SourceType.XTREAM.name) {
                 return cached.orFailure("SERIES_SOURCE_UNSUPPORTED", "Episode refresh is not supported for this source type.")
             }
-
             val credential = credentialStore.get(source.sourceId) as? SourceCredential.Xtream
                 ?: return cached.orFailure("CREDENTIAL_MISSING", "Source credentials are unavailable.")
 
@@ -101,19 +139,11 @@ class LibraryRepositoryImpl(
                     seriesId = series.providerSeriesId,
                 )
             ) {
-                is XtreamResult.Failure -> cached.orFailure(
-                    code = result.code,
-                    message = "Episodes could not be refreshed.",
-                )
-
+                is XtreamResult.Failure -> cached.orFailure(result.code, "Episodes could not be refreshed.")
                 is XtreamResult.Success -> {
                     val rows = result.value.episodes.map { episode ->
                         EpisodeEntity(
-                            episodeId = StableIdentity.xtreamContentId(
-                                sourceId = series.sourceId,
-                                kind = "episode",
-                                providerKey = episode.episodeId,
-                            ),
+                            episodeId = StableIdentity.xtreamContentId(series.sourceId, "episode", episode.episodeId),
                             seriesId = series.seriesId,
                             seasonNumber = episode.seasonNumber,
                             episodeNumber = episode.episodeNumber,
@@ -136,6 +166,13 @@ class LibraryRepositoryImpl(
                         detail = LibrarySeriesDetail(
                             series = series.toDomain(),
                             episodes = libraryDao.getEpisodesForSeries(series.seriesId).map { it.toDomain() },
+                            metadata = result.value.metadata?.toLibraryMetadata(
+                                fallbackTitle = series.name,
+                                fallbackPoster = series.posterUrl,
+                                fallbackBackdrop = series.backdropUrl,
+                                fallbackRating = series.rating,
+                                fallbackPlot = series.description,
+                            ) ?: series.baseMetadata(),
                         ),
                     )
                 }
@@ -147,35 +184,19 @@ class LibraryRepositoryImpl(
         }
     }
 
-    override suspend fun resolveMoviePlayback(
-        movieId: String,
-        startMode: LibraryStartMode,
-    ): LibraryPlaybackResolution {
-        if (movieId.isBlank()) {
-            return playbackFailure("INVALID_MOVIE", "This movie cannot be opened.")
-        }
-
+    override suspend fun resolveMoviePlayback(movieId: String, startMode: LibraryStartMode): LibraryPlaybackResolution {
+        if (movieId.isBlank()) return playbackFailure("INVALID_MOVIE", "This movie cannot be opened.")
         return try {
             val movie = libraryDao.getMovie(movieId)
                 ?: return playbackFailure("MOVIE_NOT_FOUND", "This movie is no longer available.")
-            if (!movie.available) {
-                return playbackFailure("MOVIE_UNAVAILABLE", "This movie is currently unavailable.")
-            }
+            if (!movie.available) return playbackFailure("MOVIE_UNAVAILABLE", "This movie is currently unavailable.")
             val source = sourceDao.get(movie.sourceId)
                 ?: return playbackFailure("SOURCE_NOT_FOUND", "The movie source is no longer available.")
             val credential = playableXtreamCredential(source)
                 ?: return playbackFailure("SOURCE_UNAVAILABLE", "The movie source cannot be used for playback.")
-            val progress = libraryDao.getProgress(
-                sourceId = movie.sourceId,
-                mediaKind = LibraryMediaKind.MOVIE.name,
-                contentId = movie.movieId,
-            )?.takeIf { row -> !row.completed && row.positionMs > 0L && row.durationMs > 0L }
-            val uri = LibraryPlaybackLocator.movieUri(
-                baseUrl = source.baseLocator,
-                credential = credential,
-                providerStreamId = movie.providerStreamId,
-                extension = movie.extension,
-            )
+            val progress = libraryDao.getProgress(movie.sourceId, LibraryMediaKind.MOVIE.name, movie.movieId)
+                ?.takeIf { !it.completed && it.positionMs > 0L && it.durationMs > 0L }
+            val uri = LibraryPlaybackLocator.movieUri(source.baseLocator, credential, movie.providerStreamId, movie.extension)
             LibraryPlaybackResolution.Success(
                 ResolvedLibraryPlayback(
                     sourceId = movie.sourceId,
@@ -196,36 +217,19 @@ class LibraryRepositoryImpl(
         }
     }
 
-    override suspend fun resolveEpisodePlayback(
-        episodeId: String,
-        startMode: LibraryStartMode,
-    ): LibraryPlaybackResolution {
-        if (episodeId.isBlank()) {
-            return playbackFailure("INVALID_EPISODE", "This episode cannot be opened.")
-        }
-
+    override suspend fun resolveEpisodePlayback(episodeId: String, startMode: LibraryStartMode): LibraryPlaybackResolution {
+        if (episodeId.isBlank()) return playbackFailure("INVALID_EPISODE", "This episode cannot be opened.")
         return try {
             val episode = libraryDao.getEpisode(episodeId)
                 ?: return playbackFailure("EPISODE_NOT_FOUND", "This episode is no longer available.")
-            if (!episode.available) {
-                return playbackFailure("EPISODE_UNAVAILABLE", "This episode is currently unavailable.")
-            }
+            if (!episode.available) return playbackFailure("EPISODE_UNAVAILABLE", "This episode is currently unavailable.")
             val source = sourceDao.get(episode.sourceId)
                 ?: return playbackFailure("SOURCE_NOT_FOUND", "The episode source is no longer available.")
             val credential = playableXtreamCredential(source)
                 ?: return playbackFailure("SOURCE_UNAVAILABLE", "The episode source cannot be used for playback.")
-            val resumePosition = episode.progressPositionMs?.takeIf { position ->
-                episode.progressCompleted != true && position > 0L
-            }
-            val knownDuration = episode.progressDurationMs
-                ?.takeIf { it > 0L }
-                ?: episode.durationMs?.takeIf { it > 0L }
-            val uri = LibraryPlaybackLocator.episodeUri(
-                baseUrl = source.baseLocator,
-                credential = credential,
-                providerEpisodeId = episode.providerEpisodeId,
-                extension = episode.extension,
-            )
+            val resumePosition = episode.progressPositionMs?.takeIf { episode.progressCompleted != true && it > 0L }
+            val knownDuration = episode.progressDurationMs?.takeIf { it > 0L } ?: episode.durationMs?.takeIf { it > 0L }
+            val uri = LibraryPlaybackLocator.episodeUri(source.baseLocator, credential, episode.providerEpisodeId, episode.extension)
             LibraryPlaybackResolution.Success(
                 ResolvedLibraryPlayback(
                     sourceId = episode.sourceId,
@@ -247,20 +251,10 @@ class LibraryRepositoryImpl(
     }
 
     override suspend fun saveProgress(update: PlaybackProgressUpdate) {
-        if (
-            update.sourceId.isBlank() ||
-            update.contentId.isBlank() ||
-            update.durationMs <= 0L
-        ) {
-            return
-        }
+        if (update.sourceId.isBlank() || update.contentId.isBlank() || update.durationMs <= 0L) return
         val boundedDuration = update.durationMs.coerceAtLeast(1L)
         val boundedPosition = update.positionMs.coerceIn(0L, boundedDuration)
-        val completed = LibraryCompletionPolicy.isComplete(
-            positionMs = boundedPosition,
-            durationMs = boundedDuration,
-            ended = update.ended,
-        )
+        val completed = LibraryCompletionPolicy.isComplete(boundedPosition, boundedDuration, update.ended)
         try {
             libraryDao.upsertProgress(
                 PlaybackProgressEntity(
@@ -280,6 +274,34 @@ class LibraryRepositoryImpl(
         }
     }
 
+    override suspend fun clearProgress(sourceId: String, mediaKind: LibraryMediaKind, contentId: String) {
+        if (sourceId.isBlank() || contentId.isBlank()) return
+        val existing = libraryDao.getProgress(sourceId, mediaKind.name, contentId) ?: return
+        libraryDao.upsertProgress(
+            existing.copy(positionMs = 0L, completed = false, updatedAt = nowMillis()),
+        )
+    }
+
+    override suspend fun markWatched(
+        sourceId: String,
+        mediaKind: LibraryMediaKind,
+        contentId: String,
+        durationMs: Long,
+    ) {
+        if (sourceId.isBlank() || contentId.isBlank() || durationMs <= 0L) return
+        libraryDao.upsertProgress(
+            PlaybackProgressEntity(
+                sourceId = sourceId,
+                mediaKind = mediaKind.name,
+                contentId = contentId,
+                positionMs = durationMs,
+                durationMs = durationMs,
+                completed = true,
+                updatedAt = nowMillis(),
+            ),
+        )
+    }
+
     override suspend fun setMovieFavorite(movieId: String, favorite: Boolean) {
         if (movieId.isBlank()) return
         val movie = libraryDao.getMovie(movieId) ?: return
@@ -292,21 +314,9 @@ class LibraryRepositoryImpl(
         setMediaFavorite(series.sourceId, FAVORITE_KIND_SERIES, series.seriesId, favorite)
     }
 
-    private suspend fun setMediaFavorite(
-        sourceId: String,
-        mediaKind: String,
-        contentId: String,
-        favorite: Boolean,
-    ) {
+    private suspend fun setMediaFavorite(sourceId: String, mediaKind: String, contentId: String, favorite: Boolean) {
         if (favorite) {
-            libraryDao.upsertMediaFavorite(
-                MediaFavoriteEntity(
-                    sourceId = sourceId,
-                    mediaKind = mediaKind,
-                    contentId = contentId,
-                    addedAt = nowMillis(),
-                ),
-            )
+            libraryDao.upsertMediaFavorite(MediaFavoriteEntity(sourceId, mediaKind, contentId, nowMillis()))
         } else {
             libraryDao.deleteMediaFavorite(sourceId, mediaKind, contentId)
         }
@@ -316,15 +326,11 @@ class LibraryRepositoryImpl(
         val coreRows = combine(
             libraryDao.observeAvailableMovies(sourceId),
             libraryDao.observeAvailableSeries(sourceId),
-        ) { movies, series ->
-            CoreRows(movies = movies, series = series)
-        }
+        ) { movies, series -> CoreRows(movies, series) }
         val categoryRows = combine(
             catalogDao.observeAvailableCategories(sourceId, "MOVIE"),
             catalogDao.observeAvailableCategories(sourceId, "SERIES"),
-        ) { movieCategories, seriesCategories ->
-            CategoryRows(movieCategories = movieCategories, seriesCategories = seriesCategories)
-        }
+        ) { movieCategories, seriesCategories -> CategoryRows(movieCategories, seriesCategories) }
         return combine(
             coreRows,
             categoryRows,
@@ -332,18 +338,14 @@ class LibraryRepositoryImpl(
             libraryDao.observeCompletedDownloads(sourceId),
             libraryDao.observeMediaFavorites(sourceId),
         ) { core, categories, progress, downloads, favorites ->
-            // Library home only needs episode metadata for active Continue Watching rows.
-            // Do not materialize every episode in a large provider catalog on each emission.
             val progressEpisodes = mutableListOf<EpisodeLibraryView>()
             for (row in progress) {
                 if (
                     row.mediaKind.equals(LibraryMediaKind.EPISODE.name, ignoreCase = true) &&
-                    !row.completed &&
-                    row.positionMs > 0L &&
-                    row.durationMs > 0L
+                    !row.completed && row.positionMs > 0L && row.durationMs > 0L
                 ) {
                     libraryDao.getEpisode(row.contentId)
-                        ?.takeIf { episode -> episode.sourceId == sourceId }
+                        ?.takeIf { it.sourceId == sourceId }
                         ?.let(progressEpisodes::add)
                 }
             }
@@ -361,30 +363,22 @@ class LibraryRepositoryImpl(
     }
 
     private fun LibraryRows.toCatalog(source: Source): LibraryCatalog {
-        val progressByKey = progress.associateBy { row ->
-            ProgressKey(row.mediaKind.uppercase(Locale.US), row.contentId)
-        }
-        val favoriteKeys = favorites.mapTo(mutableSetOf()) { row ->
-            FavoriteKey(row.mediaKind.uppercase(Locale.US), row.contentId)
-        }
+        val progressByKey = progress.associateBy { ProgressKey(it.mediaKind.uppercase(Locale.US), it.contentId) }
+        val favoriteKeys = favorites.mapTo(mutableSetOf()) { FavoriteKey(it.mediaKind.uppercase(Locale.US), it.contentId) }
         val movieModels = movies.map { movie ->
             movie.toDomain(
                 progress = progressByKey[ProgressKey(LibraryMediaKind.MOVIE.name, movie.movieId)],
                 favorite = FavoriteKey(FAVORITE_KIND_MOVIE, movie.movieId) in favoriteKeys,
             )
         }
-        val seriesModels = series.map { item ->
-            item.toDomain(favorite = FavoriteKey(FAVORITE_KIND_SERIES, item.seriesId) in favoriteKeys)
-        }
+        val seriesModels = series.map { it.toDomain(FavoriteKey(FAVORITE_KIND_SERIES, it.seriesId) in favoriteKeys) }
         val episodeModels = episodes.map { it.toDomain() }
         val movieById = movieModels.associateBy { it.movieId }
         val episodeById = episodeModels.associateBy { it.episodeId }
         val seriesById = seriesModels.associateBy { it.seriesId }
 
         val continueItems = progress.mapNotNull { row ->
-            if (row.completed || row.positionMs <= 0L || row.durationMs <= 0L) {
-                return@mapNotNull null
-            }
+            if (row.completed || row.positionMs <= 0L || row.durationMs <= 0L) return@mapNotNull null
             when (row.mediaKind.uppercase(Locale.US)) {
                 LibraryMediaKind.MOVIE.name -> movieById[row.contentId]?.let { movie ->
                     ContinueWatchingItem(
@@ -393,28 +387,26 @@ class LibraryRepositoryImpl(
                         mediaKind = LibraryMediaKind.MOVIE,
                         title = movie.name,
                         subtitle = "Movie",
-                        artworkUrl = movie.backdropUrl ?: movie.posterUrl,
+                        artworkUrl = movie.posterUrl ?: movie.backdropUrl,
                         positionMs = row.positionMs,
                         durationMs = row.durationMs,
                         updatedAt = row.updatedAt,
                     )
                 }
-
                 LibraryMediaKind.EPISODE.name -> episodeById[row.contentId]?.let { episode ->
+                    val series = seriesById[episode.seriesId]
                     ContinueWatchingItem(
                         sourceId = row.sourceId,
                         contentId = episode.episodeId,
                         mediaKind = LibraryMediaKind.EPISODE,
                         title = episode.seriesName,
                         subtitle = "S${episode.seasonNumber} E${episode.episodeNumber}  ${episode.title}",
-                        artworkUrl = seriesById[episode.seriesId]?.backdropUrl
-                            ?: seriesById[episode.seriesId]?.posterUrl,
+                        artworkUrl = series?.posterUrl ?: series?.backdropUrl,
                         positionMs = row.positionMs,
                         durationMs = row.durationMs,
                         updatedAt = row.updatedAt,
                     )
                 }
-
                 else -> null
             }
         }
@@ -434,19 +426,15 @@ class LibraryRepositoryImpl(
 
     private suspend fun cachedSeriesDetail(series: SeriesEntity): LibrarySeriesDetail? {
         val episodes = libraryDao.getEpisodesForSeries(series.seriesId).map { it.toDomain() }
-        return episodes.takeIf { it.isNotEmpty() }?.let {
-            LibrarySeriesDetail(series = series.toDomain(), episodes = it)
-        }
+        return LibrarySeriesDetail(
+            series = series.toDomain(),
+            episodes = episodes,
+            metadata = series.baseMetadata(),
+        ).takeIf { episodes.isNotEmpty() }
     }
 
-    private fun LibrarySeriesDetail?.orFailure(
-        code: String,
-        message: String,
-    ): LibrarySeriesDetailResult = if (this != null) {
-        LibrarySeriesDetailResult.Success(
-            detail = this,
-            refreshWarning = "Episode refresh is unavailable. Showing cached episodes.",
-        )
+    private fun LibrarySeriesDetail?.orFailure(code: String, message: String): LibrarySeriesDetailResult = if (this != null) {
+        LibrarySeriesDetailResult.Success(this, "Episode or metadata refresh is unavailable. Showing cached details.")
     } else {
         seriesFailure(code, message)
     }
@@ -456,10 +444,7 @@ class LibraryRepositoryImpl(
         return credentialStore.get(source.sourceId) as? SourceCredential.Xtream
     }
 
-    private fun MovieEntity.toDomain(
-        progress: PlaybackProgressEntity?,
-        favorite: Boolean = false,
-    ): LibraryMovie {
+    private fun MovieEntity.toDomain(progress: PlaybackProgressEntity?, favorite: Boolean = false): LibraryMovie {
         val validProgress = progress?.takeIf { !it.completed && it.positionMs > 0L && it.durationMs > 0L }
         return LibraryMovie(
             movieId = movieId,
@@ -490,9 +475,7 @@ class LibraryRepositoryImpl(
     )
 
     private fun EpisodeLibraryView.toDomain(): LibraryEpisode {
-        val resumePosition = progressPositionMs?.takeIf { position ->
-            progressCompleted != true && position > 0L
-        }
+        val resumePosition = progressPositionMs?.takeIf { progressCompleted != true && it > 0L }
         return LibraryEpisode(
             episodeId = episodeId,
             seriesId = seriesId,
@@ -506,46 +489,58 @@ class LibraryRepositoryImpl(
         )
     }
 
+    private fun MovieEntity.baseMetadata(): LibraryMediaMetadata = LibraryMediaMetadata(
+        title = name,
+        posterUrl = posterUrl,
+        backdropUrl = backdropUrl,
+        rating = rating,
+    )
+
+    private fun SeriesEntity.baseMetadata(): LibraryMediaMetadata = LibraryMediaMetadata(
+        title = name,
+        posterUrl = posterUrl,
+        backdropUrl = backdropUrl,
+        plot = description,
+        rating = rating,
+    )
+
+    private fun XtreamMediaInfo.toLibraryMetadata(
+        fallbackTitle: String,
+        fallbackPoster: String?,
+        fallbackBackdrop: String?,
+        fallbackRating: String?,
+        fallbackPlot: String? = null,
+    ): LibraryMediaMetadata = LibraryMediaMetadata(
+        title = title?.takeIf(String::isNotBlank) ?: fallbackTitle,
+        posterUrl = posterUrl?.takeIf(String::isNotBlank) ?: fallbackPoster,
+        backdropUrl = backdropUrl?.takeIf(String::isNotBlank) ?: fallbackBackdrop,
+        plot = plot?.takeIf(String::isNotBlank) ?: fallbackPlot,
+        releaseDate = releaseDate?.takeIf(String::isNotBlank),
+        durationMs = durationSeconds
+            ?.takeIf { it >= 0L && it <= Long.MAX_VALUE / 1_000L }
+            ?.times(1_000L),
+        rating = rating?.takeIf(String::isNotBlank) ?: fallbackRating,
+        genre = genre?.takeIf(String::isNotBlank),
+        director = director?.takeIf(String::isNotBlank),
+        cast = cast?.takeIf(String::isNotBlank),
+    )
+
     private fun DownloadEntity.toDomainOrNull(): LibraryDownloadedMedia? {
-        val kind = runCatching {
-            LibraryMediaKind.valueOf(mediaKind.uppercase(Locale.US))
-        }.getOrNull() ?: return null
-        return LibraryDownloadedMedia(
-            downloadId = downloadId,
-            sourceId = sourceId,
-            mediaKind = kind,
-            contentId = contentId,
-            title = title,
-            createdAt = createdAt,
-        )
+        val kind = runCatching { LibraryMediaKind.valueOf(mediaKind.uppercase(Locale.US)) }.getOrNull() ?: return null
+        return LibraryDownloadedMedia(downloadId, sourceId, kind, contentId, title, createdAt)
     }
 
-    private fun playbackFailure(code: String, message: String): LibraryPlaybackResolution.Failure =
-        LibraryPlaybackResolution.Failure(code = code, safeMessage = message)
+    private fun playbackFailure(code: String, message: String) = LibraryPlaybackResolution.Failure(code, message)
+    private fun movieFailure(code: String, message: String) = LibraryMovieDetailResult.Failure(code, message)
+    private fun seriesFailure(code: String, message: String) = LibrarySeriesDetailResult.Failure(code, message)
 
-    private fun seriesFailure(code: String, message: String): LibrarySeriesDetailResult.Failure =
-        LibrarySeriesDetailResult.Failure(code = code, safeMessage = message)
-
-    private data class ProgressKey(
-        val mediaKind: String,
-        val contentId: String,
-    )
-
-    private data class FavoriteKey(
-        val mediaKind: String,
-        val contentId: String,
-    )
-
-    private data class CoreRows(
-        val movies: List<MovieEntity>,
-        val series: List<SeriesEntity>,
-    )
-
+    private data class ProgressKey(val mediaKind: String, val contentId: String)
+    private data class FavoriteKey(val mediaKind: String, val contentId: String)
+    private data class CoreRows(val movies: List<MovieEntity>, val series: List<SeriesEntity>)
     private data class CategoryRows(
         val movieCategories: List<ProviderCategoryEntity>,
         val seriesCategories: List<ProviderCategoryEntity>,
     )
-
     private data class LibraryRows(
         val movies: List<MovieEntity>,
         val series: List<SeriesEntity>,

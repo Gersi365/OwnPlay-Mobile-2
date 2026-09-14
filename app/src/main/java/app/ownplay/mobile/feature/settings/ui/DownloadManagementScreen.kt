@@ -32,21 +32,21 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import app.ownplay.mobile.data.prefs.LibraryVisibilityPreferences
+import app.ownplay.mobile.data.prefs.LibraryVisibilitySnapshot
 import app.ownplay.mobile.design.OwnPlayColors
 import app.ownplay.mobile.design.OwnPlayModal
 import app.ownplay.mobile.design.OwnPlayShapeTokens
 import app.ownplay.mobile.design.OwnPlaySpacing
 import app.ownplay.mobile.design.OwnPlayStatePanel
 import app.ownplay.mobile.design.OwnPlayTopBar
-import app.ownplay.mobile.data.prefs.LibraryVisibilityPreferences
-import app.ownplay.mobile.data.prefs.LibraryVisibilitySnapshot
 import app.ownplay.mobile.downloads.domain.DownloadAction
 import app.ownplay.mobile.downloads.domain.DownloadItem
 import app.ownplay.mobile.downloads.domain.DownloadOperationResult
 import app.ownplay.mobile.downloads.domain.DownloadRepository
+import app.ownplay.mobile.downloads.domain.DownloadState
 import app.ownplay.mobile.downloads.domain.DownloadStatePolicy
 import app.ownplay.mobile.downloads.ui.rememberDownloadPermissionDispatcher
-import app.ownplay.mobile.downloads.domain.DownloadState
 import kotlinx.coroutines.launch
 
 @Composable
@@ -72,7 +72,7 @@ fun DownloadManagementScreen(
     pendingRemoval?.let { item ->
         OwnPlayModal(
             title = "Delete download?",
-            message = "Delete ${item.title} from this device and OwnPlay Downloads? This removes the offline file.",
+            message = "Delete ${item.title} from OwnPlay Downloads? This removes the offline file and its saved offline metadata.",
             confirmLabel = "Delete",
             dismissLabel = "Cancel",
             onConfirm = {
@@ -326,7 +326,7 @@ private fun primaryLabel(state: DownloadState): String = when (state) {
     DownloadState.DOWNLOADING, DownloadState.QUEUED -> "Pause"
     DownloadState.PAUSED -> "Resume"
     DownloadState.FAILED -> "Retry"
-    DownloadState.COMPLETED -> "Play Offline"
+    DownloadState.COMPLETED -> "Open"
 }
 
 private fun downloadStatus(item: DownloadItem, hiddenFromLibrary: Boolean): String {
@@ -341,6 +341,6 @@ private fun downloadStatus(item: DownloadItem, hiddenFromLibrary: Boolean): Stri
         DownloadState.DOWNLOADING -> "Downloading$progress"
         DownloadState.PAUSED -> "Paused$progress"
         DownloadState.FAILED -> "Needs attention"
-        DownloadState.COMPLETED -> "Downloaded · verified offline$libraryVisibility"
+        DownloadState.COMPLETED -> "Downloaded$libraryVisibility"
     }
 }
