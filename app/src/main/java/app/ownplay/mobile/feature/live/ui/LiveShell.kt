@@ -1254,6 +1254,24 @@ private fun FullscreenLive(
                         )
                     }
                 }
+                PlayerGlassIconAction(
+                    glyph = PlayerGlassGlyph.PREVIOUS,
+                    contentDescription = "Previous channel",
+                    onClick = {
+                        optionsVisible = false
+                        overlayVisible = true
+                        onPreviousChannel()
+                    },
+                )
+                PlayerGlassIconAction(
+                    glyph = PlayerGlassGlyph.NEXT,
+                    contentDescription = "Next channel",
+                    onClick = {
+                        optionsVisible = false
+                        overlayVisible = true
+                        onNextChannel()
+                    },
+                )
                 PlayerGlassPillAction(
                     text = "Options",
                     emphasized = optionsVisible,
