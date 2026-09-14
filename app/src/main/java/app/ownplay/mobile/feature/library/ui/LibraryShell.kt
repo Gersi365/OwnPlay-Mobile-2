@@ -69,6 +69,7 @@ fun LibraryShell(
     var movieDetail by remember { mutableStateOf<LibraryMovieDetail?>(null) }
     var movieWarning by remember { mutableStateOf<String?>(null) }
     var seriesDetail by remember { mutableStateOf<LibrarySeriesDetail?>(null) }
+    var seriesDetailRefreshToken by remember { mutableStateOf(0) }
     var seriesWarning by remember { mutableStateOf<String?>(null) }
     var detailError by remember { mutableStateOf<String?>(null) }
     var resolutionError by remember { mutableStateOf<String?>(null) }
@@ -206,7 +207,7 @@ fun LibraryShell(
         }
     }
 
-    LaunchedEffect(selectedSeriesId) {
+    LaunchedEffect(selectedSeriesId, seriesDetailRefreshToken) {
         val seriesId = selectedSeriesId
         seriesDetail = null
         seriesWarning = null
@@ -330,7 +331,11 @@ fun LibraryShell(
             libraryRepository = libraryRepository,
             playbackController = playbackController,
             onClose = {
+                val closedPlayback = activePlayback
                 activePlayback = null
+                if (closedPlayback?.mediaKind == LibraryMediaKind.EPISODE && selectedSeriesId != null) {
+                    seriesDetailRefreshToken += 1
+                }
                 resolutionError = null
             },
             modifier = modifier,
