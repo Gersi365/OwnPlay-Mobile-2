@@ -50,6 +50,7 @@ import app.ownplay.mobile.downloads.domain.DownloadOperationResult
 import app.ownplay.mobile.downloads.domain.DownloadRepository
 import app.ownplay.mobile.downloads.domain.DownloadState
 import app.ownplay.mobile.downloads.domain.DownloadStatePolicy
+import app.ownplay.mobile.downloads.domain.OfflineAvailability
 import app.ownplay.mobile.downloads.ui.rememberDownloadPermissionDispatcher
 import app.ownplay.mobile.feature.library.data.LibraryDownloadMetadataResolver
 import app.ownplay.mobile.feature.library.domain.LibraryMediaKind
@@ -71,6 +72,8 @@ fun DownloadManagementScreen(
     val storedDownloads by downloadsFlow.collectAsState(initial = emptyList())
     val metadataOverrides = remember { mutableStateMapOf<String, LibraryMediaMetadata>() }
     val metadataBackfillAttempted = remember { mutableSetOf<String>() }
+    val availabilityByDownloadId = remember { mutableStateMapOf<String, OfflineAvailability>() }
+    val availabilityChecked = remember { mutableSetOf<String>() }
     val downloads = storedDownloads.map { item ->
         metadataOverrides[item.downloadId]?.let { metadata -> item.copy(metadata = metadata) } ?: item
     }
@@ -84,25 +87,52 @@ fun DownloadManagementScreen(
     )
     BackHandler(onBack = onBack)
 
+    fun redownloadMissing(item: DownloadItem) {
+        errorMessage = null
+        permissionDispatcher(DownloadAction.DOWNLOAD) {
+            scope.launch {
+                errorMessage = when (val result = downloadRepository.redownload(item.downloadId)) {
+                    is DownloadOperationResult.Failure -> result.safeMessage
+                    is DownloadOperationResult.Success -> {
+                        availabilityByDownloadId.remove(item.downloadId)
+                        availabilityChecked.remove(item.downloadId)
+                        null
+                    }
+                }
+            }
+        }
+    }
+
     LaunchedEffect(storedDownloads) {
         val activeIds = storedDownloads.mapTo(mutableSetOf()) { it.downloadId }
         metadataOverrides.keys.toList().filterNot(activeIds::contains).forEach(metadataOverrides::remove)
         metadataBackfillAttempted.retainAll(activeIds)
+        availabilityByDownloadId.keys.toList().filterNot(activeIds::contains).forEach(availabilityByDownloadId::remove)
+        availabilityChecked.retainAll(activeIds)
 
         storedDownloads.forEach { item ->
             if (item.metadata != null) {
                 metadataOverrides.remove(item.downloadId)
-                return@forEach
+            } else if (metadataBackfillAttempted.add(item.downloadId)) {
+                val metadata = downloadMetadataResolver.resolve(
+                    sourceId = item.sourceId,
+                    mediaKind = item.mediaKind,
+                    contentId = item.contentId,
+                )
+                if (metadata != null) {
+                    metadataOverrides[item.downloadId] = metadata
+                    downloadRepository.saveMetadata(item.downloadId, metadata)
+                }
             }
-            if (!metadataBackfillAttempted.add(item.downloadId)) return@forEach
 
-            val metadata = downloadMetadataResolver.resolve(
-                sourceId = item.sourceId,
-                mediaKind = item.mediaKind,
-                contentId = item.contentId,
-            ) ?: return@forEach
-            metadataOverrides[item.downloadId] = metadata
-            downloadRepository.saveMetadata(item.downloadId, metadata)
+            if (item.state == DownloadState.COMPLETED) {
+                if (availabilityChecked.add(item.downloadId)) {
+                    availabilityByDownloadId[item.downloadId] = downloadRepository.offlineAvailability(item.downloadId)
+                }
+            } else {
+                availabilityByDownloadId.remove(item.downloadId)
+                availabilityChecked.remove(item.downloadId)
+            }
         }
     }
 
@@ -179,31 +209,57 @@ fun DownloadManagementScreen(
                 verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),
             ) {
                 items(downloads, key = { it.downloadId }) { item ->
+                    val offlineAvailability = availabilityByDownloadId[item.downloadId]
                     DownloadManagementRow(
                         item = item,
+                        offlineAvailability = offlineAvailability,
                         hiddenFromLibrary = visibility.isDownloadHidden(item.downloadId),
                         onPrimary = {
                             errorMessage = null
-                            val action = DownloadStatePolicy.primaryAction(item)
-                            permissionDispatcher(action) { allowedAction ->
-                                when (allowedAction) {
-                                    DownloadAction.PLAY_OFFLINE,
-                                    DownloadAction.RESUME_OFFLINE,
-                                    -> onPlayOffline(item.downloadId)
-
-                                    DownloadAction.PAUSE,
-                                    DownloadAction.RESUME,
-                                    DownloadAction.RETRY,
-                                    -> scope.launch {
-                                        errorMessage = when (val result = primaryAction(downloadRepository, item)) {
-                                            is DownloadOperationResult.Failure -> result.safeMessage
-                                            is DownloadOperationResult.Success -> null
+                            if (
+                                item.state == DownloadState.COMPLETED &&
+                                offlineAvailability == OfflineAvailability.MISSING
+                            ) {
+                                redownloadMissing(item)
+                            } else if (item.state == DownloadState.COMPLETED) {
+                                scope.launch {
+                                    when (val current = downloadRepository.offlineAvailability(item.downloadId)) {
+                                        OfflineAvailability.AVAILABLE -> {
+                                            availabilityByDownloadId[item.downloadId] = current
+                                            onPlayOffline(item.downloadId)
+                                        }
+                                        OfflineAvailability.MISSING -> {
+                                            availabilityByDownloadId[item.downloadId] = current
+                                            errorMessage = "The offline file is missing. Download it again."
+                                        }
+                                        OfflineAvailability.INCOMPLETE -> {
+                                            availabilityByDownloadId[item.downloadId] = current
+                                            errorMessage = "The offline file is not ready yet."
                                         }
                                     }
+                                }
+                            } else {
+                                val action = DownloadStatePolicy.primaryAction(item)
+                                permissionDispatcher(action) { allowedAction ->
+                                    when (allowedAction) {
+                                        DownloadAction.PAUSE,
+                                        DownloadAction.RESUME,
+                                        DownloadAction.RETRY,
+                                        -> scope.launch {
+                                            errorMessage = when (val result = primaryAction(downloadRepository, item)) {
+                                                is DownloadOperationResult.Failure -> result.safeMessage
+                                                is DownloadOperationResult.Success -> null
+                                            }
+                                        }
 
-                                    DownloadAction.DOWNLOAD,
-                                    DownloadAction.REMOVE,
-                                    -> Unit
+                                        DownloadAction.PLAY_OFFLINE,
+                                        DownloadAction.RESUME_OFFLINE,
+                                        -> onPlayOffline(item.downloadId)
+
+                                        DownloadAction.DOWNLOAD,
+                                        DownloadAction.REMOVE,
+                                        -> Unit
+                                    }
                                 }
                             }
                         },
@@ -237,6 +293,7 @@ private suspend fun primaryAction(
 @Composable
 private fun DownloadManagementRow(
     item: DownloadItem,
+    offlineAvailability: OfflineAvailability?,
     hiddenFromLibrary: Boolean,
     onPrimary: () -> Unit,
     onToggleLibraryVisibility: () -> Unit,
@@ -309,12 +366,13 @@ private fun DownloadManagementRow(
                         )
                     }
                     Text(
-                        text = downloadStatus(item, hiddenFromLibrary),
+                        text = downloadStatus(item, hiddenFromLibrary, offlineAvailability),
                         style = MaterialTheme.typography.bodySmall,
-                        color = if (item.state == DownloadState.COMPLETED) {
-                            OwnPlayColors.Accent
-                        } else {
-                            OwnPlayColors.TextSecondary
+                        color = when {
+                            item.state == DownloadState.COMPLETED && offlineAvailability == OfflineAvailability.MISSING ->
+                                OwnPlayColors.AccentStrong
+                            item.state == DownloadState.COMPLETED -> OwnPlayColors.Accent
+                            else -> OwnPlayColors.TextSecondary
                         },
                     )
                     item.progressFraction
@@ -343,7 +401,7 @@ private fun DownloadManagementRow(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 DownloadManagementAction(
-                    text = primaryLabel(item),
+                    text = primaryLabel(item, offlineAvailability),
                     emphasized = true,
                     modifier = Modifier.weight(1f),
                     onClick = onPrimary,
@@ -398,15 +456,20 @@ private fun DownloadManagementAction(
     }
 }
 
-private fun primaryLabel(item: DownloadItem): String = when (DownloadStatePolicy.primaryAction(item)) {
-    DownloadAction.PLAY_OFFLINE -> "Play offline"
-    DownloadAction.RESUME_OFFLINE -> "Resume"
-    DownloadAction.PAUSE -> "Pause"
-    DownloadAction.RESUME -> "Resume"
-    DownloadAction.RETRY -> "Retry"
-    DownloadAction.DOWNLOAD -> "Download"
-    DownloadAction.REMOVE -> "Delete"
-}
+private fun primaryLabel(item: DownloadItem, availability: OfflineAvailability?): String =
+    if (item.state == DownloadState.COMPLETED && availability == OfflineAvailability.MISSING) {
+        "Download again"
+    } else {
+        when (DownloadStatePolicy.primaryAction(item)) {
+            DownloadAction.PLAY_OFFLINE -> "Play offline"
+            DownloadAction.RESUME_OFFLINE -> "Resume"
+            DownloadAction.PAUSE -> "Pause"
+            DownloadAction.RESUME -> "Resume"
+            DownloadAction.RETRY -> "Retry"
+            DownloadAction.DOWNLOAD -> "Download"
+            DownloadAction.REMOVE -> "Delete"
+        }
+    }
 
 private fun downloadEyebrow(item: DownloadItem): String {
     val kind = when (item.mediaKind) {
@@ -446,19 +509,28 @@ private fun downloadFacts(item: DownloadItem): String? {
     }.joinToString(" • ").takeIf { it.isNotBlank() }
 }
 
-private fun downloadStatus(item: DownloadItem, hiddenFromLibrary: Boolean): String {
-    val progress = item.progressFraction?.let { " · ${(it * 100).toInt()}%" }.orEmpty()
-    val libraryVisibility = if (item.state == DownloadState.COMPLETED && hiddenFromLibrary) {
-        " · hidden from Library"
-    } else {
-        ""
+private fun downloadStatus(
+    item: DownloadItem,
+    hiddenFromLibrary: Boolean,
+    availability: OfflineAvailability?,
+): String {
+    if (item.state == DownloadState.COMPLETED) {
+        return when (availability) {
+            OfflineAvailability.MISSING -> "Offline file missing"
+            OfflineAvailability.INCOMPLETE -> "Offline file not ready"
+            OfflineAvailability.AVAILABLE,
+            null,
+            -> if (hiddenFromLibrary) "Downloaded · hidden from Library" else "Downloaded"
+        }
     }
+
+    val progress = item.progressFraction?.let { " · ${(it * 100).toInt()}%" }.orEmpty()
     return when (item.state) {
         DownloadState.QUEUED -> "Queued$progress"
         DownloadState.DOWNLOADING -> "Downloading$progress"
         DownloadState.PAUSED -> "Paused$progress"
         DownloadState.FAILED -> "Needs attention"
-        DownloadState.COMPLETED -> "Downloaded$libraryVisibility"
+        DownloadState.COMPLETED -> "Downloaded"
     }
 }
 
