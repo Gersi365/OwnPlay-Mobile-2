@@ -1325,7 +1325,15 @@ private fun rememberLiveGuide(
 ): LiveNowNext {
     var guide by remember(liveRepository, channelId) { mutableStateOf(LiveNowNext()) }
     LaunchedEffect(liveRepository, channelId) {
-        guide = channelId?.let { liveRepository.loadNowNext(it) } ?: LiveNowNext()
+        val stableChannelId = channelId
+        if (stableChannelId == null) {
+            guide = LiveNowNext()
+            return@LaunchedEffect
+        }
+        while (true) {
+            guide = liveRepository.loadNowNext(stableChannelId)
+            delay(125_000L)
+        }
     }
     return guide
 }
