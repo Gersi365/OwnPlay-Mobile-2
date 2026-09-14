@@ -3,6 +3,7 @@ package app.ownplay.mobile.feature.library.ui
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -13,7 +14,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
@@ -32,10 +32,8 @@ import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -57,12 +55,10 @@ import app.ownplay.mobile.design.OwnPlaySearchField
 import app.ownplay.mobile.design.OwnPlayShapeTokens
 import app.ownplay.mobile.design.OwnPlaySpacing
 import app.ownplay.mobile.design.OwnPlayTopBar
-import app.ownplay.mobile.downloads.domain.DownloadAction
 import app.ownplay.mobile.downloads.domain.DownloadItem
 import app.ownplay.mobile.downloads.domain.DownloadState
 import app.ownplay.mobile.feature.library.domain.ContinueWatchingItem
 import app.ownplay.mobile.feature.library.domain.LibraryCatalog
-import app.ownplay.mobile.feature.library.domain.LibraryCategory
 import app.ownplay.mobile.feature.library.domain.LibraryMovie
 import app.ownplay.mobile.feature.library.domain.LibrarySeries
 
@@ -83,8 +79,6 @@ internal fun LibraryHomeStage33(
     onMovieSelected: (LibraryMovie) -> Unit,
     onSeriesSelected: (LibrarySeries) -> Unit,
     onDownloadedSelected: (DownloadItem) -> Unit,
-    onDownloadedAction: (DownloadItem, DownloadAction) -> Unit,
-    onDownloadedHide: (DownloadItem) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var searchVisible by rememberSaveable(catalog?.activeSourceId) { mutableStateOf(false) }
@@ -332,8 +326,6 @@ internal fun LibraryHomeStage33(
                             DownloadedRowStage33(
                                 items = visibleDownloads,
                                 onSelected = onDownloadedSelected,
-                                onAction = onDownloadedAction,
-                                onHide = onDownloadedHide,
                             )
                         }
                     }
@@ -389,7 +381,7 @@ private fun MovieRowStage33(
     onMovieSelected: (LibraryMovie) -> Unit,
 ) {
     BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-        val posterWidth = (maxWidth * 0.39f).coerceIn(126.dp, 148.dp)
+        val posterWidth = compactPosterWidthStage33(maxWidth)
         PosterLazyRowStage33 {
             items(movies, key = { it.movieId }) { movie ->
                 PosterCardStage33(
@@ -410,7 +402,7 @@ private fun SeriesRowStage33(
     onSeriesSelected: (LibrarySeries) -> Unit,
 ) {
     BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-        val posterWidth = (maxWidth * 0.39f).coerceIn(126.dp, 148.dp)
+        val posterWidth = compactPosterWidthStage33(maxWidth)
         PosterLazyRowStage33 {
             items(seriesItems, key = { it.seriesId }) { series ->
                 PosterCardStage33(
@@ -433,11 +425,12 @@ private fun PosterLazyRowStage33(content: androidx.compose.foundation.lazy.LazyL
         modifier = Modifier.fillMaxWidth(),
         state = state,
         flingBehavior = fling,
-        horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),
+        horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm),
         content = content,
     )
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun PosterCardStage33(
     title: String,
@@ -485,7 +478,8 @@ private fun PosterCardStage33(
         Column(
             modifier = Modifier
                 .align(Alignment.BottomStart)
-                .padding(horizontal = 10.dp, vertical = 9.dp),
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             Text(
@@ -497,10 +491,13 @@ private fun PosterCardStage33(
             )
             Text(
                 text = title,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .basicMarquee(),
                 style = MaterialTheme.typography.labelLarge,
                 color = Color.White,
                 fontWeight = FontWeight.SemiBold,
-                maxLines = 2,
+                maxLines = 1,
             )
         }
     }
@@ -515,14 +512,14 @@ private fun ContinueWatchingRowStage33(
     onClearProgress: (ContinueWatchingItem) -> Unit,
 ) {
     BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-        val posterWidth = (maxWidth * 0.39f).coerceIn(126.dp, 148.dp)
+        val posterWidth = compactPosterWidthStage33(maxWidth)
         val listState = rememberLazyListState()
         val flingBehavior = rememberSnapFlingBehavior(listState, SnapPosition.Start)
         LazyRow(
             modifier = Modifier.fillMaxWidth(),
             state = listState,
             flingBehavior = flingBehavior,
-            horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),
+            horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm),
         ) {
             items(items, key = { "${it.sourceId}:${it.mediaKind}:${it.contentId}" }) { item ->
                 ContinueWatchingCardStage33(
@@ -621,6 +618,9 @@ private fun ContinueWatchingCardStage33(
         }
         Text(
             text = item.title,
+            modifier = Modifier
+                .fillMaxWidth()
+                .basicMarquee(),
             style = MaterialTheme.typography.labelLarge,
             color = OwnPlayColors.TextPrimary,
             fontWeight = FontWeight.SemiBold,
@@ -641,18 +641,16 @@ private fun ContinueWatchingCardStage33(
 private fun DownloadedRowStage33(
     items: List<DownloadItem>,
     onSelected: (DownloadItem) -> Unit,
-    onAction: (DownloadItem, DownloadAction) -> Unit,
-    onHide: (DownloadItem) -> Unit,
 ) {
     BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-        val itemWidth = (maxWidth * 0.84f).coerceIn(244.dp, 292.dp)
+        val posterWidth = compactPosterWidthStage33(maxWidth)
         val state = rememberLazyListState()
         val fling = rememberSnapFlingBehavior(state, SnapPosition.Start)
         LazyRow(
             modifier = Modifier.fillMaxWidth(),
             state = state,
             flingBehavior = fling,
-            horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),
+            horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm),
         ) {
             items(items, key = { it.downloadId }) { item ->
                 val mediaLabel = item.mediaKind.name
@@ -664,61 +662,13 @@ private fun DownloadedRowStage33(
                     DownloadState.FAILED -> "NEEDS ATTENTION"
                 }
                 val displayTitle = item.metadata?.title ?: item.title
-                Column(
-                    modifier = Modifier.width(itemWidth),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        verticalAlignment = Alignment.Top,
-                    ) {
-                        PosterCardStage33(
-                            title = displayTitle,
-                            artworkUrl = item.metadata?.posterUrl ?: item.metadata?.backdropUrl,
-                            eyebrow = mediaLabel,
-                            cardWidth = 104.dp,
-                            onClick = { onSelected(item) },
-                        )
-                        Column(
-                            modifier = Modifier.weight(1f),
-                            verticalArrangement = Arrangement.spacedBy(4.dp),
-                        ) {
-                            Text(
-                                text = "$mediaLabel • $stateLabel",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = OwnPlayColors.Accent.copy(alpha = 0.88f),
-                                fontWeight = FontWeight.SemiBold,
-                                maxLines = 1,
-                            )
-                            Text(
-                                text = displayTitle,
-                                style = MaterialTheme.typography.titleSmall,
-                                color = OwnPlayColors.TextPrimary,
-                                fontWeight = FontWeight.SemiBold,
-                                maxLines = 3,
-                            )
-                            item.metadata?.releaseDate?.takeIf(String::isNotBlank)?.let { releaseDate ->
-                                Text(
-                                    text = releaseDate,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = OwnPlayColors.TextMuted,
-                                    maxLines = 1,
-                                )
-                            }
-                            LibrarySecondaryAction(
-                                text = "Details",
-                                onClick = { onSelected(item) },
-                                modifier = Modifier.fillMaxWidth(),
-                            )
-                        }
-                    }
-                    LibraryOfflineControls(
-                        item = item,
-                        onAction = { action -> onAction(item, action) },
-                        onHideFromLibrary = { onHide(item) },
-                    )
-                }
+                PosterCardStage33(
+                    title = displayTitle,
+                    artworkUrl = item.metadata?.posterUrl ?: item.metadata?.backdropUrl,
+                    eyebrow = "$mediaLabel • $stateLabel",
+                    cardWidth = posterWidth,
+                    onClick = { onSelected(item) },
+                )
             }
         }
     }
@@ -801,6 +751,9 @@ private fun LibraryAllGridStage33(
         }
     }
 }
+
+private fun compactPosterWidthStage33(maxWidth: Dp): Dp =
+    (maxWidth * 0.31f).coerceIn(104.dp, 118.dp)
 
 private fun compactLibraryCountStage33(count: Int): String = when {
     count >= 1_000_000 -> {
