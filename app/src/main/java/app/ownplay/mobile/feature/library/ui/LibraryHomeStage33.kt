@@ -55,6 +55,7 @@ import app.ownplay.mobile.design.OwnPlaySearchField
 import app.ownplay.mobile.design.OwnPlayShapeTokens
 import app.ownplay.mobile.design.OwnPlaySpacing
 import app.ownplay.mobile.design.OwnPlayTopBar
+import app.ownplay.mobile.downloads.domain.DownloadAction
 import app.ownplay.mobile.downloads.domain.DownloadItem
 import app.ownplay.mobile.downloads.domain.DownloadState
 import app.ownplay.mobile.feature.library.domain.ContinueWatchingItem
@@ -79,6 +80,8 @@ internal fun LibraryHomeStage33(
     onMovieSelected: (LibraryMovie) -> Unit,
     onSeriesSelected: (LibrarySeries) -> Unit,
     onDownloadedSelected: (DownloadItem) -> Unit,
+    @Suppress("UNUSED_PARAMETER") onDownloadedAction: (DownloadItem, DownloadAction) -> Unit,
+    @Suppress("UNUSED_PARAMETER") onDownloadedHide: (DownloadItem) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var searchVisible by rememberSaveable(catalog?.activeSourceId) { mutableStateOf(false) }
