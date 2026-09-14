@@ -515,6 +515,22 @@ fun LibraryShell(
                 selectedSeriesId = null
                 selectedDownloadId = item.downloadId
             },
+            onDownloadedAction = { item, action ->
+                performDownloadAction(
+                    item = item,
+                    sourceId = item.sourceId,
+                    mediaKind = item.mediaKind,
+                    contentId = item.contentId,
+                    title = item.metadata?.title ?: item.title,
+                    action = action,
+                    metadata = item.metadata,
+                )
+            },
+            onDownloadedHide = { item ->
+                scope.launch {
+                    libraryVisibilityPreferences.hideDownload(item.downloadId)
+                }
+            },
             modifier = modifier,
         )
     }
