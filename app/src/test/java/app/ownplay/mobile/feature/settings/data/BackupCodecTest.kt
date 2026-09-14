@@ -19,12 +19,27 @@ class BackupCodecTest {
 
         assertEquals(document, decoded)
         assertTrue(decoded.settings.hideChannelPrefix)
+        assertEquals("https://images.test/channel-a.png", decoded.channelPersonalization.single().localLogo)
+        assertEquals("LIVE", decoded.categoryPersonalization.single().kind)
         assertFalse(encoded.contains("credential", ignoreCase = true))
         assertFalse(encoded.contains("username", ignoreCase = true))
         assertFalse(encoded.contains("password", ignoreCase = true))
         assertFalse(encoded.contains("streamLocator", ignoreCase = true))
         assertFalse(encoded.contains("localReference", ignoreCase = true))
         assertNull(decoded.sources.single { it.type == "M3U" }.safeBaseLocator)
+    }
+
+    @Test
+    fun `legacy version one backup without new personalization fields remains readable`() {
+        val encoded = BackupCodec.encode(sampleDocument())
+            .replace(",\"localLogo\":\"https://images.test/channel-a.png\"", "")
+            .replace(",\"categoryPersonalization\":[{\"sourceId\":\"source-a\",\"kind\":\"LIVE\",\"categoryKey\":\"sports\",\"hidden\":true,\"manualOrder\":3}]", "")
+
+        val decoded = BackupCodec.decode(encoded)
+
+        assertFalse(decoded.channelPersonalization.single().localLogoIncluded)
+        assertNull(decoded.channelPersonalization.single().localLogo)
+        assertTrue(decoded.categoryPersonalization.isEmpty())
     }
 
     @Test
@@ -48,7 +63,7 @@ class BackupCodecTest {
     }
 
     @Test
-    fun `pending restore round trip keeps only deferred personalization`() {
+    fun `pending restore round trip keeps deferred personalization including local logo`() {
         val pending = PendingRestoreDocument(
             channelPersonalization = listOf(
                 BackupChannelPersonalizationRecord(
@@ -57,6 +72,7 @@ class BackupCodecTest {
                     favorite = true,
                     hidden = false,
                     localName = "Local channel",
+                    localLogo = "https://images.test/channel-a.png",
                     manualOrder = 2,
                 ),
             ),
@@ -109,6 +125,7 @@ class BackupCodecTest {
                 favorite = true,
                 hidden = false,
                 localName = "Sports",
+                localLogo = "https://images.test/channel-a.png",
                 manualOrder = 4,
             ),
         ),
@@ -116,5 +133,14 @@ class BackupCodecTest {
         memberships = listOf(BackupMembershipRecord("source-a", "group-a", "channel-a", 0)),
         favorites = listOf(BackupFavoriteRecord("source-a", "MOVIE", "movie-a", 10)),
         progress = listOf(BackupProgressRecord("source-a", "MOVIE", "movie-a", 1000, 5000, false, 20)),
+        categoryPersonalization = listOf(
+            BackupCategoryPersonalizationRecord(
+                sourceId = "source-a",
+                kind = "LIVE",
+                categoryKey = "sports",
+                hidden = true,
+                manualOrder = 3,
+            ),
+        ),
     )
 }

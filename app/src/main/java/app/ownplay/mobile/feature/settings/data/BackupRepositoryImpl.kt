@@ -3,6 +3,7 @@ package app.ownplay.mobile.feature.settings.data
 import android.content.Context
 import androidx.room.withTransaction
 import app.ownplay.mobile.data.db.BackupDao
+import app.ownplay.mobile.data.db.CategoryPersonalizationEntity
 import app.ownplay.mobile.data.db.CustomGroupEntity
 import app.ownplay.mobile.data.db.CustomGroupMembershipEntity
 import app.ownplay.mobile.data.db.MediaFavoriteEntity
@@ -16,6 +17,7 @@ import app.ownplay.mobile.feature.settings.domain.BackupExport
 import app.ownplay.mobile.feature.settings.domain.BackupRepository
 import app.ownplay.mobile.feature.settings.domain.BackupResult
 import app.ownplay.mobile.feature.settings.domain.RestoreSummary
+import app.ownplay.mobile.feature.settings.domain.SettingsSnapshot
 import app.ownplay.mobile.sources.data.SourceLocatorPolicy
 import app.ownplay.mobile.sources.domain.SourceType
 import java.io.File
@@ -58,6 +60,7 @@ class BackupRepositoryImpl(
                     favorite = row.favorite,
                     hidden = row.hidden,
                     localName = row.localName,
+                    localLogo = row.localLogo,
                     manualOrder = row.manualOrder,
                 )
             },
@@ -96,6 +99,15 @@ class BackupRepositoryImpl(
                     updatedAt = row.updatedAt,
                 )
             },
+            categoryPersonalization = backupDao.getCategoryPersonalization().map { row ->
+                BackupCategoryPersonalizationRecord(
+                    sourceId = row.sourceId,
+                    kind = row.kind,
+                    categoryKey = row.categoryKey,
+                    hidden = row.hidden,
+                    manualOrder = row.manualOrder,
+                )
+            },
         )
         BackupResult.Success(
             BackupExport(
@@ -130,6 +142,19 @@ class BackupRepositoryImpl(
             }
         } catch (_: Exception) {
             return@withLock failure("BACKUP_INVALID_SOURCE", "Backup contains an invalid source profile.")
+        }
+
+        val externalSnapshot = try {
+            RestoreExternalSnapshot(
+                settings = settingsPreferences.settings.first(),
+                activeSourceId = activeSourcePreferences.currentSelectedSourceId(),
+                pending = pendingStore.read(),
+            )
+        } catch (_: Exception) {
+            return@withLock failure(
+                "BACKUP_RESTORE_PREPARE_FAILED",
+                "Current personalization state could not be prepared for a safe restore.",
+            )
         }
 
         var sourcesAdded = 0
@@ -182,6 +207,20 @@ class BackupRepositoryImpl(
                 }
 
                 val validSourceIds = sourceDao.getAll().mapTo(mutableSetOf()) { it.sourceId }
+                val categoryPersonalization = document.categoryPersonalization
+                    .filter { it.sourceId in validSourceIds }
+                    .map { record ->
+                        CategoryPersonalizationEntity(
+                            sourceId = record.sourceId,
+                            kind = record.kind,
+                            categoryKey = record.categoryKey,
+                            hidden = record.hidden,
+                            manualOrder = record.manualOrder,
+                        )
+                    }
+                backupDao.upsertCategoryPersonalization(categoryPersonalization)
+                personalizationRestored += categoryPersonalization.size
+
                 val groups = document.groups
                     .filter { it.sourceId in validSourceIds }
                     .map { record ->
@@ -251,16 +290,18 @@ class BackupRepositoryImpl(
                             pendingMemberships += record
                         }
                     }
-            }
 
-            settingsPreferences.replace(document.settings)
-            activeSourcePreferences.setSelectedSourceId(document.activeSourceId)
-            pendingStore.merge(
-                PendingRestoreDocument(
-                    channelPersonalization = pendingPersonalization,
-                    memberships = pendingMemberships,
-                ),
-            )
+                settingsPreferences.replace(document.settings)
+                activeSourcePreferences.setSelectedSourceId(
+                    document.activeSourceId?.takeIf { it in validSourceIds },
+                )
+                pendingStore.merge(
+                    PendingRestoreDocument(
+                        channelPersonalization = pendingPersonalization,
+                        memberships = pendingMemberships,
+                    ),
+                )
+            }
 
             BackupResult.Success(
                 RestoreSummary(
@@ -274,7 +315,15 @@ class BackupRepositoryImpl(
                 ),
             )
         } catch (_: Exception) {
-            failure("BACKUP_RESTORE_FAILED", "Backup could not be restored safely.")
+            val rollbackSucceeded = restoreExternalSnapshot(externalSnapshot)
+            if (rollbackSucceeded) {
+                failure("BACKUP_RESTORE_FAILED", "Backup could not be restored safely.")
+            } else {
+                failure(
+                    "BACKUP_RESTORE_ROLLBACK_FAILED",
+                    "Backup restore failed and previous preferences could not be fully recovered.",
+                )
+            }
         }
     }
 
@@ -335,6 +384,26 @@ class BackupRepositoryImpl(
         }
     }
 
+    private suspend fun restoreExternalSnapshot(snapshot: RestoreExternalSnapshot): Boolean {
+        var restored = true
+        try {
+            settingsPreferences.replace(snapshot.settings)
+        } catch (_: Exception) {
+            restored = false
+        }
+        try {
+            activeSourcePreferences.setSelectedSourceId(snapshot.activeSourceId)
+        } catch (_: Exception) {
+            restored = false
+        }
+        try {
+            pendingStore.write(snapshot.pending)
+        } catch (_: Exception) {
+            restored = false
+        }
+        return restored
+    }
+
     private fun BackupMembershipRecord.toEntity() = CustomGroupMembershipEntity(
         groupId = groupId,
         channelId = channelId,
@@ -348,6 +417,12 @@ class BackupRepositoryImpl(
         const val RECONNECT_REQUIRED_LOCATOR = "https://reconnect.invalid/ownplay"
     }
 }
+
+private data class RestoreExternalSnapshot(
+    val settings: SettingsSnapshot,
+    val activeSourceId: String?,
+    val pending: PendingRestoreDocument,
+)
 
 private class PendingRestoreStore(
     filesDir: File,

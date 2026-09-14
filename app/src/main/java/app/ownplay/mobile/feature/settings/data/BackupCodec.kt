@@ -32,6 +32,16 @@ internal data class BackupChannelPersonalizationRecord(
     val favorite: Boolean,
     val hidden: Boolean,
     val localName: String?,
+    val localLogo: String? = null,
+    val localLogoIncluded: Boolean = true,
+    val manualOrder: Int?,
+)
+
+internal data class BackupCategoryPersonalizationRecord(
+    val sourceId: String,
+    val kind: String,
+    val categoryKey: String,
+    val hidden: Boolean,
     val manualOrder: Int?,
 )
 
@@ -76,6 +86,7 @@ internal data class BackupDocument(
     val memberships: List<BackupMembershipRecord>,
     val favorites: List<BackupFavoriteRecord>,
     val progress: List<BackupProgressRecord>,
+    val categoryPersonalization: List<BackupCategoryPersonalizationRecord> = emptyList(),
 )
 
 internal data class PendingRestoreDocument(
@@ -103,6 +114,10 @@ internal object BackupCodec {
             "channelPersonalization",
             buildJsonArray { document.channelPersonalization.forEach { add(encodePersonalization(it)) } },
         )
+        put(
+            "categoryPersonalization",
+            buildJsonArray { document.categoryPersonalization.forEach { add(encodeCategoryPersonalization(it)) } },
+        )
         put("groups", buildJsonArray { document.groups.forEach { add(encodeGroup(it)) } })
         put("memberships", buildJsonArray { document.memberships.forEach { add(encodeMembership(it)) } })
         put("favorites", buildJsonArray { document.favorites.forEach { add(encodeFavorite(it)) } })
@@ -126,6 +141,8 @@ internal object BackupCodec {
             memberships = root.requiredArray("memberships").decodeSection(::decodeMembership),
             favorites = root.requiredArray("favorites").decodeSection(::decodeFavorite),
             progress = root.requiredArray("progress").decodeSection(::decodeProgress),
+            categoryPersonalization = root.optionalArray("categoryPersonalization")
+                .decodeSection(::decodeCategoryPersonalization),
         )
     }
 
@@ -194,6 +211,7 @@ internal object BackupCodec {
         put("favorite", JsonPrimitive(value.favorite))
         put("hidden", JsonPrimitive(value.hidden))
         put("localName", value.localName.asJson())
+        if (value.localLogoIncluded) put("localLogo", value.localLogo.asJson())
         put("manualOrder", value.manualOrder?.let(::JsonPrimitive) ?: JsonNull)
     }
 
@@ -203,6 +221,24 @@ internal object BackupCodec {
         favorite = value.requiredBoolean("favorite"),
         hidden = value.requiredBoolean("hidden"),
         localName = value.optionalString("localName"),
+        localLogo = value.optionalString("localLogo"),
+        localLogoIncluded = value.containsKey("localLogo"),
+        manualOrder = value.optionalInt("manualOrder"),
+    )
+
+    private fun encodeCategoryPersonalization(value: BackupCategoryPersonalizationRecord) = buildJsonObject {
+        put("sourceId", JsonPrimitive(value.sourceId))
+        put("kind", JsonPrimitive(value.kind))
+        put("categoryKey", JsonPrimitive(value.categoryKey))
+        put("hidden", JsonPrimitive(value.hidden))
+        put("manualOrder", value.manualOrder?.let(::JsonPrimitive) ?: JsonNull)
+    }
+
+    private fun decodeCategoryPersonalization(value: JsonObject) = BackupCategoryPersonalizationRecord(
+        sourceId = value.requiredString("sourceId"),
+        kind = value.requiredString("kind"),
+        categoryKey = value.requiredString("categoryKey"),
+        hidden = value.requiredBoolean("hidden"),
         manualOrder = value.optionalInt("manualOrder"),
     )
 
@@ -308,6 +344,11 @@ internal object BackupCodec {
 
     private fun JsonObject.requiredArray(name: String): JsonArray =
         this[name]?.jsonArray ?: throw IllegalArgumentException("Invalid $name.")
+
+    private fun JsonObject.optionalArray(name: String): JsonArray {
+        val element = this[name] ?: return JsonArray(emptyList())
+        return element.jsonArray
+    }
 
     private fun <T> JsonArray.decodeSection(decode: (JsonObject) -> T): List<T> {
         require(size <= MAX_RECORDS_PER_SECTION) { "Backup section is too large." }
