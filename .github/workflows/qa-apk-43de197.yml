@@ -1,4 +1,4 @@
-name: QA APK for 43de197
+name: QA APK v34 for e54e08d
 
 on:
   push:
@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: qa-apk-43de197
+  group: qa-apk-v34-e54e08d
   cancel-in-progress: false
 
 jobs:
@@ -23,14 +23,14 @@ jobs:
       - name: Checkout exact validated product source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: 43de1979b1ffe737248d7ff25be0d003bae79253
+          ref: e54e08d4d0c675075bb3849689adadb1c2b2bb94
           persist-credentials: false
 
       - name: Verify exact product source
         shell: bash
         run: |
           actual_sha="$(git rev-parse HEAD)"
-          test "$actual_sha" = "43de1979b1ffe737248d7ff25be0d003bae79253"
+          test "$actual_sha" = "e54e08d4d0c675075bb3849689adadb1c2b2bb94"
           echo "QA APK source HEAD: $actual_sha"
 
       - name: Set up JDK 17
@@ -71,35 +71,35 @@ jobs:
           apk="$(find app/build/outputs/apk/debug -type f -name '*.apk' -print -quit)"
           test -n "$apk"
           mkdir -p qa-artifact
-          cp "$apk" qa-artifact/OwnPlay-Mobile-2-qa-43de197.apk
-          apk_sha="$(sha256sum qa-artifact/OwnPlay-Mobile-2-qa-43de197.apk | awk '{print $1}')"
-          apk_size="$(stat -c '%s' qa-artifact/OwnPlay-Mobile-2-qa-43de197.apk)"
-          signer_output="$($ANDROID_HOME/build-tools/36.0.0/apksigner verify --print-certs qa-artifact/OwnPlay-Mobile-2-qa-43de197.apk)"
+          cp "$apk" qa-artifact/OwnPlay-Mobile-2-v34-qa-e54e08d.apk
+          apk_sha="$(sha256sum qa-artifact/OwnPlay-Mobile-2-v34-qa-e54e08d.apk | awk '{print $1}')"
+          apk_size="$(stat -c '%s' qa-artifact/OwnPlay-Mobile-2-v34-qa-e54e08d.apk)"
+          signer_output="$($ANDROID_HOME/build-tools/36.0.0/apksigner verify --print-certs qa-artifact/OwnPlay-Mobile-2-v34-qa-e54e08d.apk)"
           signer_sha="$(printf '%s\n' "$signer_output" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n 1)"
           test -n "$signer_sha"
           expected_signer='ade9e333ede9cc9bfe2d50b06c038092a869f04aa8699651bc7854a46c0d4fb1'
           {
-            echo 'OwnPlay Mobile 2 — QA APK'
-            echo 'Source SHA: 43de1979b1ffe737248d7ff25be0d003bae79253'
+            echo 'OwnPlay Mobile 2 — QA APK v34'
+            echo 'Source SHA: e54e08d4d0c675075bb3849689adadb1c2b2bb94'
             echo 'Build type: debug QA'
             echo "APK SHA-256: $apk_sha"
             echo "APK bytes: $apk_size"
             echo "Signer certificate SHA-256: $signer_sha"
-            echo "Expected v32 signer SHA-256: $expected_signer"
+            echo "Expected installed QA signer SHA-256: $expected_signer"
             echo 'Package: app.ownplay.mobile'
             echo 'Version: 0.1.0-dev (1)'
           } > qa-artifact/QA_BUILD_METADATA.txt
           printf '%s\n' "$signer_output" > qa-artifact/APKSIGNER_VERIFY.txt
           cat qa-artifact/QA_BUILD_METADATA.txt
           if [ "$signer_sha" != "$expected_signer" ]; then
-            echo 'ERROR: signer does not match v32; refusing to publish a non-update-compatible QA APK.' >&2
+            echo 'ERROR: signer does not match the installed QA line; refusing to publish a non-update-compatible APK.' >&2
             exit 1
           fi
 
       - name: Upload update-compatible QA APK artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: OwnPlay-Mobile-2-qa-43de197
+          name: OwnPlay-Mobile-2-v34-qa-e54e08d
           path: qa-artifact/
           if-no-files-found: error
           retention-days: 7
