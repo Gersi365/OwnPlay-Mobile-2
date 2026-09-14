@@ -2,7 +2,6 @@ package app.ownplay.mobile.feature.library.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -442,11 +441,10 @@ private fun LibraryDetailHeroStage33(
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 3,
                 )
-                if (onPlay != null) {
+                if (onPlay != null && playLabel == "Resume") {
                     Text(
-                        text = "▶  $playLabel",
-                        modifier = Modifier.clickable(onClick = onPlay).padding(vertical = 8.dp),
-                        style = MaterialTheme.typography.labelLarge,
+                        text = "Resume available",
+                        style = MaterialTheme.typography.labelMedium,
                         color = OwnPlayColors.Accent,
                         fontWeight = FontWeight.SemiBold,
                     )
