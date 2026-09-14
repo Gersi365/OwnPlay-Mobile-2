@@ -1,4 +1,4 @@
-name: QA input for 43de197
+name: QA input v34 for e54e08d
 
 on:
   push:
@@ -18,10 +18,10 @@ jobs:
       - name: Checkout exact product source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 43de1979b1ffe737248d7ff25be0d003bae79253
+          ref: e54e08d4d0c675075bb3849689adadb1c2b2bb94
           persist-credentials: false
       - name: Verify source SHA
-        run: test "$(git rev-parse HEAD)" = "43de1979b1ffe737248d7ff25be0d003bae79253"
+        run: test "$(git rev-parse HEAD)" = "e54e08d4d0c675075bb3849689adadb1c2b2bb94"
       - name: Set up JDK 17
         uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6
         with:
@@ -49,12 +49,12 @@ jobs:
           mkdir -p qa-input
           apk="$(find app/build/outputs/apk/debug -type f -name '*.apk' -print -quit)"
           test -n "$apk"
-          cp "$apk" qa-input/OwnPlay-Mobile-2-exact-source-43de197.apk
-          sha256sum qa-input/OwnPlay-Mobile-2-exact-source-43de197.apk > qa-input/SHA256.txt
+          cp "$apk" qa-input/OwnPlay-Mobile-2-exact-source-e54e08d.apk
+          sha256sum qa-input/OwnPlay-Mobile-2-exact-source-e54e08d.apk > qa-input/SHA256.txt
       - name: Upload build input
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: OwnPlay-Mobile-2-exact-source-43de197
+          name: OwnPlay-Mobile-2-exact-source-e54e08d
           path: qa-input/
           if-no-files-found: error
           retention-days: 7
