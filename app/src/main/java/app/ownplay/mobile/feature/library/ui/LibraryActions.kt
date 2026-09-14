@@ -386,7 +386,7 @@ internal fun LibraryFilterTab(
 private val LibraryActionGlyph.symbol: String
     get() = when (this) {
         LibraryActionGlyph.PLAY -> "▶"
-        LibraryActionGlyph.RESTART -> "↺"
+        LibraryActionGlyph.RESTART -> "▶"
         LibraryActionGlyph.BACK -> "‹"
         LibraryActionGlyph.DISMISS -> "×"
         LibraryActionGlyph.FAVORITE_OFF -> "☆"
