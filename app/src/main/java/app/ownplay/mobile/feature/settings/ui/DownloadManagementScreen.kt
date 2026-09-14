@@ -52,6 +52,7 @@ import app.ownplay.mobile.downloads.domain.DownloadState
 import app.ownplay.mobile.downloads.domain.DownloadStatePolicy
 import app.ownplay.mobile.downloads.domain.OfflineAvailability
 import app.ownplay.mobile.downloads.ui.rememberDownloadPermissionDispatcher
+import app.ownplay.mobile.feature.library.data.LibraryDownloadEpisodeContext
 import app.ownplay.mobile.feature.library.data.LibraryDownloadMetadataResolver
 import app.ownplay.mobile.feature.library.domain.LibraryMediaKind
 import app.ownplay.mobile.feature.library.domain.LibraryMediaMetadata
@@ -72,6 +73,8 @@ fun DownloadManagementScreen(
     val storedDownloads by downloadsFlow.collectAsState(initial = emptyList())
     val metadataOverrides = remember { mutableStateMapOf<String, LibraryMediaMetadata>() }
     val metadataBackfillAttempted = remember { mutableSetOf<String>() }
+    val episodeContextByDownloadId = remember { mutableStateMapOf<String, LibraryDownloadEpisodeContext>() }
+    val episodeContextAttempted = remember { mutableSetOf<String>() }
     val availabilityByDownloadId = remember { mutableStateMapOf<String, OfflineAvailability>() }
     val availabilityChecked = remember { mutableSetOf<String>() }
     val downloads = storedDownloads.map { item ->
@@ -107,6 +110,8 @@ fun DownloadManagementScreen(
         val activeIds = storedDownloads.mapTo(mutableSetOf()) { it.downloadId }
         metadataOverrides.keys.toList().filterNot(activeIds::contains).forEach(metadataOverrides::remove)
         metadataBackfillAttempted.retainAll(activeIds)
+        episodeContextByDownloadId.keys.toList().filterNot(activeIds::contains).forEach(episodeContextByDownloadId::remove)
+        episodeContextAttempted.retainAll(activeIds)
         availabilityByDownloadId.keys.toList().filterNot(activeIds::contains).forEach(availabilityByDownloadId::remove)
         availabilityChecked.retainAll(activeIds)
 
@@ -134,6 +139,24 @@ fun DownloadManagementScreen(
                 availabilityChecked.remove(item.downloadId)
             }
         }
+
+        storedDownloads
+            .filter { item ->
+                item.mediaKind == LibraryMediaKind.EPISODE && item.downloadId !in episodeContextAttempted
+            }
+            .groupBy { it.sourceId }
+            .forEach { (sourceId, items) ->
+                val contextByEpisodeId = downloadMetadataResolver.resolveEpisodeContexts(
+                    sourceId = sourceId,
+                    episodeIds = items.map { it.contentId },
+                )
+                items.forEach { item ->
+                    episodeContextAttempted.add(item.downloadId)
+                    contextByEpisodeId[item.contentId]?.let { context ->
+                        episodeContextByDownloadId[item.downloadId] = context
+                    }
+                }
+            }
     }
 
     pendingRemoval?.let { item ->
@@ -212,6 +235,7 @@ fun DownloadManagementScreen(
                     val offlineAvailability = availabilityByDownloadId[item.downloadId]
                     DownloadManagementRow(
                         item = item,
+                        episodeContext = episodeContextByDownloadId[item.downloadId],
                         offlineAvailability = offlineAvailability,
                         hiddenFromLibrary = visibility.isDownloadHidden(item.downloadId),
                         onPrimary = {
@@ -293,6 +317,7 @@ private suspend fun primaryAction(
 @Composable
 private fun DownloadManagementRow(
     item: DownloadItem,
+    episodeContext: LibraryDownloadEpisodeContext?,
     offlineAvailability: OfflineAvailability?,
     hiddenFromLibrary: Boolean,
     onPrimary: () -> Unit,
@@ -302,7 +327,7 @@ private fun DownloadManagementRow(
     val metadata = item.metadata
     val artwork = metadata?.posterUrl ?: metadata?.backdropUrl
     val displayTitle = metadata?.title?.takeIf { it.isNotBlank() } ?: item.title
-    val contextLine = downloadContext(item, displayTitle)
+    val contextLine = downloadContext(item, displayTitle, episodeContext)
     val factsLine = downloadFacts(item)
 
     Surface(
@@ -486,13 +511,22 @@ private fun downloadEyebrow(item: DownloadItem): String {
     return "$kind • $state"
 }
 
-private fun downloadContext(item: DownloadItem, displayTitle: String): String? {
+private fun downloadContext(
+    item: DownloadItem,
+    displayTitle: String,
+    episodeContext: LibraryDownloadEpisodeContext?,
+): String? {
     if (item.mediaKind != LibraryMediaKind.EPISODE) return null
-    val seriesName = item.title
-        .substringBefore(" • ", missingDelimiterValue = "")
-        .trim()
-        .takeIf { it.isNotBlank() && !it.equals(displayTitle, ignoreCase = true) }
-    val episodeCode = EpisodeCodePattern.find(item.title)
+    val seriesName = episodeContext?.seriesName
+        ?.trim()
+        ?.takeIf { it.isNotBlank() && !it.equals(displayTitle, ignoreCase = true) }
+        ?: item.title
+            .substringBefore(" • ", missingDelimiterValue = "")
+            .trim()
+            .takeIf { it.isNotBlank() && !it.equals(displayTitle, ignoreCase = true) }
+    val episodeCode = episodeContext?.let { context ->
+        "S${context.seasonNumber.toString().padStart(2, '0')}E${context.episodeNumber.toString().padStart(2, '0')}"
+    } ?: EpisodeCodePattern.find(item.title)
         ?.value
         ?.uppercase()
     return listOfNotNull(seriesName, episodeCode)
