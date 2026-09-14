@@ -65,7 +65,7 @@ internal fun LibraryFullscreenPlayerStage33(
     val playerState by playbackController.state.collectAsState()
     val scope = rememberCoroutineScope()
     val interactionSource = remember { MutableInteractionSource() }
-    var overlayVisible by remember(playback.contentId, playback.offline) { mutableStateOf(true) }
+    var overlayVisible by remember(playback.contentId, playback.offline) { mutableStateOf(false) }
     var optionsVisible by remember(playback.contentId, playback.offline) { mutableStateOf(false) }
     var pendingSeekMs by remember(playback.contentId, playback.offline) { mutableStateOf<Long?>(null) }
 
