@@ -1,6 +1,7 @@
 package app.ownplay.mobile.downloads.data
 
 import android.content.Context
+import android.net.Uri
 import app.ownplay.mobile.feature.library.domain.LibraryMediaMetadata
 import java.io.File
 import java.util.Properties
@@ -39,8 +40,8 @@ internal class DownloadMetadataStore(
             }
         }.onSuccess {
             memory[downloadId] = metadata.copy(
-                posterUrl = poster?.toURI()?.toString(),
-                backdropUrl = backdrop?.toURI()?.toString(),
+                posterUrl = poster?.asLocalArtworkLocator(),
+                backdropUrl = backdrop?.asLocalArtworkLocator(),
             )
         }
     }
@@ -56,8 +57,8 @@ internal class DownloadMetadataStore(
             val title = properties.getProperty(KEY_TITLE)?.takeIf(String::isNotBlank) ?: return@runCatching null
             LibraryMediaMetadata(
                 title = title,
-                posterUrl = File(directory, POSTER_FILE).takeIf(File::isFile)?.toURI()?.toString(),
-                backdropUrl = File(directory, BACKDROP_FILE).takeIf(File::isFile)?.toURI()?.toString(),
+                posterUrl = File(directory, POSTER_FILE).takeIf(File::isFile)?.asLocalArtworkLocator(),
+                backdropUrl = File(directory, BACKDROP_FILE).takeIf(File::isFile)?.asLocalArtworkLocator(),
                 plot = properties.getProperty(KEY_PLOT)?.takeIf(String::isNotBlank),
                 releaseDate = properties.getProperty(KEY_RELEASE_DATE)?.takeIf(String::isNotBlank),
                 durationMs = properties.getProperty(KEY_DURATION_MS)?.toLongOrNull(),
@@ -120,6 +121,8 @@ internal class DownloadMetadataStore(
             destination.takeIf(File::isFile)
         }
     }
+
+    private fun File.asLocalArtworkLocator(): String = Uri.fromFile(this).toString()
 
     private fun directory(downloadId: String): File {
         val safe = downloadId.map { character ->
