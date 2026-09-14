@@ -263,7 +263,7 @@ fun LibraryShell(
                 val merged = item.metadata.mergeMissingFrom(base)
                 if (item.metadata == null || merged != item.metadata) {
                     add(item.downloadId to merged)
-                } else if (item.metadata != null) {
+                } else {
                     metadataOverrides.remove(item.downloadId)
                 }
             }
@@ -391,9 +391,12 @@ fun LibraryShell(
 
         selectedMovie != null -> {
             val downloadItem = downloadFor(selectedMovie.sourceId, LibraryMediaKind.MOVIE, selectedMovie.movieId)
+            val displayDetail = movieDetail?.let { detail ->
+                detail.copy(metadata = detail.metadata.withFallbackDuration(selectedMovie.durationMs))
+            }
             MovieDetailStage33(
                 movie = selectedMovie,
-                detail = movieDetail,
+                detail = displayDetail,
                 warning = movieWarning,
                 downloadItem = downloadItem,
                 errorMessage = detailError ?: resolutionError,
