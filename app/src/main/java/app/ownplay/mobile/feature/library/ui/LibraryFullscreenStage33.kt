@@ -97,7 +97,10 @@ internal fun LibraryFullscreenPlayerStage33(
         }
     }
 
-    BackHandler(onBack = ::closePlayer)
+    BackHandler(enabled = optionsVisible) {
+        optionsVisible = false
+    }
+    BackHandler(enabled = !optionsVisible, onBack = ::closePlayer)
 
     LaunchedEffect(
         playback.contentId,
@@ -162,8 +165,16 @@ internal fun LibraryFullscreenPlayerStage33(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .playerLocalVerticalControls(playbackController, scope)
-                .clickable(interactionSource = interactionSource, indication = null) {
+                .playerLocalVerticalControls(
+                    playbackController = playbackController,
+                    controllerScope = scope,
+                    enabled = !optionsVisible,
+                )
+                .clickable(
+                    interactionSource = interactionSource,
+                    indication = null,
+                    enabled = !optionsVisible,
+                ) {
                     overlayVisible = !overlayVisible
                 },
         )
