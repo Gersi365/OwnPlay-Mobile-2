@@ -84,7 +84,7 @@ internal class DownloadMetadataStore(
         return try {
             httpClient.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) return destination.takeIf(File::isFile)
-                val body = response.body ?: return destination.takeIf(File::isFile)
+                val body = response.body
                 val announced = body.contentLength()
                 if (announced > MAX_ARTWORK_BYTES) return destination.takeIf(File::isFile)
                 val temporary = File(destination.parentFile, "${destination.name}.part")
