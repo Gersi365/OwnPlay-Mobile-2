@@ -136,14 +136,13 @@ class OkHttpXtreamClient(
         credential: SourceCredential.Xtream,
     ): XtreamResult<List<XtreamSeries>> {
         return mapArray(XtreamUrlBuilder.apiUrl(baseUrl, credential, "get_series")) { obj, index ->
-            val seriesId = obj["series_id"]?.text()?.takeIf(String::isNotBlank) ?: return@mapArray null
-            val backdrops = obj["backdrop_path"]?.asArray()
+            val streamId = obj["series_id"]?.text()?.takeIf(String::isNotBlank) ?: return@mapArray null
             XtreamSeries(
-                seriesId = seriesId,
+                seriesId = streamId,
                 categoryId = obj["category_id"]?.text()?.trim()?.takeIf(String::isNotEmpty),
                 name = obj["name"]?.text().orEmpty().ifBlank { "Untitled series" },
                 posterUrl = obj["cover"]?.text(),
-                backdropUrl = backdrops?.firstOrNull()?.text(),
+                backdropUrl = obj.backdropText(),
                 description = obj["plot"]?.text(),
                 rating = obj["rating"]?.text(),
                 providerOrder = obj["num"]?.asPrimitive()?.intOrNull ?: index,
@@ -279,15 +278,12 @@ class OkHttpXtreamClient(
         }
     }
 
-    private fun parseMediaInfo(primary: JsonObject, fallback: JsonObject = emptyJsonObject()): XtreamMediaInfo {
-        val backdropUrl = primary["backdrop_path"]?.asArray()?.firstOrNull()?.text()
-            ?: primary.firstText("backdrop", "backdrop_url")
-            ?: fallback["backdrop_path"]?.asArray()?.firstOrNull()?.text()
-        return XtreamMediaInfo(
+    private fun parseMediaInfo(primary: JsonObject, fallback: JsonObject = emptyJsonObject()): XtreamMediaInfo =
+        XtreamMediaInfo(
             title = primary.firstText("name", "title") ?: fallback.firstText("name", "title"),
             posterUrl = primary.firstText("movie_image", "cover", "stream_icon", "poster")
                 ?: fallback.firstText("movie_image", "cover", "stream_icon", "poster"),
-            backdropUrl = backdropUrl,
+            backdropUrl = primary.backdropText() ?: fallback.backdropText(),
             plot = primary.firstText("plot", "description") ?: fallback.firstText("plot", "description"),
             releaseDate = primary.firstText("releasedate", "releaseDate", "release_date", "year")
                 ?: fallback.firstText("releasedate", "releaseDate", "release_date", "year"),
@@ -297,18 +293,36 @@ class OkHttpXtreamClient(
             director = primary.firstText("director") ?: fallback.firstText("director"),
             cast = primary.firstText("cast", "actors") ?: fallback.firstText("cast", "actors"),
         )
-    }
 
     private fun parseDurationSeconds(obj: JsonObject): Long? {
         obj["duration_secs"]?.asPrimitive()?.longOrNull?.takeIf { it >= 0L }?.let { return it }
         obj["duration_seconds"]?.asPrimitive()?.longOrNull?.takeIf { it >= 0L }?.let { return it }
         val duration = obj["duration"]?.text()?.trim()?.takeIf(String::isNotEmpty) ?: return null
-        val parts = duration.split(':').mapNotNull(String::toLongOrNull)
-        return when (parts.size) {
-            3 -> parts[0] * 3600 + parts[1] * 60 + parts[2]
-            2 -> parts[0] * 60 + parts[1]
-            else -> duration.toLongOrNull()
-        }?.takeIf { it >= 0L }
+        if (!duration.contains(':')) return duration.toLongOrNull()?.takeIf { it >= 0L }
+
+        val rawParts = duration.split(':')
+        if (rawParts.size !in 2..3) return null
+        val parts = rawParts.map { part -> part.toLongOrNull() ?: return null }
+        if (parts.any { it < 0L }) return null
+        if (parts.last() > 59L) return null
+        if (parts.size == 3 && parts[1] > 59L) return null
+        return runCatching {
+            when (parts.size) {
+                3 -> Math.addExact(
+                    Math.addExact(Math.multiplyExact(parts[0], 3_600L), Math.multiplyExact(parts[1], 60L)),
+                    parts[2],
+                )
+                2 -> Math.addExact(Math.multiplyExact(parts[0], 60L), parts[1])
+                else -> null
+            }
+        }.getOrNull()
+    }
+
+    private fun JsonObject.backdropText(): String? {
+        val backdropPath = this["backdrop_path"]
+        return backdropPath?.asArray()?.firstOrNull()?.text()?.trim()?.takeIf(String::isNotEmpty)
+            ?: backdropPath?.text()?.trim()?.takeIf(String::isNotEmpty)
+            ?: firstText("backdrop", "backdrop_url")
     }
 
     private fun JsonObject.firstText(vararg keys: String): String? = keys.firstNotNullOfOrNull { key ->
