@@ -54,7 +54,7 @@ class LiveRepositoryImpl(
 ) : LiveRepository {
     private data class GuideCacheEntry(
         val loadedAtMs: Long,
-        val guide: LiveNowNext,
+        val programs: List<LiveProgram>,
     )
 
     private val guideCache = ConcurrentHashMap<String, GuideCacheEntry>()
@@ -335,11 +335,14 @@ class LiveRepositoryImpl(
     override suspend fun loadNowNext(channelId: String): LiveNowNext {
         if (channelId.isBlank()) return LiveNowNext()
         val nowMs = System.currentTimeMillis()
-        guideCache[channelId]
+        val cachedPrograms = guideCache[channelId]
             ?.takeIf { nowMs - it.loadedAtMs < GUIDE_CACHE_TTL_MS }
-            ?.let { return it.guide }
+            ?.programs
+        if (cachedPrograms != null) {
+            return LiveGuidePolicy.nowNext(cachedPrograms, nowMs / 1_000L)
+        }
 
-        val guide = try {
+        val programs = try {
             val channel = catalogDao.getLiveChannel(channelId) ?: return LiveNowNext()
             val source = sourceDao.get(channel.sourceId) ?: return LiveNowNext()
             if (!channel.available || !source.enabled || source.type != SourceType.XTREAM.name) {
@@ -349,25 +352,22 @@ class LiveRepositoryImpl(
             val credential = credentialStore.get(source.sourceId) as? SourceCredential.Xtream
                 ?: return LiveNowNext()
             when (val result = xtreamClient.shortEpg(source.baseLocator, credential, streamId, limit = 4)) {
-                is XtreamResult.Failure -> LiveNowNext()
-                is XtreamResult.Success -> LiveGuidePolicy.nowNext(
-                    programs = result.value.map { entry ->
-                        LiveProgram(
-                            title = entry.title.trim(),
-                            startEpochSeconds = entry.startEpochSeconds,
-                            endEpochSeconds = entry.endEpochSeconds,
-                        )
-                    },
-                    nowEpochSeconds = nowMs / 1_000L,
-                )
+                is XtreamResult.Failure -> emptyList()
+                is XtreamResult.Success -> result.value.map { entry ->
+                    LiveProgram(
+                        title = entry.title.trim(),
+                        startEpochSeconds = entry.startEpochSeconds,
+                        endEpochSeconds = entry.endEpochSeconds,
+                    )
+                }
             }
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Exception) {
-            LiveNowNext()
+            emptyList()
         }
-        guideCache[channelId] = GuideCacheEntry(nowMs, guide)
-        return guide
+        guideCache[channelId] = GuideCacheEntry(nowMs, programs)
+        return LiveGuidePolicy.nowNext(programs, nowMs / 1_000L)
     }
 
     override suspend fun resolvePlayback(channelId: String): LivePlaybackResolution {

@@ -43,4 +43,15 @@ object LiveGuidePolicy {
             next = usable.getOrNull(1),
         )
     }
+
+    fun nextBoundaryEpochSeconds(
+        guide: LiveNowNext,
+        nowEpochSeconds: Long,
+    ): Long? = sequenceOf(
+        guide.now?.endEpochSeconds,
+        guide.next?.startEpochSeconds,
+    )
+        .filterNotNull()
+        .filter { boundary -> boundary > nowEpochSeconds }
+        .minOrNull()
 }

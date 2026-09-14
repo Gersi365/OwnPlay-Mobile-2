@@ -1332,7 +1332,14 @@ private fun rememberLiveGuide(
         }
         while (true) {
             guide = liveRepository.loadNowNext(stableChannelId)
-            delay(125_000L)
+            val nowMs = System.currentTimeMillis()
+            val boundaryEpochSeconds = app.ownplay.mobile.feature.live.domain.LiveGuidePolicy
+                .nextBoundaryEpochSeconds(guide, nowMs / 1_000L)
+            val refreshDelayMs = boundaryEpochSeconds
+                ?.let { boundary -> (boundary * 1_000L + 100L - nowMs).coerceAtLeast(250L) }
+                ?.coerceAtMost(125_000L)
+                ?: 125_000L
+            delay(refreshDelayMs)
         }
     }
     return guide
