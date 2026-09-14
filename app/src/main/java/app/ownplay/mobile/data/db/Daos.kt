@@ -87,6 +87,15 @@ interface CatalogDao {
     @Upsert
     suspend fun upsertCategories(rows: List<ProviderCategoryEntity>)
 
+    @Query("SELECT * FROM live_channels WHERE sourceId = :sourceId ORDER BY channelId")
+    suspend fun getLiveChannelsForRefresh(sourceId: String): List<LiveChannelEntity>
+
+    @Query("SELECT * FROM movies WHERE sourceId = :sourceId")
+    suspend fun getMoviesForRefresh(sourceId: String): List<MovieEntity>
+
+    @Query("SELECT * FROM series WHERE sourceId = :sourceId")
+    suspend fun getSeriesForRefresh(sourceId: String): List<SeriesEntity>
+
     @Upsert
     suspend fun upsertLiveChannels(rows: List<LiveChannelEntity>)
 

@@ -267,7 +267,7 @@ class SourceRepositoryImpl(
         return try {
             val completedAt = nowMillis()
             database.withTransaction {
-                persistSuccessfulSections(sourceId, plan.generation, payload, plan.successfulSections)
+                persistSuccessfulSections(sourceId, plan.generation, payload, plan, source.type)
                 database.refreshStateDao().upsert(
                     RefreshStateEntity(
                         sourceId = sourceId,
@@ -304,37 +304,87 @@ class SourceRepositoryImpl(
         sourceId: String,
         generation: Long,
         payload: ProviderRefreshPayload,
-        successful: Set<CatalogSection>,
+        plan: RefreshPlan,
+        sourceType: SourceType,
     ) {
+        val successful = plan.successfulSections
         if (CatalogSection.LIVE_CATEGORIES in successful) {
             val rows = payload.liveCategories.value.orEmpty().map { it.toEntity(sourceId, "LIVE", generation) }
             catalogDao.upsertCategories(rows)
-            catalogDao.markMissingCategoriesUnavailable(sourceId, "LIVE", generation)
+            if (CatalogSection.LIVE_CATEGORIES in plan.authoritativeSections) {
+                catalogDao.markMissingCategoriesUnavailable(sourceId, "LIVE", generation)
+            }
         }
         if (CatalogSection.LIVE_CHANNELS in successful) {
-            val rows = payload.liveChannels.value.orEmpty().map { it.toEntity(sourceId, generation) }
+            val preserveCategory = payload.liveCategories.status != SectionStatus.SUCCESS ||
+                payload.liveChannels.status == SectionStatus.PARTIAL
+            val previous = if (sourceType == SourceType.M3U || preserveCategory) {
+                catalogDao.getLiveChannelsForRefresh(sourceId)
+            } else emptyList()
+            val incoming = if (sourceType == SourceType.M3U) {
+                M3uIdentityReconciliation.reconcile(sourceId, payload.liveChannels.value.orEmpty(), previous.map {
+                    PersistedM3uIdentity(it.channelId, it.tvgId, it.streamLocator, it.available)
+                })
+            } else payload.liveChannels.value.orEmpty()
+            val previousById = previous.associateBy { it.channelId }
+            val rows = incoming.map { record ->
+                val entity = record.toEntity(sourceId, generation)
+                if (preserveCategory && entity.categoryKey == null) {
+                    entity.copy(categoryKey = previousById[entity.channelId]?.categoryKey)
+                } else entity
+            }
             catalogDao.upsertLiveChannels(rows)
-            catalogDao.markMissingLiveUnavailable(sourceId, generation)
+            if (CatalogSection.LIVE_CHANNELS in plan.authoritativeSections) {
+                catalogDao.markMissingLiveUnavailable(sourceId, generation)
+            }
         }
         if (CatalogSection.VOD_CATEGORIES in successful) {
             val rows = payload.vodCategories.value.orEmpty().map { it.toEntity(sourceId, "MOVIE", generation) }
             catalogDao.upsertCategories(rows)
-            catalogDao.markMissingCategoriesUnavailable(sourceId, "MOVIE", generation)
+            if (CatalogSection.VOD_CATEGORIES in plan.authoritativeSections) {
+                catalogDao.markMissingCategoriesUnavailable(sourceId, "MOVIE", generation)
+            }
         }
         if (CatalogSection.MOVIES in successful) {
-            val rows = payload.movies.value.orEmpty().map { it.toEntity(sourceId, generation) }
+            val preserveCategory = payload.vodCategories.status != SectionStatus.SUCCESS ||
+                payload.movies.status == SectionStatus.PARTIAL
+            val priorCategories = if (preserveCategory) {
+                catalogDao.getMoviesForRefresh(sourceId).associate { it.movieId to it.categoryKey }
+            } else emptyMap()
+            val rows = payload.movies.value.orEmpty().map { record ->
+                val entity = record.toEntity(sourceId, generation)
+                if (preserveCategory && entity.categoryKey == null) {
+                    entity.copy(categoryKey = priorCategories[entity.movieId])
+                } else entity
+            }
             catalogDao.upsertMovies(rows)
-            catalogDao.markMissingMoviesUnavailable(sourceId, generation)
+            if (CatalogSection.MOVIES in plan.authoritativeSections) {
+                catalogDao.markMissingMoviesUnavailable(sourceId, generation)
+            }
         }
         if (CatalogSection.SERIES_CATEGORIES in successful) {
             val rows = payload.seriesCategories.value.orEmpty().map { it.toEntity(sourceId, "SERIES", generation) }
             catalogDao.upsertCategories(rows)
-            catalogDao.markMissingCategoriesUnavailable(sourceId, "SERIES", generation)
+            if (CatalogSection.SERIES_CATEGORIES in plan.authoritativeSections) {
+                catalogDao.markMissingCategoriesUnavailable(sourceId, "SERIES", generation)
+            }
         }
         if (CatalogSection.SERIES in successful) {
-            val rows = payload.series.value.orEmpty().map { it.toEntity(sourceId, generation) }
+            val preserveCategory = payload.seriesCategories.status != SectionStatus.SUCCESS ||
+                payload.series.status == SectionStatus.PARTIAL
+            val priorCategories = if (preserveCategory) {
+                catalogDao.getSeriesForRefresh(sourceId).associate { it.seriesId to it.categoryKey }
+            } else emptyMap()
+            val rows = payload.series.value.orEmpty().map { record ->
+                val entity = record.toEntity(sourceId, generation)
+                if (preserveCategory && entity.categoryKey == null) {
+                    entity.copy(categoryKey = priorCategories[entity.seriesId])
+                } else entity
+            }
             catalogDao.upsertSeries(rows)
-            catalogDao.markMissingSeriesUnavailable(sourceId, generation)
+            if (CatalogSection.SERIES in plan.authoritativeSections) {
+                catalogDao.markMissingSeriesUnavailable(sourceId, generation)
+            }
         }
     }
 
@@ -429,7 +479,7 @@ class SourceRepositoryImpl(
     )
 
     private fun <T> RemoteSection<List<T>>.successSize(): Int =
-        if (status == SectionStatus.SUCCESS) value?.size ?: 0 else 0
+        if (status == SectionStatus.SUCCESS || status == SectionStatus.PARTIAL) value?.size ?: 0 else 0
 
     private fun <T> failure(code: String, message: String): SourceResult<T> =
         SourceResult.Failure(SourceError(code = code, safeMessage = message))

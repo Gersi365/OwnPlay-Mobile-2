@@ -159,10 +159,11 @@ class LibraryRepositoryImpl(
                         )
                     }
                     database.withTransaction {
-                        libraryDao.markEpisodesUnavailable(series.seriesId)
+                        if (result.warningCode == null) libraryDao.markEpisodesUnavailable(series.seriesId)
                         catalogDao.upsertEpisodes(rows)
                     }
                     LibrarySeriesDetailResult.Success(
+                        refreshWarning = result.warningCode?.let { "Some episodes could not be refreshed; saved episodes were kept." },
                         detail = LibrarySeriesDetail(
                             series = series.toDomain(),
                             episodes = libraryDao.getEpisodesForSeries(series.seriesId).map { it.toDomain() },

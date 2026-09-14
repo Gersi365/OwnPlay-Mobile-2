@@ -82,6 +82,6 @@ data class XtreamEpgEntry(
 )
 
 sealed interface XtreamResult<out T> {
-    data class Success<T>(val value: T) : XtreamResult<T>
+    data class Success<T>(val value: T, val warningCode: String? = null) : XtreamResult<T>
     data class Failure(val code: String) : XtreamResult<Nothing>
 }

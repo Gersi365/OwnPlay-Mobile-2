@@ -11,6 +11,7 @@ enum class CatalogSection {
 
 enum class SectionStatus {
     SUCCESS,
+    PARTIAL,
     FAILED,
     SKIPPED,
 }
@@ -22,6 +23,8 @@ data class RemoteSection<T>(
 ) {
     companion object {
         fun <T> success(value: T): RemoteSection<T> = RemoteSection(SectionStatus.SUCCESS, value = value)
+        fun <T> partial(value: T, code: String): RemoteSection<T> =
+            RemoteSection(SectionStatus.PARTIAL, value = value, errorCode = code)
         fun <T> failed(code: String): RemoteSection<T> = RemoteSection(SectionStatus.FAILED, errorCode = code)
         fun <T> skipped(): RemoteSection<T> = RemoteSection(SectionStatus.SKIPPED)
     }
@@ -101,15 +104,30 @@ data class ProviderRefreshPayload(
 data class RefreshPlan(
     val generation: Long,
     val successfulSections: Set<CatalogSection>,
+    val authoritativeSections: Set<CatalogSection>,
     val state: String,
     val errorCode: String?,
 )
 
 object RefreshPolicy {
     fun plan(previousGeneration: Long, payload: ProviderRefreshPayload): RefreshPlan {
-        val successful = CatalogSection.entries
+        val authoritative = CatalogSection.entries
             .filterTo(linkedSetOf()) { payload.sectionStatus(it) == SectionStatus.SUCCESS }
-        val failed = CatalogSection.entries.any { payload.sectionStatus(it) == SectionStatus.FAILED }
+        // Category visibility depends on its content inventory. Keep cached categories
+        // reachable until both endpoints provide an authoritative complete response.
+        listOf(
+            CatalogSection.LIVE_CATEGORIES to CatalogSection.LIVE_CHANNELS,
+            CatalogSection.VOD_CATEGORIES to CatalogSection.MOVIES,
+            CatalogSection.SERIES_CATEGORIES to CatalogSection.SERIES,
+        ).forEach { (categories, content) ->
+            if (payload.sectionStatus(content) != SectionStatus.SUCCESS) authoritative.remove(categories)
+        }
+        val successful = CatalogSection.entries.filterTo(linkedSetOf()) {
+            payload.sectionStatus(it) == SectionStatus.SUCCESS || payload.sectionStatus(it) == SectionStatus.PARTIAL
+        }
+        val failed = CatalogSection.entries.any {
+            payload.sectionStatus(it) == SectionStatus.FAILED || payload.sectionStatus(it) == SectionStatus.PARTIAL
+        }
         val nextGeneration = if (successful.isEmpty()) previousGeneration else previousGeneration + 1
         val state = when {
             successful.isEmpty() -> "FAILED"
@@ -119,6 +137,7 @@ object RefreshPolicy {
         return RefreshPlan(
             generation = nextGeneration,
             successfulSections = successful,
+            authoritativeSections = authoritative,
             state = state,
             errorCode = payload.errorCodes().takeIf { it.isNotEmpty() }?.joinToString(","),
         )

@@ -167,15 +167,29 @@ class OkHttpXtreamClient(
                 val rootObject = root.value.asObject()
                     ?: return XtreamResult.Failure("XTREAM_SERIES_INFO_FORMAT")
                 val info = rootObject["info"]?.asObject().orEmptyObject()
-                val episodesObject = rootObject["episodes"]?.asObject()
+                val container = rootObject["episodes"]
+                val episodesObject = container?.asObject()
+                    ?: if (container is JsonArray && container.isEmpty()) emptyJsonObject()
+                    else return XtreamResult.Failure("XTREAM_EPISODES_FORMAT")
+                var skipped = 0
                 val episodes = buildList {
-                    episodesObject?.entries
-                        ?.sortedBy { it.key.toIntOrNull() ?: Int.MAX_VALUE }
-                        ?.forEach { (seasonKey, value) ->
+                    episodesObject.entries
+                        .sortedWith(compareBy<Map.Entry<String, JsonElement>> { it.key.toIntOrNull() ?: Int.MAX_VALUE }
+                            .thenBy { it.key })
+                        .forEach { (seasonKey, value) ->
                             val season = seasonKey.toIntOrNull() ?: 0
-                            value.asArray().orEmpty().forEachIndexed { index, element ->
-                                val obj = element.asObject() ?: return@forEachIndexed
-                                val episodeId = obj["id"]?.text()?.takeIf(String::isNotBlank) ?: return@forEachIndexed
+                            val seasonEpisodes = value.asArray()
+                            if (seasonEpisodes == null) {
+                                skipped++
+                                return@forEach
+                            }
+                            seasonEpisodes.forEachIndexed { index, element ->
+                                val obj = element.asObject()
+                                val episodeId = obj?.get("id")?.text()?.takeIf(String::isNotBlank)
+                                if (obj == null || episodeId == null) {
+                                    skipped++
+                                    return@forEachIndexed
+                                }
                                 add(
                                     XtreamEpisode(
                                         episodeId = episodeId,
@@ -189,12 +203,14 @@ class OkHttpXtreamClient(
                             }
                         }
                 }
+                if (episodes.isEmpty() && skipped > 0) return XtreamResult.Failure("XTREAM_EPISODES_FORMAT")
                 XtreamResult.Success(
                     XtreamSeriesInfo(
                         seriesId = seriesId,
-                        episodes = episodes,
+                        episodes = episodes.distinctBy(XtreamEpisode::episodeId),
                         metadata = parseMediaInfo(info),
                     ),
+                    warningCode = "XTREAM_PARTIAL_EPISODES".takeIf { skipped > 0 },
                 )
             }
         }
@@ -262,7 +278,7 @@ class OkHttpXtreamClient(
                 )?.let { code ->
                     return XtreamResult.Failure(code)
                 }
-                XtreamResult.Success(mapped)
+                XtreamResult.Success(mapped, warningCode = "XTREAM_PARTIAL_ROWS".takeIf { mapped.size < array.size })
             }
         }
     }

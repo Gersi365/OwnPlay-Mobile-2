@@ -11,8 +11,17 @@ class M3uParser {
             val line = if (zeroBasedIndex == 0) originalLine.removePrefix("\uFEFF").trim() else originalLine.trim()
             if (line.isBlank()) return@forEachIndexed
 
-            if (line.startsWith("#EXTINF", ignoreCase = true)) {
+            if (line.startsWith("#EXTINF:", ignoreCase = true)) {
+                pending?.let {
+                    diagnostics += M3uDiagnostic(it.lineNumber, "MISSING_STREAM_LOCATOR")
+                }
                 pending = parseExtInf(line, lineNumber, diagnostics)
+                return@forEachIndexed
+            }
+
+            if (line.startsWith("#EXTINF", ignoreCase = true)) {
+                diagnostics += M3uDiagnostic(lineNumber, "MALFORMED_EXTINF")
+                pending = null
                 return@forEachIndexed
             }
 
