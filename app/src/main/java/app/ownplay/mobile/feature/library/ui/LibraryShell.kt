@@ -58,6 +58,19 @@ fun LibraryShell(
     val downloads = storedDownloads.map { item ->
         metadataOverrides[item.downloadId]?.let { metadata -> item.copy(metadata = metadata) } ?: item
     }
+    val metadataResolutionKeys = remember(storedDownloads) {
+        storedDownloads.map { item ->
+            DownloadMetadataResolutionKey(
+                downloadId = item.downloadId,
+                sourceId = item.sourceId,
+                mediaKind = item.mediaKind,
+                contentId = item.contentId,
+                metadata = item.metadata,
+                missingDurationProgressAvailable =
+                    (item.metadata?.durationMs ?: 0L) <= 0L && item.resumePositionMs != null,
+            )
+        }
+    }
 
     val downloadsByContent = remember(downloads) {
         downloads.associateBy { DownloadContentKeyStage33(it.sourceId, it.mediaKind, it.contentId) }
@@ -251,7 +264,7 @@ fun LibraryShell(
         }
     }
 
-    LaunchedEffect(storedDownloads) {
+    LaunchedEffect(metadataResolutionKeys) {
         val activeIds = storedDownloads.mapTo(mutableSetOf()) { it.downloadId }
         metadataOverrides.keys.toList().filterNot(activeIds::contains).forEach(metadataOverrides::remove)
 
@@ -558,6 +571,15 @@ private fun LibraryMediaMetadata.withFallbackDuration(fallbackDurationMs: Long?)
     } else {
         this
     }
+
+private data class DownloadMetadataResolutionKey(
+    val downloadId: String,
+    val sourceId: String,
+    val mediaKind: LibraryMediaKind,
+    val contentId: String,
+    val metadata: LibraryMediaMetadata?,
+    val missingDurationProgressAvailable: Boolean,
+)
 
 private data class DownloadContentKeyStage33(
     val sourceId: String,
