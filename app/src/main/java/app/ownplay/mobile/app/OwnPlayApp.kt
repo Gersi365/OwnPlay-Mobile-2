@@ -173,6 +173,7 @@ fun OwnPlayApp(
                                 backupRepository = services.backupRepository,
                                 liveRepository = services.liveRepository,
                                 downloadRepository = services.downloadRepository,
+                                downloadMetadataResolver = services.libraryDownloadMetadataResolver,
                                 onPlayOffline = { downloadId ->
                                     pendingOfflineDownloadId = downloadId
                                     selectedDestination = AppDestination.Library
