@@ -153,6 +153,7 @@ fun OwnPlayApp(
                             AppDestination.Library -> LibraryShell(
                                 libraryRepository = services.libraryRepository,
                                 downloadRepository = services.downloadRepository,
+                                downloadMetadataResolver = services.libraryDownloadMetadataResolver,
                                 libraryVisibilityPreferences = services.libraryVisibilityPreferences,
                                 playbackController = services.playbackController,
                                 resumePlaybackEnabled = settings.resumePlaybackEnabled,
