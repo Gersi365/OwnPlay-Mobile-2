@@ -42,6 +42,7 @@ import app.ownplay.mobile.design.OwnPlayShapeTokens
 import app.ownplay.mobile.design.OwnPlaySpacing
 import app.ownplay.mobile.design.OwnPlayTopBar
 import app.ownplay.mobile.downloads.domain.DownloadRepository
+import app.ownplay.mobile.feature.library.data.LibraryDownloadMetadataResolver
 import app.ownplay.mobile.feature.live.domain.LiveRepository
 import app.ownplay.mobile.feature.settings.domain.BackupRepository
 import app.ownplay.mobile.feature.settings.domain.ProviderRefreshInterval
@@ -79,6 +80,7 @@ fun SettingsShell(
     backupRepository: BackupRepository,
     liveRepository: LiveRepository,
     downloadRepository: DownloadRepository,
+    downloadMetadataResolver: LibraryDownloadMetadataResolver,
     onPlayOffline: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -122,6 +124,7 @@ fun SettingsShell(
 
         SettingsPage.MANAGE_DOWNLOADS -> DownloadManagementScreen(
             downloadRepository = downloadRepository,
+            downloadMetadataResolver = downloadMetadataResolver,
             libraryVisibilityPreferences = libraryVisibilityPreferences,
             onPlayOffline = onPlayOffline,
             onBack = { pageName = SettingsPage.MAIN.name },
