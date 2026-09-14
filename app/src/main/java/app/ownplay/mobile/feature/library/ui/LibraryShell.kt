@@ -226,10 +226,11 @@ fun LibraryShell(
         val detail = movieDetail ?: return@LaunchedEffect
         val movie = selectedMovie ?: return@LaunchedEffect
         val item = downloadFor(movie.sourceId, LibraryMediaKind.MOVIE, movie.movieId) ?: return@LaunchedEffect
-        val enriched = detail.metadata.withFallbackDuration(movie.durationMs)
-        if (item.metadata.needsEnrichmentFrom(enriched)) {
-            metadataOverrides[item.downloadId] = enriched
-            downloadRepository.saveMetadata(item.downloadId, enriched)
+        val candidate = detail.metadata.withFallbackDuration(movie.durationMs)
+        val merged = item.metadata.mergeMissingFrom(candidate)
+        if (item.metadata == null || merged != item.metadata) {
+            metadataOverrides[item.downloadId] = merged
+            downloadRepository.saveMetadata(item.downloadId, merged)
         }
     }
 
@@ -239,10 +240,11 @@ fun LibraryShell(
         detail.episodes.forEach { episode ->
             val item = downloadFor(episode.sourceId, LibraryMediaKind.EPISODE, episode.episodeId)
             if (item != null) {
-                val enriched = buildEpisodeDownloadMetadata(metadata, episode)
-                if (item.metadata.needsEnrichmentFrom(enriched)) {
-                    metadataOverrides[item.downloadId] = enriched
-                    downloadRepository.saveMetadata(item.downloadId, enriched)
+                val candidate = buildEpisodeDownloadMetadata(metadata, episode)
+                val merged = item.metadata.mergeMissingFrom(candidate)
+                if (item.metadata == null || merged != item.metadata) {
+                    metadataOverrides[item.downloadId] = merged
+                    downloadRepository.saveMetadata(item.downloadId, merged)
                 }
             }
         }
@@ -527,18 +529,6 @@ private fun LibraryMediaMetadata?.mergeMissingFrom(fallback: LibraryMediaMetadat
         director = current.director.orFallback(fallback.director),
         cast = current.cast.orFallback(fallback.cast),
     )
-}
-
-private fun LibraryMediaMetadata?.needsEnrichmentFrom(candidate: LibraryMediaMetadata): Boolean {
-    val current = this ?: return true
-    return current.plot.isNullOrBlank() && !candidate.plot.isNullOrBlank() ||
-        current.releaseDate.isNullOrBlank() && !candidate.releaseDate.isNullOrBlank() ||
-        (current.durationMs == null || current.durationMs <= 0L) && (candidate.durationMs ?: 0L) > 0L ||
-        current.genre.isNullOrBlank() && !candidate.genre.isNullOrBlank() ||
-        current.director.isNullOrBlank() && !candidate.director.isNullOrBlank() ||
-        current.cast.isNullOrBlank() && !candidate.cast.isNullOrBlank() ||
-        current.posterUrl.isNullOrBlank() && !candidate.posterUrl.isNullOrBlank() ||
-        current.backdropUrl.isNullOrBlank() && !candidate.backdropUrl.isNullOrBlank()
 }
 
 private fun LibraryMediaMetadata.withFallbackDuration(fallbackDurationMs: Long?): LibraryMediaMetadata =
