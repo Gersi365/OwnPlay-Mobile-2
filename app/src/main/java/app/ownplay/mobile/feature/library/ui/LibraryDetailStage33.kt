@@ -41,6 +41,7 @@ import app.ownplay.mobile.downloads.domain.DownloadItem
 import app.ownplay.mobile.downloads.domain.DownloadState
 import app.ownplay.mobile.downloads.domain.OfflineAvailability
 import app.ownplay.mobile.downloads.ui.DownloadControls
+import app.ownplay.mobile.feature.library.domain.LibraryDetailStartPolicy
 import app.ownplay.mobile.feature.library.domain.LibraryEpisode
 import app.ownplay.mobile.feature.library.domain.LibraryMediaMetadata
 import app.ownplay.mobile.feature.library.domain.LibraryMovie
@@ -66,9 +67,12 @@ internal fun MovieDetailStage33(
 ) {
     BackHandler(onBack = onBack)
     val metadata = detail?.metadata ?: movie.toBaseMetadata()
-    val shouldResume = preferResume && movie.resumePositionMs != null
-    val playLabel = if (shouldResume) "Resume" else "Play"
-    val playAction = if (shouldResume) onResume else onBeginning
+    val startActions = LibraryDetailStartPolicy.actions(
+        hasProgress = movie.resumePositionMs != null,
+        preferResume = preferResume,
+    )
+    val playLabel = startModeLabelStage33(startActions.primary)
+    val playAction = startActionStage33(startActions.primary, onResume, onBeginning)
 
     Column(
         modifier = modifier
@@ -103,6 +107,14 @@ internal fun MovieDetailStage33(
                 )
             }
             LibraryMetadataBodyStage33(metadata)
+            startActions.secondary?.let { secondary ->
+                LibrarySecondaryAction(
+                    text = secondaryStartLabelStage33(secondary),
+                    onClick = startActionStage33(secondary, onResume, onBeginning),
+                    modifier = Modifier.fillMaxWidth(0.62f),
+                    glyph = startModeGlyphStage33(secondary),
+                )
+            }
             DownloadControls(
                 item = downloadItem,
                 onAction = { action -> onDownloadAction(action, metadata) },
@@ -139,11 +151,10 @@ internal fun SeriesDetailStage33(
         episodes.filter { it.seasonNumber == selected }
     } ?: episodes
     val primaryEpisode = episodes.firstOrNull { it.resumePositionMs != null } ?: episodes.firstOrNull()
-    val primaryMode = if (primaryEpisode?.resumePositionMs != null && preferResume) {
-        LibraryStartMode.RESUME
-    } else {
-        LibraryStartMode.BEGINNING
-    }
+    val primaryActions = LibraryDetailStartPolicy.actions(
+        hasProgress = primaryEpisode?.resumePositionMs != null,
+        preferResume = preferResume,
+    )
 
     Column(
         modifier = modifier
@@ -154,8 +165,8 @@ internal fun SeriesDetailStage33(
             metadata = metadata,
             label = "SERIES",
             favorite = series.favorite,
-            playLabel = if (primaryMode == LibraryStartMode.RESUME) "Resume" else "Play",
-            onPlay = primaryEpisode?.let { episode -> { onEpisodePlay(episode, primaryMode) } },
+            playLabel = startModeLabelStage33(primaryActions.primary),
+            onPlay = primaryEpisode?.let { episode -> { onEpisodePlay(episode, primaryActions.primary) } },
             onFavoriteToggle = onFavoriteToggle,
             onBack = onBack,
         )
@@ -164,6 +175,16 @@ internal fun SeriesDetailStage33(
             verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),
         ) {
             LibraryMetadataBodyStage33(metadata)
+            primaryEpisode?.let { episode ->
+                primaryActions.secondary?.let { secondary ->
+                    LibrarySecondaryAction(
+                        text = secondaryStartLabelStage33(secondary),
+                        onClick = { onEpisodePlay(episode, secondary) },
+                        modifier = Modifier.fillMaxWidth(0.62f),
+                        glyph = startModeGlyphStage33(secondary),
+                    )
+                }
+            }
             warning?.let {
                 LibraryShelfState(
                     title = "Using cached details",
@@ -240,13 +261,16 @@ internal fun DownloadedMediaDetailStage33(
 ) {
     BackHandler(onBack = onBack)
     val metadata = item.metadata ?: LibraryMediaMetadata(title = item.title)
-    val hasProgress = item.resumePositionMs != null
-    val preferredMode = if (hasProgress && preferResume) LibraryStartMode.RESUME else LibraryStartMode.BEGINNING
-    val playLabel = if (preferredMode == LibraryStartMode.RESUME) "Resume" else "Play"
+    val startActions = LibraryDetailStartPolicy.actions(
+        hasProgress = item.resumePositionMs != null,
+        preferResume = preferResume,
+    )
+    val primaryMode = startActions.primary
+    val playLabel = startModeLabelStage33(primaryMode)
     val primaryAction: (() -> Unit)? = when {
         item.state != DownloadState.COMPLETED -> null
-        availability == OfflineAvailability.AVAILABLE -> { { onPlayOffline(preferredMode) } }
-        availability == OfflineAvailability.MISSING -> { { onPlayFromLibrary(preferredMode) } }
+        availability == OfflineAvailability.AVAILABLE -> { { onPlayOffline(primaryMode) } }
+        availability == OfflineAvailability.MISSING -> { { onPlayFromLibrary(primaryMode) } }
         else -> null
     }
 
@@ -302,11 +326,23 @@ internal fun DownloadedMediaDetailStage33(
                         modifier = Modifier.fillMaxWidth(),
                     )
                     LibrarySecondaryAction(
-                        text = if (preferredMode == LibraryStartMode.RESUME) "Resume from Library" else "Play from Library",
-                        onClick = { onPlayFromLibrary(preferredMode) },
+                        text = if (primaryMode == LibraryStartMode.RESUME) "Resume from Library" else "Play from Library",
+                        onClick = { onPlayFromLibrary(primaryMode) },
                         modifier = Modifier.fillMaxWidth(),
-                        glyph = LibraryActionGlyph.PLAY,
+                        glyph = startModeGlyphStage33(primaryMode),
                     )
+                    startActions.secondary?.let { secondary ->
+                        LibrarySecondaryAction(
+                            text = if (secondary == LibraryStartMode.RESUME) {
+                                "Resume from Library"
+                            } else {
+                                "Play from beginning"
+                            },
+                            onClick = { onPlayFromLibrary(secondary) },
+                            modifier = Modifier.fillMaxWidth(0.72f),
+                            glyph = startModeGlyphStage33(secondary),
+                        )
+                    }
                     LibrarySecondaryAction(
                         text = "Remove",
                         onClick = onRemove,
@@ -321,6 +357,14 @@ internal fun DownloadedMediaDetailStage33(
                         color = OwnPlayColors.Accent,
                         fontWeight = FontWeight.SemiBold,
                     )
+                    startActions.secondary?.let { secondary ->
+                        LibrarySecondaryAction(
+                            text = secondaryStartLabelStage33(secondary),
+                            onClick = { onPlayOffline(secondary) },
+                            modifier = Modifier.fillMaxWidth(0.62f),
+                            glyph = startModeGlyphStage33(secondary),
+                        )
+                    }
                     LibrarySecondaryAction(
                         text = "Remove download",
                         onClick = onRemove,
@@ -523,7 +567,10 @@ private fun EpisodeRowStage33(
     onDownloadAction: (DownloadAction) -> Unit,
 ) {
     val hasProgress = episode.resumePositionMs != null
-    val mode = if (hasProgress && preferResume) LibraryStartMode.RESUME else LibraryStartMode.BEGINNING
+    val actions = LibraryDetailStartPolicy.actions(
+        hasProgress = hasProgress,
+        preferResume = preferResume,
+    )
     val displayTitle = episodeDisplayTitleStage33(episode)
     Row(
         modifier = Modifier
@@ -565,15 +612,46 @@ private fun EpisodeRowStage33(
                 compact = true,
             )
         }
-        LibraryIconAction(
-            glyph = LibraryActionGlyph.PLAY,
-            contentDescription = if (mode == LibraryStartMode.RESUME) "Resume $displayTitle" else "Play $displayTitle",
-            emphasized = true,
-            visualSize = 36.dp,
-            onClick = { onPlay(mode) },
-        )
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            actions.secondary?.let { secondary ->
+                LibraryIconAction(
+                    glyph = startModeGlyphStage33(secondary),
+                    contentDescription = startModeContentDescriptionStage33(secondary, displayTitle),
+                    visualSize = 34.dp,
+                    onClick = { onPlay(secondary) },
+                )
+            }
+            LibraryIconAction(
+                glyph = startModeGlyphStage33(actions.primary),
+                contentDescription = startModeContentDescriptionStage33(actions.primary, displayTitle),
+                emphasized = true,
+                visualSize = 36.dp,
+                onClick = { onPlay(actions.primary) },
+            )
+        }
     }
 }
+
+private fun startActionStage33(
+    mode: LibraryStartMode,
+    onResume: () -> Unit,
+    onBeginning: () -> Unit,
+): () -> Unit = if (mode == LibraryStartMode.RESUME) onResume else onBeginning
+
+private fun startModeLabelStage33(mode: LibraryStartMode): String =
+    if (mode == LibraryStartMode.RESUME) "Resume" else "Play"
+
+private fun secondaryStartLabelStage33(mode: LibraryStartMode): String =
+    if (mode == LibraryStartMode.RESUME) "Resume" else "Play from beginning"
+
+private fun startModeGlyphStage33(mode: LibraryStartMode): LibraryActionGlyph =
+    if (mode == LibraryStartMode.RESUME) LibraryActionGlyph.PLAY else LibraryActionGlyph.RESTART
+
+private fun startModeContentDescriptionStage33(mode: LibraryStartMode, title: String): String =
+    if (mode == LibraryStartMode.RESUME) "Resume $title" else "Play $title from beginning"
 
 private fun episodeDisplayTitleStage33(episode: LibraryEpisode): String {
     val original = episode.title.trim()
