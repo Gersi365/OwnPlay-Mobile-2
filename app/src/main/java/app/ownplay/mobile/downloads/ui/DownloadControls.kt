@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -21,6 +20,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import app.ownplay.mobile.design.OwnPlayColors
 import app.ownplay.mobile.design.OwnPlayPrimaryButton
@@ -92,13 +93,15 @@ fun DownloadControls(
         ) {
             if (compact) {
                 DownloadCompactAction(
-                    text = compactActionLabel(primaryAction),
-                    emphasized = primaryAction != DownloadAction.DOWNLOAD,
+                    glyph = compactActionGlyph(primaryAction),
+                    contentDescription = actionLabel(primaryAction),
+                    emphasized = true,
                     onClick = { dispatchAction(primaryAction) },
                 )
                 if (item != null) {
                     DownloadCompactAction(
-                        text = "Remove",
+                        glyph = "×",
+                        contentDescription = "Remove download",
                         emphasized = false,
                         onClick = { dispatchAction(DownloadAction.REMOVE) },
                     )
@@ -123,24 +126,25 @@ fun DownloadControls(
 
 @Composable
 private fun DownloadCompactAction(
-    text: String,
+    glyph: String,
+    contentDescription: String,
     emphasized: Boolean,
     onClick: () -> Unit,
 ) {
     Surface(
         onClick = onClick,
-        modifier = Modifier.heightIn(min = 48.dp),
-        shape = OwnPlayShapeTokens.Small,
+        modifier = Modifier
+            .width(48.dp)
+            .heightIn(min = 48.dp)
+            .semantics { this.contentDescription = contentDescription },
+        shape = OwnPlayShapeTokens.Action,
         color = if (emphasized) OwnPlayColors.Accent.copy(alpha = 0.10f) else Color.Transparent,
         tonalElevation = 0.dp,
     ) {
-        Box(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-            contentAlignment = Alignment.Center,
-        ) {
+        Box(contentAlignment = Alignment.Center) {
             Text(
-                text = text,
-                style = MaterialTheme.typography.labelLarge,
+                text = glyph,
+                style = MaterialTheme.typography.titleMedium,
                 color = if (emphasized) OwnPlayColors.Accent else OwnPlayColors.TextMuted,
                 maxLines = 1,
             )
@@ -163,14 +167,15 @@ private fun statusLabel(item: DownloadItem): String = when (item.state) {
     }
 }
 
-private fun compactActionLabel(action: DownloadAction): String = when (action) {
-    DownloadAction.DOWNLOAD -> "Download"
-    DownloadAction.PAUSE -> "Pause"
-    DownloadAction.RESUME -> "Resume"
-    DownloadAction.RETRY -> "Retry"
-    DownloadAction.REMOVE -> "Remove"
-    DownloadAction.PLAY_OFFLINE -> "Offline"
-    DownloadAction.RESUME_OFFLINE -> "Offline"
+private fun compactActionGlyph(action: DownloadAction): String = when (action) {
+    DownloadAction.DOWNLOAD -> "↓"
+    DownloadAction.PAUSE -> "Ⅱ"
+    DownloadAction.RESUME,
+    DownloadAction.PLAY_OFFLINE,
+    DownloadAction.RESUME_OFFLINE,
+    -> "▶"
+    DownloadAction.RETRY -> "↻"
+    DownloadAction.REMOVE -> "×"
 }
 
 private fun actionLabel(action: DownloadAction): String = when (action) {
