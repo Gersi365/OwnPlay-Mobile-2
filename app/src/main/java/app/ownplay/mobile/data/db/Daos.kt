@@ -462,6 +462,40 @@ interface LibraryDao {
           ON p.sourceId = s.sourceId
          AND p.mediaKind = 'EPISODE'
          AND p.contentId = e.episodeId
+        WHERE s.sourceId = :sourceId
+          AND e.episodeId IN (:episodeIds)
+        ORDER BY e.seriesId ASC, e.seasonNumber ASC, e.episodeNumber ASC, e.episodeId ASC
+        """,
+    )
+    suspend fun getEpisodesForProgress(
+        sourceId: String,
+        episodeIds: List<String>,
+    ): List<EpisodeLibraryView>
+
+    @Query(
+        """
+        SELECT
+            e.episodeId AS episodeId,
+            e.seriesId AS seriesId,
+            s.sourceId AS sourceId,
+            s.name AS seriesName,
+            e.providerEpisodeId AS providerEpisodeId,
+            e.seasonNumber AS seasonNumber,
+            e.episodeNumber AS episodeNumber,
+            e.title AS title,
+            e.durationMs AS durationMs,
+            e.extension AS extension,
+            e.available AS available,
+            p.positionMs AS progressPositionMs,
+            p.durationMs AS progressDurationMs,
+            p.completed AS progressCompleted,
+            p.updatedAt AS progressUpdatedAt
+        FROM episodes AS e
+        INNER JOIN series AS s ON s.seriesId = e.seriesId
+        LEFT JOIN playback_progress AS p
+          ON p.sourceId = s.sourceId
+         AND p.mediaKind = 'EPISODE'
+         AND p.contentId = e.episodeId
         WHERE e.seriesId = :seriesId
           AND e.available = 1
         ORDER BY e.seasonNumber ASC, e.episodeNumber ASC, e.episodeId ASC
