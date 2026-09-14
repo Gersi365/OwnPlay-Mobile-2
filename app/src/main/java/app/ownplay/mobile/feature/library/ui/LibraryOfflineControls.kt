@@ -7,15 +7,26 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import app.ownplay.mobile.design.OwnPlayColors
 import app.ownplay.mobile.design.OwnPlayShapeTokens
-import app.ownplay.mobile.design.OwnPlaySpacing
 import app.ownplay.mobile.downloads.domain.DownloadAction
 import app.ownplay.mobile.downloads.domain.DownloadItem
 import app.ownplay.mobile.downloads.domain.DownloadState
@@ -30,6 +41,8 @@ internal fun LibraryOfflineControls(
     modifier: Modifier = Modifier,
 ) {
     val primaryAction = DownloadStatePolicy.primaryAction(item)
+    var moreMenuVisible by remember(item.downloadId) { mutableStateOf(false) }
+
     Column(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(4.dp),
@@ -65,25 +78,66 @@ internal fun LibraryOfflineControls(
         }
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Xs),
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            LibraryPrimaryAction(
-                text = libraryOfflineActionLabel(primaryAction),
+            OfflineRailAction(
+                glyph = libraryOfflineActionGlyph(primaryAction),
+                contentDescription = libraryOfflineActionLabel(primaryAction),
+                emphasized = true,
                 onClick = { onAction(primaryAction) },
-                modifier = Modifier.weight(1f),
-                glyph = if (
-                    primaryAction == DownloadAction.PLAY_OFFLINE ||
-                    primaryAction == DownloadAction.RESUME_OFFLINE
-                ) {
-                    LibraryActionGlyph.PLAY
-                } else {
-                    null
-                },
             )
-            LibrarySecondaryAction(
-                text = "Hide",
+            OfflineRailAction(
+                glyph = "✓",
+                contentDescription = "Hide from Library",
                 onClick = onHideFromLibrary,
-                modifier = Modifier.weight(0.66f),
+            )
+            Box {
+                OfflineRailAction(
+                    glyph = "⋮",
+                    contentDescription = "More download actions",
+                    onClick = { moreMenuVisible = true },
+                )
+                DropdownMenu(
+                    expanded = moreMenuVisible,
+                    onDismissRequest = { moreMenuVisible = false },
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("Remove download") },
+                        onClick = {
+                            moreMenuVisible = false
+                            onAction(DownloadAction.REMOVE)
+                        },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun OfflineRailAction(
+    glyph: String,
+    contentDescription: String,
+    onClick: () -> Unit,
+    emphasized: Boolean = false,
+) {
+    Surface(
+        onClick = onClick,
+        modifier = Modifier
+            .size(48.dp)
+            .semantics { this.contentDescription = contentDescription },
+        color = Color.Transparent,
+        shape = OwnPlayShapeTokens.Action,
+        tonalElevation = 0.dp,
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Text(
+                text = glyph,
+                style = MaterialTheme.typography.titleMedium,
+                color = if (emphasized) OwnPlayColors.Accent else OwnPlayColors.TextSecondary,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
             )
         }
     }
@@ -112,4 +166,15 @@ private fun libraryOfflineActionLabel(action: DownloadAction): String = when (ac
     DownloadAction.REMOVE -> "Remove"
     DownloadAction.PLAY_OFFLINE -> "Play"
     DownloadAction.RESUME_OFFLINE -> "Resume"
+}
+
+private fun libraryOfflineActionGlyph(action: DownloadAction): String = when (action) {
+    DownloadAction.DOWNLOAD -> "↓"
+    DownloadAction.PAUSE -> "Ⅱ"
+    DownloadAction.RESUME,
+    DownloadAction.PLAY_OFFLINE,
+    DownloadAction.RESUME_OFFLINE,
+    -> "▶"
+    DownloadAction.RETRY -> "↻"
+    DownloadAction.REMOVE -> "×"
 }
