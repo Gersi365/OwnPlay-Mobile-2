@@ -225,16 +225,6 @@ private fun MainSettings(
                         settings.providerRefreshInterval.summary,
                         SettingTrailing.Chevron,
                     ) { intervalChooserVisible = !intervalChooserVisible },
-                    SettingRowModel(
-                        "Show channel logos",
-                        "Use provider artwork in Live browsing",
-                        SettingTrailing.Toggle(settings.showChannelLogos),
-                    ) { scope.launch { settingsPreferences.setShowChannelLogos(!settings.showChannelLogos) } },
-                    SettingRowModel(
-                        "Hide channel prefix",
-                        "Display “ITALY | Rai 1” as “Rai 1” without changing provider data",
-                        SettingTrailing.Toggle(settings.hideChannelPrefix),
-                    ) { scope.launch { settingsPreferences.setHideChannelPrefix(!settings.hideChannelPrefix) } },
                 ),
             )
 
@@ -247,6 +237,24 @@ private fun MainSettings(
                     },
                 )
             }
+
+            SettingsSection(
+                title = "Appearance",
+                subtitle = "How Live browsing is presented",
+                marker = "◐",
+                rows = listOf(
+                    SettingRowModel(
+                        "Show channel logos",
+                        "Use provider artwork in Live browsing",
+                        SettingTrailing.Toggle(settings.showChannelLogos),
+                    ) { scope.launch { settingsPreferences.setShowChannelLogos(!settings.showChannelLogos) } },
+                    SettingRowModel(
+                        "Hide channel prefix",
+                        "Display “ITALY | Rai 1” as “Rai 1” without changing provider data",
+                        SettingTrailing.Toggle(settings.hideChannelPrefix),
+                    ) { scope.launch { settingsPreferences.setHideChannelPrefix(!settings.hideChannelPrefix) } },
+                ),
+            )
 
             SettingsSection(
                 title = "Downloads",
