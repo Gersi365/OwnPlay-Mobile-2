@@ -1,7 +1,7 @@
 package app.ownplay.mobile.feature.live.domain
 
-import kotlin.test.Test
-import kotlin.test.assertEquals
+import org.junit.Assert.assertEquals
+import org.junit.Test
 
 class ChannelNameDisplayPolicyTest {
     @Test
