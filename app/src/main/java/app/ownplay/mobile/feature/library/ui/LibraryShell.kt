@@ -6,6 +6,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -18,6 +19,7 @@ import app.ownplay.mobile.downloads.domain.DownloadItem
 import app.ownplay.mobile.downloads.domain.DownloadOperationResult
 import app.ownplay.mobile.downloads.domain.DownloadRepository
 import app.ownplay.mobile.downloads.domain.OfflineAvailability
+import app.ownplay.mobile.feature.library.data.LibraryDownloadMetadataResolver
 import app.ownplay.mobile.feature.library.domain.LibraryEpisode
 import app.ownplay.mobile.feature.library.domain.LibraryMediaKind
 import app.ownplay.mobile.feature.library.domain.LibraryMediaMetadata
@@ -36,6 +38,7 @@ import kotlinx.coroutines.launch
 fun LibraryShell(
     libraryRepository: LibraryRepository,
     downloadRepository: DownloadRepository,
+    downloadMetadataResolver: LibraryDownloadMetadataResolver,
     libraryVisibilityPreferences: LibraryVisibilityPreferences,
     playbackController: PlaybackController,
     resumePlaybackEnabled: Boolean,
@@ -48,9 +51,17 @@ fun LibraryShell(
     val downloadsFlow = remember(downloadRepository) { downloadRepository.observeDownloads() }
     val visibilityFlow = remember(libraryVisibilityPreferences) { libraryVisibilityPreferences.visibility }
     val catalog by catalogFlow.collectAsState(initial = null)
-    val downloads by downloadsFlow.collectAsState(initial = emptyList())
+    val storedDownloads by downloadsFlow.collectAsState(initial = emptyList())
     val visibility by visibilityFlow.collectAsState(initial = LibraryVisibilitySnapshot())
     val scope = rememberCoroutineScope()
+    val metadataOverrides = remember { mutableStateMapOf<String, LibraryMediaMetadata>() }
+    val downloads = storedDownloads.map { item ->
+        if (item.metadata != null) {
+            item
+        } else {
+            metadataOverrides[item.downloadId]?.let { metadata -> item.copy(metadata = metadata) } ?: item
+        }
+    }
 
     val downloadsByContent = remember(downloads) {
         downloads.associateBy { DownloadContentKeyStage33(it.sourceId, it.mediaKind, it.contentId) }
@@ -163,13 +174,17 @@ fun LibraryShell(
                                 result.item?.let { created ->
                                     libraryVisibilityPreferences.showDownload(created.downloadId)
                                     metadata?.let { snapshot ->
+                                        metadataOverrides[created.downloadId] = snapshot
                                         downloadRepository.saveMetadata(created.downloadId, snapshot)
                                     }
                                 }
                             }
-                            if (action == DownloadAction.REMOVE && closeAfterRemove) {
-                                selectedDownloadId = null
-                                offlineAvailability = null
+                            if (action == DownloadAction.REMOVE) {
+                                item?.let { metadataOverrides.remove(it.downloadId) }
+                                if (closeAfterRemove) {
+                                    selectedDownloadId = null
+                                    offlineAvailability = null
+                                }
                             }
                         }
                         null -> Unit
@@ -215,8 +230,10 @@ fun LibraryShell(
         val detail = movieDetail ?: return@LaunchedEffect
         val movie = selectedMovie ?: return@LaunchedEffect
         val item = downloadFor(movie.sourceId, LibraryMediaKind.MOVIE, movie.movieId) ?: return@LaunchedEffect
-        if (item.metadata == null) {
-            downloadRepository.saveMetadata(item.downloadId, detail.metadata)
+        val enriched = detail.metadata.withFallbackDuration(movie.durationMs)
+        if (item.metadata.needsEnrichmentFrom(enriched)) {
+            metadataOverrides[item.downloadId] = enriched
+            downloadRepository.saveMetadata(item.downloadId, enriched)
         }
     }
 
@@ -225,24 +242,37 @@ fun LibraryShell(
         val metadata = detail.metadata ?: detail.series.toBaseMetadata()
         detail.episodes.forEach { episode ->
             val item = downloadFor(episode.sourceId, LibraryMediaKind.EPISODE, episode.episodeId)
-            if (item != null && item.metadata == null) {
-                downloadRepository.saveMetadata(
-                    item.downloadId,
-                    buildEpisodeDownloadMetadata(metadata, episode),
-                )
+            if (item != null) {
+                val enriched = buildEpisodeDownloadMetadata(metadata, episode)
+                if (item.metadata.needsEnrichmentFrom(enriched)) {
+                    metadataOverrides[item.downloadId] = enriched
+                    downloadRepository.saveMetadata(item.downloadId, enriched)
+                }
             }
         }
     }
 
-    LaunchedEffect(catalog, downloads) {
-        val movieById = catalog?.movies.orEmpty().associateBy { it.movieId }
-        downloads.forEach { item ->
-            if (item.metadata == null && item.mediaKind == LibraryMediaKind.MOVIE) {
-                val movie = movieById[item.contentId]
-                if (movie != null && movie.sourceId == item.sourceId) {
-                    downloadRepository.saveMetadata(item.downloadId, movie.toBaseMetadata())
+    LaunchedEffect(storedDownloads) {
+        val activeIds = storedDownloads.mapTo(mutableSetOf()) { it.downloadId }
+        metadataOverrides.keys.toList().filterNot(activeIds::contains).forEach(metadataOverrides::remove)
+
+        val pending = buildList {
+            storedDownloads.forEach { item ->
+                val base = downloadMetadataResolver.resolve(item.sourceId, item.mediaKind, item.contentId)
+                    ?: return@forEach
+                val merged = item.metadata.mergeMissingFrom(base)
+                if (item.metadata == null || merged != item.metadata) {
+                    add(item.downloadId to merged)
+                } else if (item.metadata != null) {
+                    metadataOverrides.remove(item.downloadId)
                 }
             }
+        }
+        pending.forEach { (downloadId, metadata) ->
+            metadataOverrides[downloadId] = metadata
+        }
+        pending.forEach { (downloadId, metadata) ->
+            downloadRepository.saveMetadata(downloadId, metadata)
         }
     }
 
@@ -388,7 +418,7 @@ fun LibraryShell(
                         contentId = selectedMovie.movieId,
                         title = selectedMovie.name,
                         action = action,
-                        metadata = metadata,
+                        metadata = metadata.withFallbackDuration(selectedMovie.durationMs),
                     )
                 },
                 modifier = modifier,
@@ -483,6 +513,41 @@ fun LibraryShell(
         )
     }
 }
+
+private fun LibraryMediaMetadata?.mergeMissingFrom(fallback: LibraryMediaMetadata): LibraryMediaMetadata {
+    val current = this ?: return fallback
+    fun String?.orFallback(value: String?): String? = this?.takeIf(String::isNotBlank) ?: value
+    return current.copy(
+        posterUrl = current.posterUrl.orFallback(fallback.posterUrl),
+        backdropUrl = current.backdropUrl.orFallback(fallback.backdropUrl),
+        plot = current.plot.orFallback(fallback.plot),
+        releaseDate = current.releaseDate.orFallback(fallback.releaseDate),
+        durationMs = current.durationMs?.takeIf { it > 0L } ?: fallback.durationMs,
+        rating = current.rating.orFallback(fallback.rating),
+        genre = current.genre.orFallback(fallback.genre),
+        director = current.director.orFallback(fallback.director),
+        cast = current.cast.orFallback(fallback.cast),
+    )
+}
+
+private fun LibraryMediaMetadata?.needsEnrichmentFrom(candidate: LibraryMediaMetadata): Boolean {
+    val current = this ?: return true
+    return current.plot.isNullOrBlank() && !candidate.plot.isNullOrBlank() ||
+        current.releaseDate.isNullOrBlank() && !candidate.releaseDate.isNullOrBlank() ||
+        (current.durationMs == null || current.durationMs <= 0L) && (candidate.durationMs ?: 0L) > 0L ||
+        current.genre.isNullOrBlank() && !candidate.genre.isNullOrBlank() ||
+        current.director.isNullOrBlank() && !candidate.director.isNullOrBlank() ||
+        current.cast.isNullOrBlank() && !candidate.cast.isNullOrBlank() ||
+        current.posterUrl.isNullOrBlank() && !candidate.posterUrl.isNullOrBlank() ||
+        current.backdropUrl.isNullOrBlank() && !candidate.backdropUrl.isNullOrBlank()
+}
+
+private fun LibraryMediaMetadata.withFallbackDuration(fallbackDurationMs: Long?): LibraryMediaMetadata =
+    if ((durationMs == null || durationMs <= 0L) && (fallbackDurationMs ?: 0L) > 0L) {
+        copy(durationMs = fallbackDurationMs)
+    } else {
+        this
+    }
 
 private data class DownloadContentKeyStage33(
     val sourceId: String,
