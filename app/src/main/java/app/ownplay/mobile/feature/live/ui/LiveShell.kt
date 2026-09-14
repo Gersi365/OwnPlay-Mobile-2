@@ -368,6 +368,20 @@ fun LiveShell(
         }
     }
 
+    LaunchedEffect(
+        visibleChannels,
+        presentationState.presentation,
+        presentationState.selectedChannelId,
+    ) {
+        val selectedId = presentationState.selectedChannelId ?: return@LaunchedEffect
+        if (
+            presentationState.presentation == LivePresentation.PREVIEW &&
+            visibleChannels.none { it.channelId == selectedId }
+        ) {
+            dispatch(LiveIntent.BackPressed)
+        }
+    }
+
     BackHandler(enabled = presentationState.presentation != LivePresentation.BROWSE) {
         dispatch(LiveIntent.BackPressed)
     }
