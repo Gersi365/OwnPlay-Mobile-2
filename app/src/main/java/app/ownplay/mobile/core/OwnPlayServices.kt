@@ -9,6 +9,7 @@ import app.ownplay.mobile.data.prefs.SettingsPreferences
 import app.ownplay.mobile.data.security.CredentialStore
 import app.ownplay.mobile.data.security.KeystoreCredentialStore
 import app.ownplay.mobile.downloads.data.DownloadRepositoryImpl
+import app.ownplay.mobile.downloads.data.DownloadSourceRemovalCoordinator
 import app.ownplay.mobile.downloads.data.DownloadStreamResolver
 import app.ownplay.mobile.downloads.domain.DownloadRepository
 import app.ownplay.mobile.feature.library.data.LibraryDownloadMetadataResolver
@@ -123,13 +124,23 @@ class OwnPlayServices private constructor(
             m3uClient = OkHttpM3uClient(providerTransport),
             m3uParser = M3uParser(),
         )
-        SourceRepositoryImpl(
+        val delegate = SourceRepositoryImpl(
             database = database,
             sourceDao = database.sourceDao(),
             catalogDao = database.catalogDao(),
             activeSourcePreferences = activeSourcePreferences,
             credentialStore = credentialStore,
             catalogLoader = catalogLoader,
+        )
+        val removalCoordinator = DownloadSourceRemovalCoordinator(
+            context = applicationContext,
+            downloadDao = database.downloadDao(),
+            workManager = WorkManager.getInstance(applicationContext),
+        )
+        CoordinatedSourceRepository(
+            delegate = delegate,
+            captureSourceDownloads = removalCoordinator::captureDownloadIds,
+            cleanupSourceDownloads = removalCoordinator::cleanup,
         )
     }
 
