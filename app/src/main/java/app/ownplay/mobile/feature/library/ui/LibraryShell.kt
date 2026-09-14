@@ -56,11 +56,7 @@ fun LibraryShell(
     val scope = rememberCoroutineScope()
     val metadataOverrides = remember { mutableStateMapOf<String, LibraryMediaMetadata>() }
     val downloads = storedDownloads.map { item ->
-        if (item.metadata != null) {
-            item
-        } else {
-            metadataOverrides[item.downloadId]?.let { metadata -> item.copy(metadata = metadata) } ?: item
-        }
+        metadataOverrides[item.downloadId]?.let { metadata -> item.copy(metadata = metadata) } ?: item
     }
 
     val downloadsByContent = remember(downloads) {
