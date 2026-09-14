@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -28,6 +29,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
@@ -47,6 +49,9 @@ import app.ownplay.mobile.downloads.domain.DownloadRepository
 import app.ownplay.mobile.downloads.domain.DownloadState
 import app.ownplay.mobile.downloads.domain.DownloadStatePolicy
 import app.ownplay.mobile.downloads.ui.rememberDownloadPermissionDispatcher
+import app.ownplay.mobile.feature.library.domain.LibraryMediaKind
+import app.ownplay.mobile.feature.library.ui.LibraryRemoteArtwork
+import app.ownplay.mobile.feature.library.ui.formatLibraryDuration
 import kotlinx.coroutines.launch
 
 @Composable
@@ -139,7 +144,7 @@ fun DownloadManagementScreen(
             LazyColumn(
                 modifier = Modifier.weight(1f),
                 contentPadding = PaddingValues(horizontal = OwnPlaySpacing.Lg, vertical = OwnPlaySpacing.Sm),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
+                verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),
             ) {
                 items(downloads, key = { it.downloadId }) { item ->
                     DownloadManagementRow(
@@ -205,91 +210,126 @@ private fun DownloadManagementRow(
     onToggleLibraryVisibility: () -> Unit,
     onRemove: () -> Unit,
 ) {
+    val metadata = item.metadata
+    val artwork = metadata?.posterUrl ?: metadata?.backdropUrl
+    val displayTitle = metadata?.title?.takeIf { it.isNotBlank() } ?: item.title
+    val contextLine = downloadContext(item, displayTitle)
+    val factsLine = downloadFacts(item)
+
     Surface(
         modifier = Modifier.fillMaxWidth(),
         color = Color.Transparent,
         shape = OwnPlayShapeTokens.Small,
         tonalElevation = 0.dp,
     ) {
-        Row(
+        Column(
             modifier = Modifier.padding(vertical = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalAlignment = Alignment.CenterVertically,
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Box(
-                modifier = Modifier
-                    .width(2.dp)
-                    .height(48.dp)
-                    .background(
-                        color = when (item.state) {
-                            DownloadState.COMPLETED -> OwnPlayColors.Accent
-                            DownloadState.FAILED -> OwnPlayColors.AccentStrong.copy(alpha = 0.72f)
-                            else -> OwnPlayColors.Divider
-                        },
-                        shape = OwnPlayShapeTokens.Small,
-                    ),
-            )
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(3.dp),
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),
+                verticalAlignment = Alignment.Top,
             ) {
-                Text(
-                    text = item.title,
-                    style = MaterialTheme.typography.titleSmall,
-                    color = OwnPlayColors.TextPrimary,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 2,
+                LibraryRemoteArtwork(
+                    locator = artwork,
+                    contentDescription = "$displayTitle poster",
+                    modifier = Modifier
+                        .width(82.dp)
+                        .aspectRatio(2f / 3f)
+                        .clip(OwnPlayShapeTokens.Small),
                 )
-                Text(
-                    text = downloadStatus(item, hiddenFromLibrary),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (item.state == DownloadState.COMPLETED) {
-                        OwnPlayColors.Accent
-                    } else {
-                        OwnPlayColors.TextSecondary
-                    },
-                )
-                item.progressFraction
-                    ?.takeIf { item.state != DownloadState.COMPLETED }
-                    ?.let { progress ->
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(2.dp)
-                                .background(OwnPlayColors.Divider, OwnPlayShapeTokens.Small),
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth(progress)
-                                    .height(2.dp)
-                                    .background(OwnPlayColors.Accent, OwnPlayShapeTokens.Small),
-                            )
-                        }
-                    }
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(2.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
-                    DownloadManagementAction(
-                        text = primaryLabel(item.state),
-                        emphasized = item.state == DownloadState.COMPLETED ||
-                            item.state == DownloadState.PAUSED ||
-                            item.state == DownloadState.FAILED,
-                        onClick = onPrimary,
+                    Text(
+                        text = downloadEyebrow(item),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = when (item.state) {
+                            DownloadState.FAILED -> OwnPlayColors.AccentStrong
+                            else -> OwnPlayColors.Accent
+                        },
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
                     )
-                    if (item.state == DownloadState.COMPLETED) {
-                        DownloadManagementAction(
-                            text = if (hiddenFromLibrary) "Show in Library" else "Hide from Library",
-                            emphasized = false,
-                            onClick = onToggleLibraryVisibility,
+                    Text(
+                        text = displayTitle,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = OwnPlayColors.TextPrimary,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 2,
+                    )
+                    contextLine?.let { context ->
+                        Text(
+                            text = context,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = OwnPlayColors.TextSecondary,
+                            maxLines = 2,
                         )
                     }
+                    factsLine?.let { facts ->
+                        Text(
+                            text = facts,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = OwnPlayColors.TextMuted,
+                            maxLines = 1,
+                        )
+                    }
+                    Text(
+                        text = downloadStatus(item, hiddenFromLibrary),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (item.state == DownloadState.COMPLETED) {
+                            OwnPlayColors.Accent
+                        } else {
+                            OwnPlayColors.TextSecondary
+                        },
+                    )
+                    item.progressFraction
+                        ?.takeIf { item.state != DownloadState.COMPLETED }
+                        ?.let { progress ->
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(2.dp)
+                                    .background(OwnPlayColors.Divider, OwnPlayShapeTokens.Small),
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth(progress)
+                                        .height(2.dp)
+                                        .background(OwnPlayColors.Accent, OwnPlayShapeTokens.Small),
+                                )
+                            }
+                        }
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                DownloadManagementAction(
+                    text = primaryLabel(item),
+                    emphasized = true,
+                    modifier = Modifier.weight(1f),
+                    onClick = onPrimary,
+                )
+                if (item.state == DownloadState.COMPLETED) {
                     DownloadManagementAction(
-                        text = "Delete",
+                        text = if (hiddenFromLibrary) "Show" else "Hide",
                         emphasized = false,
-                        onClick = onRemove,
+                        modifier = Modifier.weight(1f),
+                        onClick = onToggleLibraryVisibility,
                     )
                 }
+                DownloadManagementAction(
+                    text = "Delete",
+                    emphasized = false,
+                    modifier = Modifier.weight(1f),
+                    onClick = onRemove,
+                )
             }
         }
     }
@@ -299,34 +339,79 @@ private fun DownloadManagementRow(
 private fun DownloadManagementAction(
     text: String,
     emphasized: Boolean,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
     Surface(
         onClick = onClick,
-        modifier = Modifier.heightIn(min = 48.dp),
-        color = if (emphasized) OwnPlayColors.Accent.copy(alpha = 0.10f) else Color.Transparent,
+        modifier = modifier.heightIn(min = 48.dp),
+        color = if (emphasized) OwnPlayColors.AccentStrong else OwnPlayColors.SurfaceElevated,
         shape = OwnPlayShapeTokens.Small,
         tonalElevation = 0.dp,
     ) {
         Box(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 10.dp, vertical = 8.dp),
             contentAlignment = Alignment.Center,
         ) {
             Text(
                 text = text,
                 style = MaterialTheme.typography.labelLarge,
-                color = if (emphasized) OwnPlayColors.Accent else OwnPlayColors.TextMuted,
+                color = if (emphasized) Color.White else OwnPlayColors.TextSecondary,
+                fontWeight = if (emphasized) FontWeight.SemiBold else FontWeight.Medium,
                 maxLines = 1,
             )
         }
     }
 }
 
-private fun primaryLabel(state: DownloadState): String = when (state) {
-    DownloadState.DOWNLOADING, DownloadState.QUEUED -> "Pause"
-    DownloadState.PAUSED -> "Resume"
-    DownloadState.FAILED -> "Retry"
-    DownloadState.COMPLETED -> "Open"
+private fun primaryLabel(item: DownloadItem): String = when (DownloadStatePolicy.primaryAction(item)) {
+    DownloadAction.PLAY_OFFLINE -> "Play offline"
+    DownloadAction.RESUME_OFFLINE -> "Resume"
+    DownloadAction.PAUSE -> "Pause"
+    DownloadAction.RESUME -> "Resume"
+    DownloadAction.RETRY -> "Retry"
+    DownloadAction.DOWNLOAD -> "Download"
+    DownloadAction.REMOVE -> "Delete"
+}
+
+private fun downloadEyebrow(item: DownloadItem): String {
+    val kind = when (item.mediaKind) {
+        LibraryMediaKind.MOVIE -> "MOVIE"
+        LibraryMediaKind.EPISODE -> "EPISODE"
+    }
+    val state = when (item.state) {
+        DownloadState.QUEUED -> "QUEUED"
+        DownloadState.DOWNLOADING -> "DOWNLOADING"
+        DownloadState.PAUSED -> "PAUSED"
+        DownloadState.FAILED -> "NEEDS ATTENTION"
+        DownloadState.COMPLETED -> "OFFLINE"
+    }
+    return "$kind • $state"
+}
+
+private fun downloadContext(item: DownloadItem, displayTitle: String): String? {
+    if (item.mediaKind != LibraryMediaKind.EPISODE) return null
+    val seriesName = item.title
+        .substringBefore(" • ", missingDelimiterValue = "")
+        .trim()
+        .takeIf { it.isNotBlank() && !it.equals(displayTitle, ignoreCase = true) }
+    val episodeCode = EpisodeCodePattern.find(item.title)
+        ?.value
+        ?.uppercase()
+    return listOfNotNull(seriesName, episodeCode)
+        .joinToString(" • ")
+        .takeIf { it.isNotBlank() }
+}
+
+private fun downloadFacts(item: DownloadItem): String? {
+    val metadata = item.metadata ?: return null
+    return buildList {
+        metadata.releaseDate?.trim()?.takeIf { it.isNotBlank() }?.let(::add)
+        metadata.rating?.trim()?.takeIf { it.isNotBlank() }?.let { add("★ $it") }
+        metadata.durationMs?.takeIf { it > 0L }?.let { add(formatLibraryDuration(it)) }
+    }.joinToString(" • ").takeIf { it.isNotBlank() }
 }
 
 private fun downloadStatus(item: DownloadItem, hiddenFromLibrary: Boolean): String {
@@ -344,3 +429,5 @@ private fun downloadStatus(item: DownloadItem, hiddenFromLibrary: Boolean): Stri
         DownloadState.COMPLETED -> "Downloaded$libraryVisibility"
     }
 }
+
+private val EpisodeCodePattern = Regex("S\\d{1,2}E\\d{1,3}", RegexOption.IGNORE_CASE)
