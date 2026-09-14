@@ -164,6 +164,9 @@ internal class DownloadRepositoryImpl(
             ?: return failure("DOWNLOAD_NOT_FOUND", "This download no longer exists.")
         val mediaKind = runCatching { LibraryMediaKind.valueOf(row.mediaKind.uppercase(Locale.US)) }.getOrNull()
             ?: return failure("INVALID_MEDIA_KIND", "This download cannot be restarted.")
+        if (row.state.toDownloadStateOrNull() != DownloadState.COMPLETED) {
+            return invalidState(downloadId, "restart")
+        }
         if (!contentBelongsToSource(row.sourceId, mediaKind, row.contentId)) {
             return failure("MEDIA_UNAVAILABLE", "This item is no longer available from the Library source.")
         }
@@ -174,26 +177,14 @@ internal class DownloadRepositoryImpl(
         workManager.cancelUniqueWork(workName(downloadId)).await()
         fileStore.delete(row)
         row.localReference?.takeIf(publicFileStore::handles)?.let(publicFileStore::delete)
-        val reset = row.copy(
-            state = DownloadState.QUEUED.name,
-            bytesDownloaded = 0L,
-            totalBytes = null,
-            localReference = null,
-            integrityMetadata = null,
-            failureReason = null,
-            updatedAt = nowMillis(),
-        )
-        return try {
-            downloadDao.delete(downloadId)
-            downloadDao.insert(reset)
-            schedule(downloadId)
-            DownloadOperationResult.Success(reset.toDomainOrNull())
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (_: Exception) {
-            downloadDao.failIfRunnable(downloadId, "SCHEDULER", nowMillis())
-            failure("DOWNLOAD_SCHEDULE_FAILED", "The download could not be restarted.")
+        val now = nowMillis()
+        if (downloadDao.markCompletedIntegrityFailure(downloadId, now) == 0) {
+            return invalidState(downloadId, "restart")
         }
+        if (downloadDao.queueIfFailed(downloadId, nowMillis()) == 0) {
+            return invalidState(downloadId, "restart")
+        }
+        return scheduleAndReturn(downloadId)
     }
 
     override suspend fun pause(downloadId: String): DownloadOperationResult {
@@ -288,6 +279,10 @@ internal class DownloadRepositoryImpl(
         }
         if (downloadDao.markDownloadingIfRunnable(downloadId, nowMillis()) == 0) return@withLock DownloadWorkResult.NO_OP
         val row = downloadDao.get(downloadId) ?: return@withLock DownloadWorkResult.NO_OP
+        val initialPartialBytes = fileStore.partialFile(downloadId).takeIf { it.isFile }?.length()?.coerceAtLeast(0L) ?: 0L
+        if (downloadDao.updateProgressIfDownloading(downloadId, initialPartialBytes, null, nowMillis()) == 0) {
+            return@withLock DownloadWorkResult.NO_OP
+        }
 
         val completedFile = fileStore.finalFile(downloadId)
         if (completedFile.isFile && completedFile.length() > 0L) {
@@ -404,7 +399,7 @@ internal class DownloadRepositoryImpl(
                         TransferResult.TransientFailure
                     } else TransferResult.FatalFailure("HTTP_${httpResponse.code}")
                 }
-                val body = httpResponse.body ?: return@withContext TransferResult.FatalFailure("EMPTY_RESPONSE")
+                val body = httpResponse.body
                 val append = resumeOffset > 0L && httpResponse.code == 206
                 if (!append && resumeOffset > 0L) {
                     partial.delete()
