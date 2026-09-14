@@ -28,4 +28,32 @@ class LiveGuidePolicyTest {
         assertNull(guide.now)
         assertEquals("Upcoming", guide.next?.title)
     }
+
+    @Test
+    fun `past timed guide does not become current through list-order fallback`() {
+        val guide = LiveGuidePolicy.nowNext(
+            programs = listOf(
+                LiveProgram("Old one", 600, 800),
+                LiveProgram("Old two", 800, 950),
+            ),
+            nowEpochSeconds = 1_000,
+        )
+
+        assertNull(guide.now)
+        assertNull(guide.next)
+    }
+
+    @Test
+    fun `timestamp-less provider guide uses list order`() {
+        val guide = LiveGuidePolicy.nowNext(
+            programs = listOf(
+                LiveProgram("Provider first", null, null),
+                LiveProgram("Provider second", null, null),
+            ),
+            nowEpochSeconds = 1_000,
+        )
+
+        assertEquals("Provider first", guide.now?.title)
+        assertEquals("Provider second", guide.next?.title)
+    }
 }
