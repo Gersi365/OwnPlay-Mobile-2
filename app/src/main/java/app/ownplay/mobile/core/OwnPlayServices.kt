@@ -8,6 +8,7 @@ import app.ownplay.mobile.data.prefs.LibraryVisibilityPreferences
 import app.ownplay.mobile.data.prefs.SettingsPreferences
 import app.ownplay.mobile.data.security.CredentialStore
 import app.ownplay.mobile.data.security.KeystoreCredentialStore
+import app.ownplay.mobile.design.OwnPlayRemoteImageLoader
 import app.ownplay.mobile.downloads.data.DownloadRepositoryImpl
 import app.ownplay.mobile.downloads.data.DownloadSourceRemovalCoordinator
 import app.ownplay.mobile.downloads.data.DownloadStreamResolver
@@ -92,6 +93,13 @@ class OwnPlayServices private constructor(
         }
     }
 
+    private val imageHttpDispatcher: Dispatcher by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        Dispatcher().apply {
+            maxRequests = MAX_IMAGE_REQUESTS
+            maxRequestsPerHost = MAX_IMAGE_REQUESTS_PER_HOST
+        }
+    }
+
     private val httpClient: OkHttpClient by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         OkHttpClient.Builder()
             .dispatcher(providerHttpDispatcher)
@@ -110,12 +118,25 @@ class OwnPlayServices private constructor(
             .build()
     }
 
+    private val imageHttpClient: OkHttpClient by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        httpClient.newBuilder()
+            .dispatcher(imageHttpDispatcher)
+            .connectTimeout(4, TimeUnit.SECONDS)
+            .readTimeout(5, TimeUnit.SECONDS)
+            .callTimeout(10, TimeUnit.SECONDS)
+            .build()
+    }
+
     private val providerTransport: ProviderHttpTransport by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         ProviderHttpTransport(httpClient)
     }
 
     private val xtreamClient: XtreamClient by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         OkHttpXtreamClient(providerTransport)
+    }
+
+    init {
+        OwnPlayRemoteImageLoader.configure(imageHttpClient)
     }
 
     val sourceRepository: SourceRepository by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
@@ -191,6 +212,8 @@ class OwnPlayServices private constructor(
         private const val MAX_PROVIDER_REQUESTS_PER_HOST = 4
         private const val MAX_DOWNLOAD_REQUESTS = 4
         private const val MAX_DOWNLOAD_REQUESTS_PER_HOST = 2
+        private const val MAX_IMAGE_REQUESTS = 6
+        private const val MAX_IMAGE_REQUESTS_PER_HOST = 4
 
         fun create(context: Context): OwnPlayServices = OwnPlayServices(context)
     }
