@@ -21,8 +21,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -49,7 +51,9 @@ import app.ownplay.mobile.downloads.domain.DownloadRepository
 import app.ownplay.mobile.downloads.domain.DownloadState
 import app.ownplay.mobile.downloads.domain.DownloadStatePolicy
 import app.ownplay.mobile.downloads.ui.rememberDownloadPermissionDispatcher
+import app.ownplay.mobile.feature.library.data.LibraryDownloadMetadataResolver
 import app.ownplay.mobile.feature.library.domain.LibraryMediaKind
+import app.ownplay.mobile.feature.library.domain.LibraryMediaMetadata
 import app.ownplay.mobile.feature.library.ui.LibraryRemoteArtwork
 import app.ownplay.mobile.feature.library.ui.formatLibraryDuration
 import kotlinx.coroutines.launch
@@ -57,13 +61,19 @@ import kotlinx.coroutines.launch
 @Composable
 fun DownloadManagementScreen(
     downloadRepository: DownloadRepository,
+    downloadMetadataResolver: LibraryDownloadMetadataResolver,
     libraryVisibilityPreferences: LibraryVisibilityPreferences,
     onPlayOffline: (String) -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val downloadsFlow = remember(downloadRepository) { downloadRepository.observeDownloads() }
-    val downloads by downloadsFlow.collectAsState(initial = emptyList())
+    val storedDownloads by downloadsFlow.collectAsState(initial = emptyList())
+    val metadataOverrides = remember { mutableStateMapOf<String, LibraryMediaMetadata>() }
+    val metadataBackfillAttempted = remember { mutableSetOf<String>() }
+    val downloads = storedDownloads.map { item ->
+        metadataOverrides[item.downloadId]?.let { metadata -> item.copy(metadata = metadata) } ?: item
+    }
     val visibilityFlow = remember(libraryVisibilityPreferences) { libraryVisibilityPreferences.visibility }
     val visibility by visibilityFlow.collectAsState(initial = LibraryVisibilitySnapshot())
     val scope = rememberCoroutineScope()
@@ -73,6 +83,28 @@ fun DownloadManagementScreen(
         onBlocked = { message -> errorMessage = message },
     )
     BackHandler(onBack = onBack)
+
+    LaunchedEffect(storedDownloads) {
+        val activeIds = storedDownloads.mapTo(mutableSetOf()) { it.downloadId }
+        metadataOverrides.keys.toList().filterNot(activeIds::contains).forEach(metadataOverrides::remove)
+        metadataBackfillAttempted.retainAll(activeIds)
+
+        storedDownloads.forEach { item ->
+            if (item.metadata != null) {
+                metadataOverrides.remove(item.downloadId)
+                return@forEach
+            }
+            if (!metadataBackfillAttempted.add(item.downloadId)) return@forEach
+
+            val metadata = downloadMetadataResolver.resolve(
+                sourceId = item.sourceId,
+                mediaKind = item.mediaKind,
+                contentId = item.contentId,
+            ) ?: return@forEach
+            metadataOverrides[item.downloadId] = metadata
+            downloadRepository.saveMetadata(item.downloadId, metadata)
+        }
+    }
 
     pendingRemoval?.let { item ->
         OwnPlayModal(
