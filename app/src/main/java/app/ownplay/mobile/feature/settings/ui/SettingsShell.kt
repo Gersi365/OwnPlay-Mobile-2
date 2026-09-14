@@ -182,13 +182,13 @@ private fun MainSettings(
         OwnPlayTopBar(showTagline = true)
         Column(
             modifier = Modifier.padding(horizontal = OwnPlaySpacing.Lg),
-            verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Xl),
+            verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Lg),
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text("Settings", style = MaterialTheme.typography.headlineMedium, color = OwnPlayColors.TextPrimary)
                 Text(
                     "Personalize your viewing experience",
-                    style = MaterialTheme.typography.bodyLarge,
+                    style = MaterialTheme.typography.bodyMedium,
                     color = OwnPlayColors.TextSecondary,
                 )
             }
@@ -304,17 +304,17 @@ private fun ProviderRefreshIntervalChooser(
 ) {
     OwnPlayPanel(modifier = Modifier.fillMaxWidth()) {
         Column(
-            modifier = Modifier.padding(OwnPlaySpacing.Lg),
+            modifier = Modifier.padding(OwnPlaySpacing.Md),
             verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm),
         ) {
             Text(
                 "Provider refresh interval",
-                style = MaterialTheme.typography.titleMedium,
+                style = MaterialTheme.typography.titleSmall,
                 color = OwnPlayColors.TextPrimary,
             )
             Text(
                 "Choose when OwnPlay should refresh configured providers automatically.",
-                style = MaterialTheme.typography.bodyMedium,
+                style = MaterialTheme.typography.bodySmall,
                 color = OwnPlayColors.TextSecondary,
             )
             ProviderRefreshInterval.values().forEach { interval ->
@@ -328,12 +328,12 @@ private fun ProviderRefreshIntervalChooser(
                     Text(
                         text = if (interval == selected) "●" else "○",
                         modifier = Modifier.width(28.dp),
-                        style = MaterialTheme.typography.titleMedium,
+                        style = MaterialTheme.typography.titleSmall,
                         color = if (interval == selected) OwnPlayColors.Accent else OwnPlayColors.TextMuted,
                     )
                     Text(
                         interval.summary,
-                        style = MaterialTheme.typography.bodyLarge,
+                        style = MaterialTheme.typography.bodyMedium,
                         color = OwnPlayColors.TextPrimary,
                     )
                 }
@@ -349,29 +349,34 @@ private fun SettingsSection(
     marker: String,
     rows: List<SettingRowModel>,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm)) {
+    Column(verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Xs)) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(
                 modifier = Modifier
-                    .size(32.dp)
+                    .size(24.dp)
                     .clip(OwnPlayShapeTokens.Small)
-                    .background(OwnPlayColors.Accent.copy(alpha = 0.10f)),
+                    .background(OwnPlayColors.Accent.copy(alpha = 0.08f)),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
                     marker,
-                    style = MaterialTheme.typography.labelLarge,
+                    style = MaterialTheme.typography.labelMedium,
                     color = OwnPlayColors.Accent,
-                    fontWeight = FontWeight.Bold,
+                    fontWeight = FontWeight.SemiBold,
                 )
             }
-            Spacer(modifier = Modifier.width(OwnPlaySpacing.Md))
+            Spacer(modifier = Modifier.width(OwnPlaySpacing.Sm))
             Column(modifier = Modifier.weight(1f)) {
-                Text(title, style = MaterialTheme.typography.titleMedium, color = OwnPlayColors.TextPrimary)
-                Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = OwnPlayColors.TextMuted)
+                Text(
+                    title,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = OwnPlayColors.TextPrimary,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(subtitle, style = MaterialTheme.typography.bodySmall, color = OwnPlayColors.TextMuted)
             }
         }
         OwnPlayPanel(modifier = Modifier.fillMaxWidth()) {
@@ -396,12 +401,17 @@ private fun SettingRow(row: SettingRowModel) {
         modifier = Modifier
             .fillMaxWidth()
             .then(interactionModifier)
-            .padding(vertical = 10.dp),
+            .padding(vertical = OwnPlaySpacing.Sm),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(modifier = Modifier.weight(1f)) {
-            Text(row.title, style = MaterialTheme.typography.bodyLarge, color = OwnPlayColors.TextPrimary)
-            Text(row.summary, style = MaterialTheme.typography.bodyMedium, color = OwnPlayColors.TextSecondary)
+            Text(
+                row.title,
+                style = MaterialTheme.typography.bodyMedium,
+                color = OwnPlayColors.TextPrimary,
+                fontWeight = FontWeight.Medium,
+            )
+            Text(row.summary, style = MaterialTheme.typography.bodySmall, color = OwnPlayColors.TextSecondary)
         }
         Spacer(modifier = Modifier.width(OwnPlaySpacing.Md))
         when (val trailing = row.trailing) {
