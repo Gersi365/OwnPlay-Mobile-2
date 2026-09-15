@@ -293,6 +293,33 @@ internal fun DownloadedMediaDetailStage33(
         availability == OfflineAvailability.MISSING -> { { onPlayFromLibrary(primaryMode) } }
         else -> null
     }
+    var downloadPermissionMessage by remember(item.downloadId) { mutableStateOf<String?>(null) }
+    val downloadPermissionDispatcher = rememberDownloadPermissionDispatcher(
+        onBlocked = { message -> downloadPermissionMessage = message },
+    )
+    val downloadAction = if (item.state != DownloadState.COMPLETED) {
+        DownloadStatePolicy.primaryAction(item)
+    } else {
+        null
+    }
+    val heroOfflineActionLabel = when {
+        downloadAction != null -> offlineActionLabelStage33(downloadAction)
+        availability == OfflineAvailability.MISSING -> "Download again"
+        else -> null
+    }
+    val heroOfflineStatus = downloadPermissionMessage ?: downloadedMediaStatusStage33(item, availability)
+    val heroOfflineAction: (() -> Unit)? = when {
+        downloadAction != null -> {
+            {
+                downloadPermissionMessage = null
+                downloadPermissionDispatcher(downloadAction) { allowedAction ->
+                    onDownloadAction(allowedAction)
+                }
+            }
+        }
+        availability == OfflineAvailability.MISSING -> onRedownload
+        else -> null
+    }
 
     Column(
         modifier = modifier
@@ -301,10 +328,13 @@ internal fun DownloadedMediaDetailStage33(
     ) {
         LibraryDetailHeroStage33(
             metadata = metadata,
-            label = if (item.mediaKind.name == "MOVIE") "DOWNLOADED MOVIE" else "DOWNLOADED EPISODE",
+            label = if (item.mediaKind.name == "MOVIE") "MOVIE" else "EPISODE",
             favorite = null,
             playLabel = playLabel,
             onPlay = primaryAction,
+            offlineActionLabel = heroOfflineActionLabel,
+            offlineStatus = heroOfflineStatus,
+            onOfflineAction = heroOfflineAction,
             onFavoriteToggle = null,
             onBack = onBack,
         )
@@ -320,82 +350,29 @@ internal fun DownloadedMediaDetailStage33(
                     tone = LibraryStateTone.ERROR,
                 )
             }
-            when {
-                item.state != DownloadState.COMPLETED -> {
-                    LibraryShelfState(
-                        title = "Offline copy is being prepared",
-                        message = "The metadata stays available while the media file is queued, downloading, paused, or awaiting retry.",
-                        tone = if (item.state == DownloadState.FAILED) LibraryStateTone.WARNING else LibraryStateTone.LOADING,
-                    )
-                    DownloadControls(item = item, onAction = onDownloadAction, compact = false)
-                }
-                availability == null -> LibraryShelfState(
-                    title = "Checking offline copy",
-                    message = "Verifying the downloaded media file.",
-                    tone = LibraryStateTone.LOADING,
-                )
-                availability == OfflineAvailability.MISSING -> {
-                    LibraryShelfState(
-                        title = "Not available offline",
-                        message = "The downloaded video file is no longer available, but OwnPlay kept its poster, metadata, and playback history.",
-                        tone = LibraryStateTone.WARNING,
-                    )
-                    LibraryPrimaryAction(
-                        text = "Download again",
-                        onClick = onRedownload,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    LibrarySecondaryAction(
-                        text = if (primaryMode == LibraryStartMode.RESUME) "Resume from Library" else "Play from Library",
-                        onClick = { onPlayFromLibrary(primaryMode) },
-                        modifier = Modifier.fillMaxWidth(),
-                        glyph = startModeGlyphStage33(primaryMode),
-                    )
-                    startActions.secondary?.let { secondary ->
-                        LibrarySecondaryAction(
-                            text = if (secondary == LibraryStartMode.RESUME) {
-                                "Resume from Library"
-                            } else {
-                                "Play from beginning"
-                            },
-                            onClick = { onPlayFromLibrary(secondary) },
-                            modifier = Modifier.fillMaxWidth(0.72f),
-                            glyph = startModeGlyphStage33(secondary),
-                        )
+            if (item.state == DownloadState.COMPLETED) {
+                startActions.secondary?.let { secondary ->
+                    val onSecondaryPlay = when (availability) {
+                        OfflineAvailability.AVAILABLE -> { { onPlayOffline(secondary) } }
+                        OfflineAvailability.MISSING -> { { onPlayFromLibrary(secondary) } }
+                        else -> null
                     }
-                    LibrarySecondaryAction(
-                        text = "Remove",
-                        onClick = onRemove,
-                        modifier = Modifier.fillMaxWidth(),
-                        glyph = LibraryActionGlyph.DISMISS,
-                    )
-                }
-                availability == OfflineAvailability.AVAILABLE -> {
-                    Text(
-                        text = "Available offline",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = OwnPlayColors.Accent,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    startActions.secondary?.let { secondary ->
+                    onSecondaryPlay?.let { action ->
                         LibrarySecondaryAction(
                             text = secondaryStartLabelStage33(secondary),
-                            onClick = { onPlayOffline(secondary) },
+                            onClick = action,
                             modifier = Modifier.fillMaxWidth(0.62f),
                             glyph = startModeGlyphStage33(secondary),
                         )
                     }
-                    LibrarySecondaryAction(
-                        text = "Remove download",
-                        onClick = onRemove,
-                        modifier = Modifier.fillMaxWidth(0.56f),
-                        glyph = LibraryActionGlyph.DISMISS,
-                    )
-                }
-                else -> {
-                    DownloadControls(item = item, onAction = onDownloadAction, compact = false)
                 }
             }
+            LibrarySecondaryAction(
+                text = "Remove download",
+                onClick = onRemove,
+                modifier = Modifier.fillMaxWidth(0.56f),
+                glyph = LibraryActionGlyph.DISMISS,
+            )
             Spacer(modifier = Modifier.height(OwnPlaySpacing.Xl))
         }
     }
@@ -514,14 +491,14 @@ private fun LibraryDetailHeroStage33(
                         onClick = onOfflineAction,
                         modifier = Modifier.fillMaxWidth(),
                     )
-                    offlineStatus?.let { status ->
-                        Text(
-                            text = status,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = OwnPlayColors.TextSecondary,
-                            maxLines = 2,
-                        )
-                    }
+                }
+                offlineStatus?.let { status ->
+                    Text(
+                        text = status,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = OwnPlayColors.TextSecondary,
+                        maxLines = 2,
+                    )
                 }
                 if (onPlay != null && playLabel == "Resume") {
                     Text(
@@ -708,6 +685,17 @@ private fun offlineStatusStage33(item: DownloadItem?): String = when (item?.stat
     } else {
         "Available offline."
     }
+}
+
+private fun downloadedMediaStatusStage33(
+    item: DownloadItem,
+    availability: OfflineAvailability?,
+): String = when {
+    item.state != DownloadState.COMPLETED -> offlineStatusStage33(item)
+    availability == null -> "Checking offline availability."
+    availability == OfflineAvailability.AVAILABLE -> offlineStatusStage33(item)
+    availability == OfflineAvailability.MISSING -> "Offline copy missing • streaming from Library is still available."
+    else -> "Preparing offline copy."
 }
 
 private fun startModeGlyphStage33(mode: LibraryStartMode): LibraryActionGlyph =

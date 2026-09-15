@@ -657,18 +657,20 @@ private fun DownloadedRowStage33(
         ) {
             items(items, key = { it.downloadId }) { item ->
                 val mediaLabel = item.mediaKind.name
-                val stateLabel = when (item.state) {
-                    DownloadState.COMPLETED -> "OFFLINE"
-                    DownloadState.DOWNLOADING -> "DOWNLOADING"
-                    DownloadState.QUEUED -> "QUEUED"
-                    DownloadState.PAUSED -> "PAUSED"
-                    DownloadState.FAILED -> "NEEDS ATTENTION"
+                val eyebrow = when (item.state) {
+                    DownloadState.COMPLETED -> item.metadata?.rating?.takeIf(String::isNotBlank)
+                        ?.let { "★ $it" }
+                        ?: mediaLabel
+                    DownloadState.DOWNLOADING -> "$mediaLabel • DOWNLOADING"
+                    DownloadState.QUEUED -> "$mediaLabel • QUEUED"
+                    DownloadState.PAUSED -> "$mediaLabel • PAUSED"
+                    DownloadState.FAILED -> "$mediaLabel • NEEDS ATTENTION"
                 }
                 val displayTitle = item.metadata?.title ?: item.title
                 PosterCardStage33(
                     title = displayTitle,
                     artworkUrl = item.metadata?.posterUrl ?: item.metadata?.backdropUrl,
-                    eyebrow = "$mediaLabel • $stateLabel",
+                    eyebrow = eyebrow,
                     cardWidth = posterWidth,
                     onClick = { onSelected(item) },
                 )
