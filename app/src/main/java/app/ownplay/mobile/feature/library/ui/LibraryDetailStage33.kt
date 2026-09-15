@@ -16,6 +16,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -45,6 +47,7 @@ import app.ownplay.mobile.downloads.ui.DownloadControls
 import app.ownplay.mobile.downloads.ui.rememberDownloadPermissionDispatcher
 import app.ownplay.mobile.feature.library.domain.LibraryDetailStartPolicy
 import app.ownplay.mobile.feature.library.domain.LibraryEpisode
+import app.ownplay.mobile.feature.library.domain.LibraryMediaKind
 import app.ownplay.mobile.feature.library.domain.LibraryMediaMetadata
 import app.ownplay.mobile.feature.library.domain.LibraryMovie
 import app.ownplay.mobile.feature.library.domain.LibraryMovieDetail
@@ -177,6 +180,11 @@ internal fun SeriesDetailStage33(
     val visibleEpisodes = selectedSeasonNumber?.let { selected ->
         episodes.filter { it.seasonNumber == selected }
     } ?: episodes
+    val initialEpisodeBringIntoView = remember(series.seriesId, initialEpisodeId) { BringIntoViewRequester() }
+    LaunchedEffect(initialEpisodeId, selectedSeasonNumber, visibleEpisodes) {
+        val targetVisible = initialEpisodeId != null && visibleEpisodes.any { it.episodeId == initialEpisodeId }
+        if (targetVisible) initialEpisodeBringIntoView.bringIntoView()
+    }
     val primaryEpisode = episodes.firstOrNull { it.resumePositionMs != null } ?: episodes.firstOrNull()
     val primaryActions = LibraryDetailStartPolicy.actions(
         hasProgress = primaryEpisode?.resumePositionMs != null,
@@ -258,6 +266,11 @@ internal fun SeriesDetailStage33(
                         EpisodeRowStage33(
                             episode = episode,
                             downloadItem = item,
+                            modifier = if (episode.episodeId == initialEpisodeId) {
+                                Modifier.bringIntoViewRequester(initialEpisodeBringIntoView)
+                            } else {
+                                Modifier
+                            },
                             preferResume = preferResume,
                             onPlay = { mode -> onEpisodePlay(episode, mode) },
                             onDownloadAction = { action ->
@@ -588,6 +601,7 @@ private fun EpisodeRowStage33(
     preferResume: Boolean,
     onPlay: (LibraryStartMode) -> Unit,
     onDownloadAction: (DownloadAction) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val hasProgress = episode.resumePositionMs != null
     val actions = LibraryDetailStartPolicy.actions(
@@ -596,7 +610,7 @@ private fun EpisodeRowStage33(
     )
     val displayTitle = episodeDisplayTitleStage33(episode)
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .padding(vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
