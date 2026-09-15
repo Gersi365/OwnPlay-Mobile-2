@@ -101,15 +101,22 @@ class SourceRepositoryImpl(
         }
 
         return try {
+            val priorSelectedSourceId = activeSourcePreferences.currentSelectedSourceId()
             credentialStore.put(sourceId, prepared.credential)
             try {
                 sourceDao.insert(prepared.entity)
+                if (priorSelectedSourceId == null) {
+                    try {
+                        activeSourcePreferences.setSelectedSourceId(sourceId)
+                    } catch (exception: Exception) {
+                        runCatching { sourceDao.delete(sourceId) }
+                        runCatching { credentialStore.remove(sourceId) }
+                        throw exception
+                    }
+                }
             } catch (exception: Exception) {
                 runCatching { credentialStore.remove(sourceId) }
                 throw exception
-            }
-            if (activeSourcePreferences.currentSelectedSourceId() == null) {
-                activeSourcePreferences.setSelectedSourceId(sourceId)
             }
             SourceResult.Success(prepared.entity.toDomain())
         } catch (_: Exception) {
@@ -189,18 +196,29 @@ class SourceRepositoryImpl(
         }
 
         return try {
-            credentialStore.remove(sourceId)
-            try {
-                sourceDao.delete(sourceId)
-            } catch (exception: Exception) {
-                if (priorCredential != null) runCatching { credentialStore.put(sourceId, priorCredential) }
-                throw exception
-            }
-
-            if (activeSourcePreferences.currentSelectedSourceId() == sourceId) {
-                val remaining = sourceDao.getAll().map { entity -> entity.toDomain() }
+            val priorSelectedSourceId = activeSourcePreferences.currentSelectedSourceId()
+            val removingActiveSource = priorSelectedSourceId == sourceId
+            if (removingActiveSource) {
+                val remaining = sourceDao.getAll()
+                    .filterNot { entity -> entity.sourceId == sourceId }
+                    .map { entity -> entity.toDomain() }
                 val fallback = SourceSelectionPolicy.resolve(null, remaining)
                 activeSourcePreferences.setSelectedSourceId(fallback?.sourceId)
+            }
+
+            try {
+                credentialStore.remove(sourceId)
+                try {
+                    sourceDao.delete(sourceId)
+                } catch (exception: Exception) {
+                    if (priorCredential != null) runCatching { credentialStore.put(sourceId, priorCredential) }
+                    throw exception
+                }
+            } catch (exception: Exception) {
+                if (removingActiveSource) {
+                    runCatching { activeSourcePreferences.setSelectedSourceId(sourceId) }
+                }
+                throw exception
             }
             SourceResult.Success(Unit)
         } catch (_: Exception) {
