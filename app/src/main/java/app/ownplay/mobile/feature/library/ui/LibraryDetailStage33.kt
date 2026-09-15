@@ -95,6 +95,7 @@ internal fun MovieDetailStage33(
             playLabel = playLabel,
             onPlay = playAction,
             offlineActionLabel = offlineActionLabel,
+            offlineActionGlyph = offlineActionGlyphStage33(offlineAction),
             offlineStatus = offlineStatus,
             onOfflineAction = {
                 downloadPermissionMessage = null
@@ -308,6 +309,11 @@ internal fun DownloadedMediaDetailStage33(
         else -> null
     }
     val heroOfflineStatus = downloadPermissionMessage ?: downloadedMediaStatusStage33(item, availability)
+    val heroOfflineActionGlyph = when {
+        downloadAction != null -> offlineActionGlyphStage33(downloadAction)
+        availability == OfflineAvailability.MISSING -> LibraryActionGlyph.DOWNLOAD
+        else -> null
+    }
     val heroOfflineAction: (() -> Unit)? = when {
         downloadAction != null -> {
             {
@@ -333,6 +339,7 @@ internal fun DownloadedMediaDetailStage33(
             playLabel = playLabel,
             onPlay = primaryAction,
             offlineActionLabel = heroOfflineActionLabel,
+            offlineActionGlyph = heroOfflineActionGlyph,
             offlineStatus = heroOfflineStatus,
             onOfflineAction = heroOfflineAction,
             onFavoriteToggle = null,
@@ -386,6 +393,7 @@ private fun LibraryDetailHeroStage33(
     playLabel: String,
     onPlay: (() -> Unit)?,
     offlineActionLabel: String? = null,
+    offlineActionGlyph: LibraryActionGlyph? = null,
     offlineStatus: String? = null,
     onOfflineAction: (() -> Unit)? = null,
     onFavoriteToggle: (() -> Unit)?,
@@ -486,10 +494,17 @@ private fun LibraryDetailHeroStage33(
                     maxLines = 3,
                 )
                 if (offlineActionLabel != null && onOfflineAction != null) {
-                    LibrarySecondaryAction(
+                    Text(
+                        text = "OFFLINE",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = OwnPlayColors.TextMuted,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    LibraryPrimaryAction(
                         text = offlineActionLabel,
                         onClick = onOfflineAction,
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.fillMaxWidth(0.82f),
+                        glyph = offlineActionGlyph,
                     )
                 }
                 offlineStatus?.let { status ->
@@ -661,6 +676,18 @@ private fun startModeLabelStage33(mode: LibraryStartMode): String =
 
 private fun secondaryStartLabelStage33(mode: LibraryStartMode): String =
     if (mode == LibraryStartMode.RESUME) "Resume" else "Play from beginning"
+
+
+private fun offlineActionGlyphStage33(action: DownloadAction): LibraryActionGlyph = when (action) {
+    DownloadAction.DOWNLOAD -> LibraryActionGlyph.DOWNLOAD
+    DownloadAction.PAUSE -> LibraryActionGlyph.PAUSE
+    DownloadAction.RESUME -> LibraryActionGlyph.DOWNLOAD
+    DownloadAction.RETRY -> LibraryActionGlyph.RETRY
+    DownloadAction.REMOVE -> LibraryActionGlyph.DISMISS
+    DownloadAction.PLAY_OFFLINE,
+    DownloadAction.RESUME_OFFLINE,
+    -> LibraryActionGlyph.OFFLINE
+}
 
 private fun offlineActionLabelStage33(action: DownloadAction): String = when (action) {
     DownloadAction.DOWNLOAD -> "Download"

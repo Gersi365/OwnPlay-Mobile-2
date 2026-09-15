@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -15,8 +14,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -32,7 +34,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -57,7 +61,6 @@ import app.ownplay.mobile.feature.library.data.LibraryDownloadMetadataResolver
 import app.ownplay.mobile.feature.library.domain.LibraryMediaKind
 import app.ownplay.mobile.feature.library.domain.LibraryMediaMetadata
 import app.ownplay.mobile.feature.library.ui.LibraryRemoteArtwork
-import app.ownplay.mobile.feature.library.ui.formatLibraryDuration
 import kotlinx.coroutines.launch
 
 @Composable
@@ -199,15 +202,20 @@ fun DownloadManagementScreen(
                 color = OwnPlayColors.Accent,
             )
             Text(
-                "Manage downloads",
+                "Downloaded Media",
                 style = MaterialTheme.typography.headlineSmall,
                 color = OwnPlayColors.TextPrimary,
                 fontWeight = FontWeight.SemiBold,
             )
             Text(
-                "Downloads are saved under Download/OwnPlay Downloads.",
+                "Offline titles on this device.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = OwnPlayColors.TextSecondary,
+            )
+            Text(
+                "Saved under Download/OwnPlay Downloads",
+                style = MaterialTheme.typography.bodySmall,
+                color = OwnPlayColors.TextMuted,
             )
         }
 
@@ -226,14 +234,21 @@ fun DownloadManagementScreen(
                 modifier = Modifier.padding(OwnPlaySpacing.Lg),
             )
         } else {
-            LazyColumn(
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(3),
                 modifier = Modifier.weight(1f),
-                contentPadding = PaddingValues(horizontal = OwnPlaySpacing.Lg, vertical = OwnPlaySpacing.Sm),
+                contentPadding = PaddingValues(
+                    start = OwnPlaySpacing.Lg,
+                    end = OwnPlaySpacing.Lg,
+                    top = OwnPlaySpacing.Sm,
+                    bottom = OwnPlaySpacing.Xl,
+                ),
+                horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm),
                 verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),
             ) {
                 items(downloads, key = { it.downloadId }) { item ->
                     val offlineAvailability = availabilityByDownloadId[item.downloadId]
-                    DownloadManagementRow(
+                    DownloadManagementCard(
                         item = item,
                         episodeContext = episodeContextByDownloadId[item.downloadId],
                         offlineAvailability = offlineAvailability,
@@ -315,7 +330,7 @@ private suspend fun primaryAction(
 }
 
 @Composable
-private fun DownloadManagementRow(
+private fun DownloadManagementCard(
     item: DownloadItem,
     episodeContext: LibraryDownloadEpisodeContext?,
     offlineAvailability: OfflineAvailability?,
@@ -328,153 +343,169 @@ private fun DownloadManagementRow(
     val artwork = metadata?.posterUrl ?: metadata?.backdropUrl
     val displayTitle = metadata?.title?.takeIf { it.isNotBlank() } ?: item.title
     val contextLine = downloadContext(item, displayTitle, episodeContext)
-    val factsLine = downloadFacts(item)
+    var menuExpanded by remember(item.downloadId) { mutableStateOf(false) }
 
-    Surface(
+    Column(
         modifier = Modifier.fillMaxWidth(),
-        color = Color.Transparent,
-        shape = OwnPlayShapeTokens.Small,
-        tonalElevation = 0.dp,
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Column(
-            modifier = Modifier.padding(vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(0.68f)
+                .clip(OwnPlayShapeTokens.Medium)
+                .background(OwnPlayColors.SurfaceElevated)
+                .clickable(role = Role.Button, onClick = onPrimary),
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),
-                verticalAlignment = Alignment.Top,
-            ) {
-                LibraryRemoteArtwork(
-                    locator = artwork,
-                    contentDescription = "$displayTitle poster",
-                    modifier = Modifier
-                        .width(82.dp)
-                        .aspectRatio(2f / 3f)
-                        .clip(OwnPlayShapeTokens.Small),
-                )
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    Text(
-                        text = downloadEyebrow(item),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = when (item.state) {
-                            DownloadState.FAILED -> OwnPlayColors.AccentStrong
-                            else -> OwnPlayColors.Accent
-                        },
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                    )
-                    Text(
-                        text = displayTitle,
-                        style = MaterialTheme.typography.titleMedium,
-                        color = OwnPlayColors.TextPrimary,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 2,
-                    )
-                    contextLine?.let { context ->
-                        Text(
-                            text = context,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = OwnPlayColors.TextSecondary,
-                            maxLines = 2,
+            LibraryRemoteArtwork(
+                locator = artwork,
+                contentDescription = "$displayTitle poster",
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            0f to Color.Transparent,
+                            0.52f to Color.Transparent,
+                            1f to Color.Black.copy(alpha = 0.94f),
+                        ),
+                    ),
+            )
+            if (item.state != DownloadState.COMPLETED) {
+                item.progressFraction?.let { progress ->
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .fillMaxWidth()
+                            .height(3.dp)
+                            .background(Color.White.copy(alpha = 0.18f)),
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(progress.coerceIn(0f, 1f))
+                                .height(3.dp)
+                                .background(OwnPlayColors.Accent),
                         )
                     }
-                    factsLine?.let { facts ->
-                        Text(
-                            text = facts,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = OwnPlayColors.TextMuted,
-                            maxLines = 1,
-                        )
-                    }
-                    Text(
-                        text = downloadStatus(item, hiddenFromLibrary, offlineAvailability),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = when {
-                            item.state == DownloadState.COMPLETED && offlineAvailability == OfflineAvailability.MISSING ->
-                                OwnPlayColors.AccentStrong
-                            item.state == DownloadState.COMPLETED -> OwnPlayColors.Accent
-                            else -> OwnPlayColors.TextSecondary
-                        },
-                    )
-                    item.progressFraction
-                        ?.takeIf { item.state != DownloadState.COMPLETED }
-                        ?.let { progress ->
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(2.dp)
-                                    .background(OwnPlayColors.Divider, OwnPlayShapeTokens.Small),
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth(progress)
-                                        .height(2.dp)
-                                        .background(OwnPlayColors.Accent, OwnPlayShapeTokens.Small),
-                                )
-                            }
-                        }
                 }
             }
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
+            Surface(
+                onClick = { menuExpanded = true },
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(4.dp)
+                    .width(48.dp)
+                    .height(48.dp),
+                color = Color.Black.copy(alpha = 0.58f),
+                shape = OwnPlayShapeTokens.Action,
+                tonalElevation = 0.dp,
             ) {
-                DownloadManagementAction(
-                    text = primaryLabel(item, offlineAvailability),
-                    emphasized = true,
-                    modifier = Modifier.weight(1f),
-                    onClick = onPrimary,
-                )
-                if (item.state == DownloadState.COMPLETED) {
-                    DownloadManagementAction(
-                        text = if (hiddenFromLibrary) "Show" else "Hide",
-                        emphasized = false,
-                        modifier = Modifier.weight(1f),
-                        onClick = onToggleLibraryVisibility,
+                Box(contentAlignment = Alignment.Center) {
+                    Text(
+                        text = "⋯",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
                     )
                 }
-                DownloadManagementAction(
-                    text = "Delete",
-                    emphasized = false,
-                    modifier = Modifier.weight(1f),
-                    onClick = onRemove,
+                DropdownMenu(
+                    expanded = menuExpanded,
+                    onDismissRequest = { menuExpanded = false },
+                ) {
+                    if (item.state == DownloadState.COMPLETED) {
+                        DropdownMenuItem(
+                            text = { Text(if (hiddenFromLibrary) "Show in Library" else "Hide from Library") },
+                            onClick = {
+                                menuExpanded = false
+                                onToggleLibraryVisibility()
+                            },
+                        )
+                    }
+                    DropdownMenuItem(
+                        text = { Text("Delete download") },
+                        onClick = {
+                            menuExpanded = false
+                            onRemove()
+                        },
+                    )
+                }
+            }
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Text(
+                    text = downloadEyebrow(item),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = OwnPlayColors.Accent,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                )
+                Text(
+                    text = displayTitle,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = Color.White,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 2,
                 )
             }
         }
+
+        contextLine?.let { context ->
+            Text(
+                text = context,
+                style = MaterialTheme.typography.bodySmall,
+                color = OwnPlayColors.TextMuted,
+                maxLines = 1,
+            )
+        }
+        Text(
+            text = downloadStatus(item, hiddenFromLibrary, offlineAvailability),
+            style = MaterialTheme.typography.labelSmall,
+            color = if (
+                item.state == DownloadState.COMPLETED &&
+                offlineAvailability == OfflineAvailability.MISSING
+            ) OwnPlayColors.AccentStrong else OwnPlayColors.TextSecondary,
+            maxLines = 1,
+        )
+        DownloadManagementAction(
+            text = primaryLabel(item, offlineAvailability),
+            modifier = Modifier.fillMaxWidth(),
+            onClick = onPrimary,
+        )
     }
 }
 
 @Composable
 private fun DownloadManagementAction(
     text: String,
-    emphasized: Boolean,
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
     Surface(
         onClick = onClick,
         modifier = modifier.heightIn(min = 48.dp),
-        color = if (emphasized) OwnPlayColors.AccentStrong else OwnPlayColors.SurfaceElevated,
+        color = OwnPlayColors.SurfaceElevated,
         shape = OwnPlayShapeTokens.Small,
         tonalElevation = 0.dp,
     ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 10.dp, vertical = 8.dp),
+                .padding(horizontal = 8.dp, vertical = 8.dp),
             contentAlignment = Alignment.Center,
         ) {
             Text(
                 text = text,
-                style = MaterialTheme.typography.labelLarge,
-                color = if (emphasized) Color.White else OwnPlayColors.TextSecondary,
-                fontWeight = if (emphasized) FontWeight.SemiBold else FontWeight.Medium,
+                style = MaterialTheme.typography.labelMedium,
+                color = OwnPlayColors.Accent,
+                fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
             )
         }
@@ -506,9 +537,9 @@ private fun downloadEyebrow(item: DownloadItem): String {
         DownloadState.DOWNLOADING -> "DOWNLOADING"
         DownloadState.PAUSED -> "PAUSED"
         DownloadState.FAILED -> "NEEDS ATTENTION"
-        DownloadState.COMPLETED -> "OFFLINE"
+        DownloadState.COMPLETED -> null
     }
-    return "$kind • $state"
+    return state?.let { "$kind • $it" } ?: kind
 }
 
 private fun downloadContext(
@@ -534,15 +565,6 @@ private fun downloadContext(
         .takeIf { it.isNotBlank() }
 }
 
-private fun downloadFacts(item: DownloadItem): String? {
-    val metadata = item.metadata ?: return null
-    return buildList {
-        metadata.releaseDate?.trim()?.takeIf { it.isNotBlank() }?.let(::add)
-        metadata.rating?.trim()?.takeIf { it.isNotBlank() }?.let { add("★ $it") }
-        metadata.durationMs?.takeIf { it > 0L }?.let { add(formatLibraryDuration(it)) }
-    }.joinToString(" • ").takeIf { it.isNotBlank() }
-}
-
 private fun downloadStatus(
     item: DownloadItem,
     hiddenFromLibrary: Boolean,
@@ -554,7 +576,7 @@ private fun downloadStatus(
             OfflineAvailability.INCOMPLETE -> "Offline file not ready"
             OfflineAvailability.AVAILABLE,
             null,
-            -> if (hiddenFromLibrary) "Downloaded · hidden from Library" else "Downloaded"
+            -> if (hiddenFromLibrary) "Available offline · hidden" else "Available offline"
         }
     }
 

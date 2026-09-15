@@ -40,6 +40,10 @@ import app.ownplay.mobile.design.OwnPlayShapeTokens
 internal enum class LibraryActionGlyph {
     PLAY,
     RESTART,
+    DOWNLOAD,
+    PAUSE,
+    RETRY,
+    OFFLINE,
     BACK,
     DISMISS,
     FAVORITE_OFF,
@@ -387,6 +391,10 @@ private val LibraryActionGlyph.symbol: String
     get() = when (this) {
         LibraryActionGlyph.PLAY -> "▶"
         LibraryActionGlyph.RESTART -> "▶"
+        LibraryActionGlyph.DOWNLOAD -> "↓"
+        LibraryActionGlyph.PAUSE -> "Ⅱ"
+        LibraryActionGlyph.RETRY -> "↻"
+        LibraryActionGlyph.OFFLINE -> "✓"
         LibraryActionGlyph.BACK -> "‹"
         LibraryActionGlyph.DISMISS -> "×"
         LibraryActionGlyph.FAVORITE_OFF -> "☆"
