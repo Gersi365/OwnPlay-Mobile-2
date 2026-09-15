@@ -344,14 +344,22 @@ fun LiveShell(
     }
 
     LaunchedEffect(
+        playback.mediaId,
         playback.phase,
         playback.audioTrackPresent,
         playback.audioTrackSupported,
         playback.audioTrackSelected,
         fallbackLoadRequest,
     ) {
+        val fallback = fallbackLoadRequest ?: return@LaunchedEffect
+        if (playback.mediaId != fallback.media.id) return@LaunchedEffect
         if (LivePlaybackFallbackPolicy.shouldUseFallback(playback)) {
-            val fallback = fallbackLoadRequest ?: return@LaunchedEffect
+            fallbackLoadRequest = null
+            playbackController.load(fallback)
+            return@LaunchedEffect
+        }
+        if (LivePlaybackFallbackPolicy.shouldUseFallbackAfterBuffering(playback)) {
+            delay(LivePlaybackFallbackPolicy.PRIMARY_BUFFERING_TIMEOUT_MS)
             fallbackLoadRequest = null
             playbackController.load(fallback)
         }
@@ -1365,13 +1373,7 @@ private fun rememberLiveGuide(
         while (true) {
             guide = liveRepository.loadNowNext(stableChannelId)
             val nowMs = System.currentTimeMillis()
-            val boundaryEpochSeconds = app.ownplay.mobile.feature.live.domain.LiveGuidePolicy
-                .nextBoundaryEpochSeconds(guide, nowMs / 1_000L)
-            val refreshDelayMs = boundaryEpochSeconds
-                ?.let { boundary -> (boundary * 1_000L + 100L - nowMs).coerceAtLeast(250L) }
-                ?.coerceAtMost(125_000L)
-                ?: 125_000L
-            delay(refreshDelayMs)
+            delay(app.ownplay.mobile.feature.live.domain.LiveGuidePolicy.refreshDelayMs(guide, nowMs))
         }
     }
     return guide

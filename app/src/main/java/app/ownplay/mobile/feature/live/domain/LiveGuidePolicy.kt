@@ -54,4 +54,17 @@ object LiveGuidePolicy {
         .filterNotNull()
         .filter { boundary -> boundary > nowEpochSeconds }
         .minOrNull()
+
+    fun refreshDelayMs(guide: LiveNowNext, nowMs: Long): Long {
+        if (guide.now == null && guide.next == null) return EMPTY_GUIDE_RETRY_MS
+        val boundary = nextBoundaryEpochSeconds(guide, nowMs / 1_000L)
+        return boundary
+            ?.let { epochSeconds -> (epochSeconds * 1_000L + 100L - nowMs).coerceAtLeast(MIN_REFRESH_DELAY_MS) }
+            ?.coerceAtMost(MAX_REFRESH_DELAY_MS)
+            ?: MAX_REFRESH_DELAY_MS
+    }
+
+    private const val EMPTY_GUIDE_RETRY_MS = 15_000L
+    private const val MIN_REFRESH_DELAY_MS = 250L
+    private const val MAX_REFRESH_DELAY_MS = 125_000L
 }

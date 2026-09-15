@@ -335,14 +335,15 @@ class LiveRepositoryImpl(
     override suspend fun loadNowNext(channelId: String): LiveNowNext {
         if (channelId.isBlank()) return LiveNowNext()
         val nowMs = System.currentTimeMillis()
-        val cachedPrograms = guideCache[channelId]
+        val cachedEntry = guideCache[channelId]
+        val cachedPrograms = cachedEntry
             ?.takeIf { nowMs - it.loadedAtMs < GUIDE_CACHE_TTL_MS }
             ?.programs
         if (cachedPrograms != null) {
             return LiveGuidePolicy.nowNext(cachedPrograms, nowMs / 1_000L)
         }
 
-        val programs = try {
+        val loadedPrograms = try {
             val channel = catalogDao.getLiveChannel(channelId) ?: return LiveNowNext()
             val source = sourceDao.get(channel.sourceId) ?: return LiveNowNext()
             if (!channel.available || !source.enabled || source.type != SourceType.XTREAM.name) {
@@ -352,7 +353,7 @@ class LiveRepositoryImpl(
             val credential = credentialStore.get(source.sourceId) as? SourceCredential.Xtream
                 ?: return LiveNowNext()
             when (val result = xtreamClient.shortEpg(source.baseLocator, credential, streamId, limit = 4)) {
-                is XtreamResult.Failure -> emptyList()
+                is XtreamResult.Failure -> null
                 is XtreamResult.Success -> result.value.map { entry ->
                     LiveProgram(
                         title = entry.title.trim(),
@@ -364,9 +365,12 @@ class LiveRepositoryImpl(
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Exception) {
-            emptyList()
+            null
         }
-        guideCache[channelId] = GuideCacheEntry(nowMs, programs)
+        if (loadedPrograms != null) {
+            guideCache[channelId] = GuideCacheEntry(nowMs, loadedPrograms)
+        }
+        val programs = loadedPrograms ?: cachedEntry?.programs.orEmpty()
         return LiveGuidePolicy.nowNext(programs, nowMs / 1_000L)
     }
 

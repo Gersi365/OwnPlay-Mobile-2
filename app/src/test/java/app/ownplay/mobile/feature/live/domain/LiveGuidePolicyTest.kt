@@ -95,4 +95,18 @@ class LiveGuidePolicyTest {
         assertEquals("Provider second", guide.next?.title)
         assertNull(LiveGuidePolicy.nextBoundaryEpochSeconds(guide, 1_000))
     }
+    @Test
+    fun `empty guide retries quickly`() {
+        assertEquals(15_000L, LiveGuidePolicy.refreshDelayMs(LiveNowNext(), nowMs = 1_000_000L))
+    }
+
+    @Test
+    fun `active guide refreshes at the next program boundary`() {
+        val guide = LiveNowNext(
+            now = LiveProgram("Now", 1_000L, 1_100L),
+            next = LiveProgram("Next", 1_100L, 1_200L),
+        )
+        assertEquals(100_100L, LiveGuidePolicy.refreshDelayMs(guide, nowMs = 1_000_000L))
+    }
+
 }
