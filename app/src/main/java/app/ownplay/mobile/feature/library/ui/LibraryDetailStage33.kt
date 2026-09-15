@@ -150,6 +150,7 @@ internal fun MovieDetailStage33(
 internal fun SeriesDetailStage33(
     series: LibrarySeries,
     detail: LibrarySeriesDetail?,
+    initialEpisodeId: String?,
     warning: String?,
     errorMessage: String?,
     preferResume: Boolean,
@@ -165,8 +166,13 @@ internal fun SeriesDetailStage33(
     val metadata = detail?.metadata ?: series.toBaseMetadata()
     val seasons = remember(episodes) { episodes.map { it.seasonNumber }.distinct().sorted() }
     var selectedSeasonNumber by remember(series.seriesId) { mutableStateOf<Int?>(null) }
-    LaunchedEffect(seasons) {
-        if (selectedSeasonNumber !in seasons) selectedSeasonNumber = seasons.firstOrNull()
+    LaunchedEffect(seasons, episodes, initialEpisodeId) {
+        val targetSeason = episodes.firstOrNull { it.episodeId == initialEpisodeId }?.seasonNumber
+        selectedSeasonNumber = when {
+            targetSeason != null -> targetSeason
+            selectedSeasonNumber in seasons -> selectedSeasonNumber
+            else -> seasons.firstOrNull()
+        }
     }
     val visibleEpisodes = selectedSeasonNumber?.let { selected ->
         episodes.filter { it.seasonNumber == selected }
@@ -469,8 +475,8 @@ private fun LibraryDetailHeroStage33(
                     LibraryIconAction(
                         glyph = LibraryActionGlyph.PLAY,
                         contentDescription = "$playLabel ${metadata.title}",
-                        emphasized = true,
-                        visualSize = 42.dp,
+                        emphasized = false,
+                        visualSize = 34.dp,
                         onClick = action,
                         modifier = Modifier.align(Alignment.Center),
                     )

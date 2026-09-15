@@ -55,7 +55,6 @@ import app.ownplay.mobile.design.OwnPlaySearchField
 import app.ownplay.mobile.design.OwnPlayShapeTokens
 import app.ownplay.mobile.design.OwnPlaySpacing
 import app.ownplay.mobile.design.OwnPlayTopBar
-import app.ownplay.mobile.downloads.domain.DownloadAction
 import app.ownplay.mobile.downloads.domain.DownloadItem
 import app.ownplay.mobile.downloads.domain.DownloadState
 import app.ownplay.mobile.feature.library.domain.ContinueWatchingItem
@@ -74,14 +73,12 @@ internal fun LibraryHomeStage33(
     downloads: List<DownloadItem>,
     visibility: LibraryVisibilitySnapshot,
     errorMessage: String?,
-    onContinueResume: (ContinueWatchingItem) -> Unit,
+    onContinueSelected: (ContinueWatchingItem) -> Unit,
     onContinueMarkWatched: (ContinueWatchingItem) -> Unit,
     onContinueClearProgress: (ContinueWatchingItem) -> Unit,
     onMovieSelected: (LibraryMovie) -> Unit,
     onSeriesSelected: (LibrarySeries) -> Unit,
-    onDownloadedSelected: (DownloadItem) -> Unit,
-    @Suppress("UNUSED_PARAMETER") onDownloadedAction: (DownloadItem, DownloadAction) -> Unit,
-    @Suppress("UNUSED_PARAMETER") onDownloadedHide: (DownloadItem) -> Unit,
+    onContinueOfflineSelected: (DownloadItem) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var searchVisible by rememberSaveable(catalog?.activeSourceId) { mutableStateOf(false) }
@@ -106,7 +103,7 @@ internal fun LibraryHomeStage33(
     val visibleContinueWatching = catalog?.continueWatching.orEmpty().filterNot { item ->
         visibility.isContinueWatchingHidden(item.sourceId, item.mediaKind, item.contentId)
     }
-    val visibleDownloads = downloads.filterNot { item -> visibility.isDownloadHidden(item.downloadId) }
+    val continueOffline = downloads.filter { it.sourceId == catalog?.activeSourceId }
     val normalizedSearchQuery = searchQuery.trim()
     val searchActive = normalizedSearchQuery.isNotEmpty()
 
@@ -202,9 +199,28 @@ internal fun LibraryHomeStage33(
                         } else {
                             ContinueWatchingRowStage33(
                                 items = visibleContinueWatching,
-                                onResume = onContinueResume,
+                                onSelected = onContinueSelected,
                                 onMarkWatched = onContinueMarkWatched,
                                 onClearProgress = onContinueClearProgress,
+                            )
+                        }
+                    }
+
+                    LibraryShelfSection(
+                        title = "Continue Offline",
+                        actionLabel = continueOffline.size.takeIf { it > 0 }
+                            ?.let { "${compactLibraryCountStage33(it)} items" },
+                        prominent = true,
+                    ) {
+                        if (continueOffline.isEmpty()) {
+                            LibraryShelfState(
+                                title = "Nothing offline yet",
+                                message = "Movies and episodes you download will appear here.",
+                            )
+                        } else {
+                            ContinueOfflineRowStage33(
+                                items = continueOffline,
+                                onSelected = onContinueOfflineSelected,
                             )
                         }
                     }
@@ -315,23 +331,6 @@ internal fun LibraryHomeStage33(
                         }
                     }
 
-                    LibraryShelfSection(
-                        title = "Downloaded Media",
-                        actionLabel = visibleDownloads.size.takeIf { it > 0 }
-                            ?.let { "${compactLibraryCountStage33(it)} saved" },
-                    ) {
-                        if (visibleDownloads.isEmpty()) {
-                            LibraryShelfState(
-                                title = "No downloaded media",
-                                message = "Downloaded movies and episodes stay listed here until you remove them from OwnPlay.",
-                            )
-                        } else {
-                            DownloadedRowStage33(
-                                items = visibleDownloads,
-                                onSelected = onDownloadedSelected,
-                            )
-                        }
-                    }
                 }
             }
 
@@ -510,7 +509,7 @@ private fun PosterCardStage33(
 @Composable
 private fun ContinueWatchingRowStage33(
     items: List<ContinueWatchingItem>,
-    onResume: (ContinueWatchingItem) -> Unit,
+    onSelected: (ContinueWatchingItem) -> Unit,
     onMarkWatched: (ContinueWatchingItem) -> Unit,
     onClearProgress: (ContinueWatchingItem) -> Unit,
 ) {
@@ -528,7 +527,7 @@ private fun ContinueWatchingRowStage33(
                 ContinueWatchingCardStage33(
                     item = item,
                     cardWidth = posterWidth,
-                    onResume = { onResume(item) },
+                    onSelected = { onSelected(item) },
                     onMarkWatched = { onMarkWatched(item) },
                     onClearProgress = { onClearProgress(item) },
                 )
@@ -542,7 +541,7 @@ private fun ContinueWatchingRowStage33(
 private fun ContinueWatchingCardStage33(
     item: ContinueWatchingItem,
     cardWidth: Dp,
-    onResume: () -> Unit,
+    onSelected: () -> Unit,
     onMarkWatched: () -> Unit,
     onClearProgress: () -> Unit,
 ) {
@@ -568,7 +567,7 @@ private fun ContinueWatchingCardStage33(
                     .combinedClickable(
                         interactionSource = interactionSource,
                         indication = null,
-                        onClick = onResume,
+                        onClick = onSelected,
                         onLongClick = {
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                             menuVisible = true
@@ -640,8 +639,9 @@ private fun ContinueWatchingCardStage33(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun DownloadedRowStage33(
+private fun ContinueOfflineRowStage33(
     items: List<DownloadItem>,
     onSelected: (DownloadItem) -> Unit,
 ) {
@@ -656,26 +656,98 @@ private fun DownloadedRowStage33(
             horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm),
         ) {
             items(items, key = { it.downloadId }) { item ->
-                val mediaLabel = item.mediaKind.name
-                val eyebrow = when (item.state) {
-                    DownloadState.COMPLETED -> item.metadata?.rating?.takeIf(String::isNotBlank)
-                        ?.let { "★ $it" }
-                        ?: mediaLabel
-                    DownloadState.DOWNLOADING -> "$mediaLabel • DOWNLOADING"
-                    DownloadState.QUEUED -> "$mediaLabel • QUEUED"
-                    DownloadState.PAUSED -> "$mediaLabel • PAUSED"
-                    DownloadState.FAILED -> "$mediaLabel • NEEDS ATTENTION"
-                }
-                val displayTitle = item.metadata?.title ?: item.title
-                PosterCardStage33(
-                    title = displayTitle,
-                    artworkUrl = item.metadata?.posterUrl ?: item.metadata?.backdropUrl,
-                    eyebrow = eyebrow,
+                ContinueOfflineCardStage33(
+                    item = item,
                     cardWidth = posterWidth,
-                    onClick = { onSelected(item) },
+                    onSelected = { onSelected(item) },
                 )
             }
         }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun ContinueOfflineCardStage33(
+    item: DownloadItem,
+    cardWidth: Dp,
+    onSelected: () -> Unit,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val progress = item.progressFraction
+    val displayTitle = item.metadata?.title ?: item.title
+    val stateLabel = when (item.state) {
+        DownloadState.COMPLETED -> "Available offline"
+        DownloadState.QUEUED -> "Queued for download"
+        DownloadState.DOWNLOADING -> progress
+            ?.let { "Downloading ${(it * 100).toInt().coerceIn(0, 100)}%" }
+            ?: "Downloading"
+        DownloadState.PAUSED -> progress
+            ?.let { "Paused at ${(it * 100).toInt().coerceIn(0, 100)}%" }
+            ?: "Paused"
+        DownloadState.FAILED -> "Download needs attention"
+    }
+
+    Column(
+        modifier = Modifier.width(cardWidth),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(0.68f)
+                .clip(OwnPlayShapeTokens.Medium)
+                .background(OwnPlayColors.SurfaceElevated)
+                .combinedClickable(
+                    interactionSource = interactionSource,
+                    indication = null,
+                    onClick = onSelected,
+                    onLongClick = null,
+                ),
+        ) {
+            LibraryRemoteArtwork(
+                locator = item.metadata?.posterUrl ?: item.metadata?.backdropUrl,
+                contentDescription = "$displayTitle poster",
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
+            )
+            if (isPressed) {
+                Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.12f)))
+            }
+            if (progress != null && item.state != DownloadState.COMPLETED) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .height(2.dp)
+                        .background(Color.White.copy(alpha = 0.18f)),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(progress)
+                            .height(2.dp)
+                            .background(OwnPlayColors.Accent),
+                    )
+                }
+            }
+        }
+        Text(
+            text = displayTitle,
+            modifier = Modifier
+                .fillMaxWidth()
+                .basicMarquee(),
+            style = MaterialTheme.typography.labelLarge,
+            color = OwnPlayColors.TextPrimary,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+        )
+        Text(
+            text = stateLabel,
+            style = MaterialTheme.typography.bodySmall,
+            color = if (item.state == DownloadState.FAILED) OwnPlayColors.Accent else OwnPlayColors.TextMuted,
+            maxLines = 1,
+        )
     }
 }
 

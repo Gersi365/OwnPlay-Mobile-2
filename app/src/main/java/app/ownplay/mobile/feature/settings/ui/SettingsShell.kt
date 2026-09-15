@@ -34,15 +34,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import app.ownplay.mobile.data.prefs.LibraryVisibilityPreferences
 import app.ownplay.mobile.data.prefs.SettingsPreferences
 import app.ownplay.mobile.design.OwnPlayColors
 import app.ownplay.mobile.design.OwnPlayPanel
 import app.ownplay.mobile.design.OwnPlayShapeTokens
 import app.ownplay.mobile.design.OwnPlaySpacing
 import app.ownplay.mobile.design.OwnPlayTopBar
-import app.ownplay.mobile.downloads.domain.DownloadRepository
-import app.ownplay.mobile.feature.library.data.LibraryDownloadMetadataResolver
 import app.ownplay.mobile.feature.live.domain.LiveRepository
 import app.ownplay.mobile.feature.settings.domain.BackupRepository
 import app.ownplay.mobile.feature.settings.domain.ProviderRefreshInterval
@@ -55,7 +52,6 @@ private enum class SettingsPage {
     SOURCES,
     BACKUP_RESTORE,
     MANAGE_LIVE,
-    MANAGE_DOWNLOADS,
     HELP,
     PRIVACY,
 }
@@ -76,12 +72,8 @@ private data class SettingRowModel(
 fun SettingsShell(
     sourceRepository: SourceRepository,
     settingsPreferences: SettingsPreferences,
-    libraryVisibilityPreferences: LibraryVisibilityPreferences,
     backupRepository: BackupRepository,
     liveRepository: LiveRepository,
-    downloadRepository: DownloadRepository,
-    downloadMetadataResolver: LibraryDownloadMetadataResolver,
-    onPlayOffline: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var pageName by rememberSaveable { mutableStateOf(SettingsPage.MAIN.name) }
@@ -97,7 +89,6 @@ fun SettingsShell(
             onOpenSources = { pageName = SettingsPage.SOURCES.name },
             onOpenBackupRestore = { pageName = SettingsPage.BACKUP_RESTORE.name },
             onManageLive = { pageName = SettingsPage.MANAGE_LIVE.name },
-            onManageDownloads = { pageName = SettingsPage.MANAGE_DOWNLOADS.name },
             onHelp = { pageName = SettingsPage.HELP.name },
             onPrivacy = { pageName = SettingsPage.PRIVACY.name },
             modifier = modifier,
@@ -118,15 +109,6 @@ fun SettingsShell(
 
         SettingsPage.MANAGE_LIVE -> LiveManagementScreen(
             liveRepository = liveRepository,
-            onBack = { pageName = SettingsPage.MAIN.name },
-            modifier = modifier,
-        )
-
-        SettingsPage.MANAGE_DOWNLOADS -> DownloadManagementScreen(
-            downloadRepository = downloadRepository,
-            downloadMetadataResolver = downloadMetadataResolver,
-            libraryVisibilityPreferences = libraryVisibilityPreferences,
-            onPlayOffline = onPlayOffline,
             onBack = { pageName = SettingsPage.MAIN.name },
             modifier = modifier,
         )
@@ -162,7 +144,6 @@ private fun MainSettings(
     onOpenSources: () -> Unit,
     onOpenBackupRestore: () -> Unit,
     onManageLive: () -> Unit,
-    onManageDownloads: () -> Unit,
     onHelp: () -> Unit,
     onPrivacy: () -> Unit,
     modifier: Modifier = Modifier,
@@ -264,14 +245,6 @@ private fun MainSettings(
                 ),
             )
 
-            SettingsSection(
-                title = "Downloads",
-                subtitle = "Offline media",
-                marker = "↓",
-                rows = listOf(
-                    SettingRowModel("Manage downloads", "Pause, resume, retry, show or hide in Library, delete, or play offline", SettingTrailing.Chevron, onManageDownloads),
-                ),
-            )
 
             SettingsSection(
                 title = "Data",

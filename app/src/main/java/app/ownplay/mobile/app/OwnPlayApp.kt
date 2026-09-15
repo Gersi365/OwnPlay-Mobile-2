@@ -54,7 +54,6 @@ fun OwnPlayApp(
             mutableStateOf(ContentFullscreenKind.NONE)
         }
         var exitConfirmationVisible by rememberSaveable { mutableStateOf(false) }
-        var pendingOfflineDownloadId by rememberSaveable { mutableStateOf<String?>(null) }
         var destinationTransitionInProgress by remember { mutableStateOf(false) }
         val scope = rememberCoroutineScope()
         val playerInteractionState = rememberPlayerInteractionState()
@@ -157,8 +156,6 @@ fun OwnPlayApp(
                                 libraryVisibilityPreferences = services.libraryVisibilityPreferences,
                                 playbackController = services.playbackController,
                                 resumePlaybackEnabled = settings.resumePlaybackEnabled,
-                                initialOfflineDownloadId = pendingOfflineDownloadId,
-                                onInitialOfflineConsumed = { pendingOfflineDownloadId = null },
                                 onFullscreenChanged = { fullscreen ->
                                     setContentFullscreen(
                                         if (fullscreen) ContentFullscreenKind.LIBRARY else ContentFullscreenKind.NONE,
@@ -169,15 +166,8 @@ fun OwnPlayApp(
                             AppDestination.Settings -> SettingsShell(
                                 sourceRepository = services.sourceRepository,
                                 settingsPreferences = services.settingsPreferences,
-                                libraryVisibilityPreferences = services.libraryVisibilityPreferences,
                                 backupRepository = services.backupRepository,
                                 liveRepository = services.liveRepository,
-                                downloadRepository = services.downloadRepository,
-                                downloadMetadataResolver = services.libraryDownloadMetadataResolver,
-                                onPlayOffline = { downloadId ->
-                                    pendingOfflineDownloadId = downloadId
-                                    selectedDestination = AppDestination.Library
-                                },
                             )
                         }
                     }

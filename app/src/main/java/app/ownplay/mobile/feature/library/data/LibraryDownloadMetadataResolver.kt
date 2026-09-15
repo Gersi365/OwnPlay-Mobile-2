@@ -5,6 +5,7 @@ import app.ownplay.mobile.feature.library.domain.LibraryMediaKind
 import app.ownplay.mobile.feature.library.domain.LibraryMediaMetadata
 
 data class LibraryDownloadEpisodeContext(
+    val seriesId: String,
     val seriesName: String,
     val seasonNumber: Int,
     val episodeNumber: Int,
@@ -40,6 +41,7 @@ class LibraryDownloadMetadataResolver(
         if (stableIds.isEmpty()) return emptyMap()
         return libraryDao.getEpisodesForProgress(sourceId, stableIds).associate { episode ->
             episode.episodeId to LibraryDownloadEpisodeContext(
+                seriesId = episode.seriesId,
                 seriesName = episode.seriesName,
                 seasonNumber = episode.seasonNumber,
                 episodeNumber = episode.episodeNumber,

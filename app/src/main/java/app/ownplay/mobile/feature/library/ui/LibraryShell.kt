@@ -18,7 +18,6 @@ import app.ownplay.mobile.downloads.domain.DownloadAction
 import app.ownplay.mobile.downloads.domain.DownloadItem
 import app.ownplay.mobile.downloads.domain.DownloadOperationResult
 import app.ownplay.mobile.downloads.domain.DownloadRepository
-import app.ownplay.mobile.downloads.domain.OfflineAvailability
 import app.ownplay.mobile.feature.library.data.LibraryDownloadMetadataResolver
 import app.ownplay.mobile.feature.library.domain.LibraryEpisode
 import app.ownplay.mobile.feature.library.domain.LibraryMediaKind
@@ -42,8 +41,6 @@ fun LibraryShell(
     libraryVisibilityPreferences: LibraryVisibilityPreferences,
     playbackController: PlaybackController,
     resumePlaybackEnabled: Boolean,
-    initialOfflineDownloadId: String? = null,
-    onInitialOfflineConsumed: () -> Unit = {},
     onFullscreenChanged: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -78,20 +75,18 @@ fun LibraryShell(
 
     var selectedMovieId by remember { mutableStateOf<String?>(null) }
     var selectedSeriesId by remember { mutableStateOf<String?>(null) }
-    var selectedDownloadId by remember { mutableStateOf<String?>(null) }
     var movieDetail by remember { mutableStateOf<LibraryMovieDetail?>(null) }
     var movieWarning by remember { mutableStateOf<String?>(null) }
     var seriesDetail by remember { mutableStateOf<LibrarySeriesDetail?>(null) }
     var seriesDetailRefreshToken by remember { mutableStateOf(0) }
+    var selectedEpisodeId by remember { mutableStateOf<String?>(null) }
     var seriesWarning by remember { mutableStateOf<String?>(null) }
     var detailError by remember { mutableStateOf<String?>(null) }
     var resolutionError by remember { mutableStateOf<String?>(null) }
-    var offlineAvailability by remember { mutableStateOf<OfflineAvailability?>(null) }
     var activePlayback by remember { mutableStateOf<ResolvedLibraryPlayback?>(null) }
 
     val selectedMovie = catalog?.movies?.firstOrNull { it.movieId == selectedMovieId }
     val selectedSeries = catalog?.series?.firstOrNull { it.seriesId == selectedSeriesId }
-    val selectedDownload = downloads.firstOrNull { it.downloadId == selectedDownloadId }
 
     fun downloadFor(sourceId: String, mediaKind: LibraryMediaKind, contentId: String): DownloadItem? =
         downloadsByContent[DownloadContentKeyStage33(sourceId, mediaKind, contentId)]
@@ -129,10 +124,60 @@ fun LibraryShell(
         }
     }
 
-    fun startDownloadedOnline(item: DownloadItem, startMode: LibraryStartMode) {
-        when (item.mediaKind) {
-            LibraryMediaKind.MOVIE -> startMovie(item.contentId, startMode)
-            LibraryMediaKind.EPISODE -> startEpisode(item.contentId, startMode)
+    fun openDetailTarget(target: LibraryDetailTargetStage33) {
+        val targetAvailable = when (target) {
+            is LibraryDetailTargetStage33.Movie -> catalog?.movies?.any { it.movieId == target.movieId } == true
+            is LibraryDetailTargetStage33.Series -> catalog?.series?.any { it.seriesId == target.seriesId } == true
+        }
+        if (!targetAvailable) {
+            resolutionError = "This title is no longer available in the active Library."
+            return
+        }
+        resolutionError = null
+        movieDetail = null
+        seriesDetail = null
+        movieWarning = null
+        seriesWarning = null
+        detailError = null
+        when (target) {
+            is LibraryDetailTargetStage33.Movie -> {
+                selectedSeriesId = null
+                selectedEpisodeId = null
+                selectedMovieId = target.movieId
+            }
+            is LibraryDetailTargetStage33.Series -> {
+                selectedMovieId = null
+                selectedEpisodeId = target.episodeId
+                selectedSeriesId = target.seriesId
+            }
+        }
+    }
+
+    fun openCanonicalDetails(
+        sourceId: String,
+        mediaKind: LibraryMediaKind,
+        contentId: String,
+    ) {
+        resolutionError = null
+        when (mediaKind) {
+            LibraryMediaKind.MOVIE -> {
+                LibraryDetailNavigationPolicyStage33.target(mediaKind, contentId)?.let(::openDetailTarget)
+                    ?: run { resolutionError = "This movie is no longer available in Library." }
+            }
+            LibraryMediaKind.EPISODE -> scope.launch {
+                val context = downloadMetadataResolver
+                    .resolveEpisodeContexts(sourceId, listOf(contentId))[contentId]
+                val target = LibraryDetailNavigationPolicyStage33.target(
+                    mediaKind = mediaKind,
+                    contentId = contentId,
+                    episodeSeriesId = context?.seriesId,
+                )
+                if (target == null) {
+                    resolutionError = "This episode is no longer available in Library."
+                } else {
+                    openDetailTarget(target)
+                }
+            }
         }
     }
 
@@ -144,7 +189,6 @@ fun LibraryShell(
         title: String,
         action: DownloadAction,
         metadata: LibraryMediaMetadata? = null,
-        closeAfterRemove: Boolean = false,
     ) {
         scope.launch {
             resolutionError = null
@@ -182,7 +226,6 @@ fun LibraryShell(
                         is DownloadOperationResult.Success -> {
                             if (action == DownloadAction.DOWNLOAD) {
                                 result.item?.let { created ->
-                                    libraryVisibilityPreferences.showDownload(created.downloadId)
                                     metadata?.let { snapshot ->
                                         metadataOverrides[created.downloadId] = snapshot
                                         downloadRepository.saveMetadata(created.downloadId, snapshot)
@@ -191,10 +234,6 @@ fun LibraryShell(
                             }
                             if (action == DownloadAction.REMOVE) {
                                 item?.let { metadataOverrides.remove(it.downloadId) }
-                                if (closeAfterRemove) {
-                                    selectedDownloadId = null
-                                    offlineAvailability = null
-                                }
                             }
                         }
                         null -> Unit
@@ -288,32 +327,6 @@ fun LibraryShell(
         }
     }
 
-    LaunchedEffect(selectedDownloadId, selectedDownload?.state, selectedDownload?.updatedAt) {
-        val downloadId = selectedDownloadId
-        offlineAvailability = null
-        if (downloadId != null && selectedDownload != null) {
-            offlineAvailability = downloadRepository.offlineAvailability(downloadId)
-        }
-    }
-
-    LaunchedEffect(initialOfflineDownloadId) {
-        val downloadId = initialOfflineDownloadId ?: return@LaunchedEffect
-        resolutionError = null
-        when (
-            val resolved = downloadRepository.resolveOfflinePlayback(
-                downloadId = downloadId,
-                startMode = LibraryStartMode.RESUME,
-            )
-        ) {
-            is LibraryPlaybackResolution.Success -> acceptResolution(resolved)
-            is LibraryPlaybackResolution.Failure -> {
-                resolutionError = resolved.safeMessage
-                selectedDownloadId = downloads.firstOrNull { it.downloadId == downloadId }?.downloadId
-            }
-        }
-        onInitialOfflineConsumed()
-    }
-
     LaunchedEffect(activePlayback) {
         if (activePlayback == null) onFullscreenChanged(false)
     }
@@ -324,18 +337,17 @@ fun LibraryShell(
 
     BackHandler(
         enabled = activePlayback == null &&
-            (selectedMovieId != null || selectedSeriesId != null || selectedDownloadId != null),
+            (selectedMovieId != null || selectedSeriesId != null),
     ) {
         selectedMovieId = null
         selectedSeriesId = null
-        selectedDownloadId = null
+        selectedEpisodeId = null
         movieDetail = null
         seriesDetail = null
         movieWarning = null
         seriesWarning = null
         detailError = null
         resolutionError = null
-        offlineAvailability = null
     }
 
     when {
@@ -350,57 +362,6 @@ fun LibraryShell(
                     seriesDetailRefreshToken += 1
                 }
                 resolutionError = null
-            },
-            modifier = modifier,
-        )
-
-        selectedDownload != null -> DownloadedMediaDetailStage33(
-            item = selectedDownload,
-            availability = offlineAvailability,
-            errorMessage = resolutionError,
-            preferResume = resumePlaybackEnabled,
-            onBack = {
-                selectedDownloadId = null
-                resolutionError = null
-                offlineAvailability = null
-            },
-            onPlayOffline = { mode ->
-                scope.launch {
-                    acceptResolution(downloadRepository.resolveOfflinePlayback(selectedDownload.downloadId, mode))
-                }
-            },
-            onPlayFromLibrary = { mode -> startDownloadedOnline(selectedDownload, mode) },
-            onRedownload = {
-                scope.launch {
-                    resolutionError = null
-                    when (val result = downloadRepository.redownload(selectedDownload.downloadId)) {
-                        is DownloadOperationResult.Failure -> resolutionError = result.safeMessage
-                        is DownloadOperationResult.Success -> offlineAvailability = OfflineAvailability.INCOMPLETE
-                    }
-                }
-            },
-            onRemove = {
-                performDownloadAction(
-                    item = selectedDownload,
-                    sourceId = selectedDownload.sourceId,
-                    mediaKind = selectedDownload.mediaKind,
-                    contentId = selectedDownload.contentId,
-                    title = selectedDownload.title,
-                    action = DownloadAction.REMOVE,
-                    closeAfterRemove = true,
-                )
-            },
-            onDownloadAction = { action ->
-                performDownloadAction(
-                    item = selectedDownload,
-                    sourceId = selectedDownload.sourceId,
-                    mediaKind = selectedDownload.mediaKind,
-                    contentId = selectedDownload.contentId,
-                    title = selectedDownload.title,
-                    action = action,
-                    metadata = selectedDownload.metadata,
-                    closeAfterRemove = action == DownloadAction.REMOVE,
-                )
             },
             modifier = modifier,
         )
@@ -447,11 +408,13 @@ fun LibraryShell(
         selectedSeries != null -> SeriesDetailStage33(
             series = selectedSeries,
             detail = seriesDetail,
+            initialEpisodeId = selectedEpisodeId,
             warning = seriesWarning,
             errorMessage = detailError ?: resolutionError,
             preferResume = resumePlaybackEnabled,
             onBack = {
                 selectedSeriesId = null
+                selectedEpisodeId = null
                 seriesDetail = null
                 seriesWarning = null
                 detailError = null
@@ -485,11 +448,12 @@ fun LibraryShell(
             downloads = downloads,
             visibility = visibility,
             errorMessage = resolutionError,
-            onContinueResume = { item ->
-                when (item.mediaKind) {
-                    LibraryMediaKind.MOVIE -> startMovie(item.contentId, LibraryStartMode.RESUME)
-                    LibraryMediaKind.EPISODE -> startEpisode(item.contentId, LibraryStartMode.RESUME)
-                }
+            onContinueSelected = { item ->
+                openCanonicalDetails(
+                    sourceId = item.sourceId,
+                    mediaKind = item.mediaKind,
+                    contentId = item.contentId,
+                )
             },
             onContinueMarkWatched = { item ->
                 scope.launch {
@@ -513,36 +477,21 @@ fun LibraryShell(
             onMovieSelected = { movie ->
                 resolutionError = null
                 selectedSeriesId = null
-                selectedDownloadId = null
+                selectedEpisodeId = null
                 selectedMovieId = movie.movieId
             },
             onSeriesSelected = { series ->
                 resolutionError = null
                 selectedMovieId = null
-                selectedDownloadId = null
+                selectedEpisodeId = null
                 selectedSeriesId = series.seriesId
             },
-            onDownloadedSelected = { item ->
-                resolutionError = null
-                selectedMovieId = null
-                selectedSeriesId = null
-                selectedDownloadId = item.downloadId
-            },
-            onDownloadedAction = { item, action ->
-                performDownloadAction(
-                    item = item,
+            onContinueOfflineSelected = { item ->
+                openCanonicalDetails(
                     sourceId = item.sourceId,
                     mediaKind = item.mediaKind,
                     contentId = item.contentId,
-                    title = item.metadata?.title ?: item.title,
-                    action = action,
-                    metadata = item.metadata,
                 )
-            },
-            onDownloadedHide = { item ->
-                scope.launch {
-                    libraryVisibilityPreferences.hideDownload(item.downloadId)
-                }
             },
             modifier = modifier,
         )
