@@ -1024,7 +1024,7 @@ private fun DragHandle(
 
     Box(
         modifier = Modifier
-            .size(44.dp)
+            .size(48.dp)
             .background(
                 color = if (state.dragging) OwnPlayColors.AccentSoft else OwnPlayColors.SurfaceElevated,
                 shape = RoundedCornerShape(10.dp),

@@ -50,7 +50,7 @@ fun OwnPlayApp(
         var selectedDestination by rememberSaveable {
             mutableStateOf(AppDestination.Live)
         }
-        var contentFullscreenKind by rememberSaveable {
+        var contentFullscreenKind by remember {
             mutableStateOf(ContentFullscreenKind.NONE)
         }
         var exitConfirmationVisible by rememberSaveable { mutableStateOf(false) }
