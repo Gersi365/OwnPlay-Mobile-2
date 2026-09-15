@@ -2,6 +2,7 @@ package app.ownplay.mobile.feature.library.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -32,6 +34,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -538,6 +543,22 @@ private fun EpisodeRowStage33(
         preferResume = preferResume,
     )
     val displayTitle = episodeDisplayTitleStage33(episode)
+    val completedOffline = downloadItem?.state == DownloadState.COMPLETED
+
+    fun startEpisode(mode: LibraryStartMode) {
+        if (completedOffline) {
+            onDownloadAction(
+                if (mode == LibraryStartMode.RESUME) {
+                    DownloadAction.RESUME_OFFLINE
+                } else {
+                    DownloadAction.PLAY_OFFLINE
+                },
+            )
+        } else {
+            onPlay(mode)
+        }
+    }
+
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -577,28 +598,59 @@ private fun EpisodeRowStage33(
                 onAction = onDownloadAction,
                 compact = true,
             )
-        }
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(2.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
             actions.secondary?.let { secondary ->
-                LibraryIconAction(
-                    glyph = startModeGlyphStage33(secondary),
+                EpisodeInlineStartAction(
+                    text = secondaryStartLabelStage33(secondary),
                     contentDescription = startModeContentDescriptionStage33(secondary, displayTitle),
-                    visualSize = 34.dp,
-                    onClick = { onPlay(secondary) },
+                    onClick = { startEpisode(secondary) },
                 )
             }
-            LibraryIconAction(
-                glyph = startModeGlyphStage33(actions.primary),
-                contentDescription = startModeContentDescriptionStage33(actions.primary, displayTitle),
-                emphasized = true,
-                visualSize = 36.dp,
-                onClick = { onPlay(actions.primary) },
-            )
         }
+        EpisodePrimaryPlayAction(
+            contentDescription = startModeContentDescriptionStage33(actions.primary, displayTitle),
+            onClick = { startEpisode(actions.primary) },
+        )
     }
+}
+
+@Composable
+private fun EpisodePrimaryPlayAction(
+    contentDescription: String,
+    onClick: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .size(48.dp)
+            .clickable(role = Role.Button, onClick = onClick)
+            .semantics { this.contentDescription = contentDescription },
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = "▶",
+            style = MaterialTheme.typography.titleLarge,
+            color = OwnPlayColors.Accent,
+            fontWeight = FontWeight.SemiBold,
+        )
+    }
+}
+
+@Composable
+private fun EpisodeInlineStartAction(
+    text: String,
+    contentDescription: String,
+    onClick: () -> Unit,
+) {
+    Text(
+        text = "↻ $text",
+        modifier = Modifier
+            .clickable(role = Role.Button, onClick = onClick)
+            .padding(vertical = 7.dp)
+            .semantics { this.contentDescription = contentDescription },
+        style = MaterialTheme.typography.labelMedium,
+        color = OwnPlayColors.TextMuted,
+        fontWeight = FontWeight.Medium,
+        maxLines = 1,
+    )
 }
 
 private fun startActionStage33(

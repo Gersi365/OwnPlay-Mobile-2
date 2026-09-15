@@ -10,8 +10,6 @@ import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
@@ -21,6 +19,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -101,12 +100,32 @@ internal fun LibraryHomeStage33(
     val series = catalog?.series.orEmpty()
     val moviesByCategory = remember(movies) { movies.groupBy { it.categoryKey } }
     val seriesByCategory = remember(series) { series.groupBy { it.categoryKey } }
-    val visibleContinueWatching = catalog?.continueWatching.orEmpty().filterNot { item ->
-        visibility.isContinueWatchingHidden(item.sourceId, item.mediaKind, item.contentId)
+    val populatedMovieCategories = remember(movieCategories, moviesByCategory) {
+        movieCategories.filter { moviesByCategory[it.categoryKey].orEmpty().isNotEmpty() }
     }
-    val continueOffline = downloads.filter { it.sourceId == catalog?.activeSourceId }
+    val populatedSeriesCategories = remember(seriesCategories, seriesByCategory) {
+        seriesCategories.filter { seriesByCategory[it.categoryKey].orEmpty().isNotEmpty() }
+    }
+    val visibleContinueWatching = remember(catalog?.continueWatching, visibility) {
+        catalog?.continueWatching.orEmpty().filterNot { item ->
+            visibility.isContinueWatchingHidden(item.sourceId, item.mediaKind, item.contentId)
+        }
+    }
+    val continueOffline = remember(downloads, catalog?.activeSourceId) {
+        downloads.filter { it.sourceId == catalog?.activeSourceId }
+    }
     val normalizedSearchQuery = searchQuery.trim()
     val searchActive = normalizedSearchQuery.isNotEmpty()
+    val matchingMovies = remember(movies, normalizedSearchQuery) {
+        if (normalizedSearchQuery.isEmpty()) emptyList() else {
+            movies.filter { it.name.contains(normalizedSearchQuery, ignoreCase = true) }
+        }
+    }
+    val matchingSeries = remember(series, normalizedSearchQuery) {
+        if (normalizedSearchQuery.isEmpty()) emptyList() else {
+            series.filter { it.name.contains(normalizedSearchQuery, ignoreCase = true) }
+        }
+    }
 
     if (browseAllKind != null) {
         val allMovies = if (browseAllKind == LibraryBrowseKind.MOVIES) {
@@ -141,201 +160,232 @@ internal fun LibraryHomeStage33(
             },
         )
 
-        Column(
+        LazyColumn(
             modifier = Modifier
                 .fillMaxWidth()
-                .weight(1f)
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = OwnPlaySpacing.Lg),
+                .weight(1f),
+            contentPadding = PaddingValues(
+                start = OwnPlaySpacing.Lg,
+                end = OwnPlaySpacing.Lg,
+                bottom = OwnPlaySpacing.Xl,
+            ),
             verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Lg),
         ) {
             if (searchVisible) {
-                OwnPlaySearchField(
-                    query = searchQuery,
-                    onQueryChange = { searchQuery = it },
-                    onClose = {
-                        searchQuery = ""
-                        searchVisible = false
-                    },
-                    placeholder = "Search movies and series",
-                )
+                item(key = "library-search") {
+                    OwnPlaySearchField(
+                        query = searchQuery,
+                        onQueryChange = { searchQuery = it },
+                        onClose = {
+                            searchQuery = ""
+                            searchVisible = false
+                        },
+                        placeholder = "Search movies and series",
+                    )
+                }
             }
 
             if (errorMessage != null) {
-                LibraryShelfState(
-                    title = "Action unavailable",
-                    message = errorMessage,
-                    tone = LibraryStateTone.ERROR,
-                )
+                item(key = "library-error") {
+                    LibraryShelfState(
+                        title = "Action unavailable",
+                        message = errorMessage,
+                        tone = LibraryStateTone.ERROR,
+                    )
+                }
             }
 
             when {
-                catalog == null -> LibraryShelfSection(title = "Library", prominent = true) {
-                    LibraryShelfState(
-                        title = "Loading Library",
-                        message = "Reading the active source and saved progress.",
-                        tone = LibraryStateTone.LOADING,
-                    )
+                catalog == null -> item(key = "library-loading") {
+                    LibraryShelfSection(title = "Library", prominent = true) {
+                        LibraryShelfState(
+                            title = "Loading Library",
+                            message = "Reading the active source and saved progress.",
+                            tone = LibraryStateTone.LOADING,
+                        )
+                    }
                 }
 
-                catalog.activeSourceId == null -> LibraryShelfSection(title = "Library", prominent = true) {
-                    LibraryShelfState(
-                        title = "No active source",
-                        message = "Add or select a source in Settings to populate your Library.",
-                    )
+                catalog.activeSourceId == null -> item(key = "library-no-source") {
+                    LibraryShelfSection(title = "Library", prominent = true) {
+                        LibraryShelfState(
+                            title = "No active source",
+                            message = "Add or select a source in Settings to populate your Library.",
+                        )
+                    }
                 }
 
                 else -> {
-                    LibraryShelfSection(
-                        title = "Continue Watching",
-                        actionLabel = visibleContinueWatching.size.takeIf { it > 0 }
-                            ?.let { "${compactLibraryCountStage33(it)} in progress" },
-                        prominent = true,
-                    ) {
-                        if (visibleContinueWatching.isEmpty()) {
-                            LibraryShelfState(
-                                title = "Nothing to resume yet",
-                                message = "Movies and episodes with saved progress will appear here.",
-                            )
-                        } else {
-                            ContinueWatchingRowStage33(
-                                items = visibleContinueWatching,
-                                onSelected = onContinueSelected,
-                                onMarkWatched = onContinueMarkWatched,
-                                onClearProgress = onContinueClearProgress,
-                            )
+                    item(key = "continue-watching") {
+                        LibraryShelfSection(
+                            title = "Continue Watching",
+                            actionLabel = visibleContinueWatching.size.takeIf { it > 0 }
+                                ?.let { "${compactLibraryCountStage33(it)} in progress" },
+                            prominent = true,
+                        ) {
+                            if (visibleContinueWatching.isEmpty()) {
+                                LibraryShelfState(
+                                    title = "Nothing to resume yet",
+                                    message = "Movies and episodes with saved progress will appear here.",
+                                )
+                            } else {
+                                ContinueWatchingRowStage33(
+                                    items = visibleContinueWatching,
+                                    onSelected = onContinueSelected,
+                                    onMarkWatched = onContinueMarkWatched,
+                                    onClearProgress = onContinueClearProgress,
+                                )
+                            }
                         }
                     }
 
-                    LibraryShelfSection(
-                        title = "Continue Offline",
-                        actionLabel = continueOffline.size.takeIf { it > 0 }
-                            ?.let { "${compactLibraryCountStage33(it)} items" },
-                        prominent = true,
-                    ) {
-                        if (continueOffline.isEmpty()) {
-                            LibraryShelfState(
-                                title = "Nothing offline yet",
-                                message = "Movies and episodes you download will appear here.",
-                            )
-                        } else {
-                            ContinueOfflineRowStage33(
-                                items = continueOffline,
-                                onSelected = onContinueOfflineSelected,
-                            )
+                    item(key = "continue-offline") {
+                        LibraryShelfSection(
+                            title = "Continue Offline",
+                            actionLabel = continueOffline.size.takeIf { it > 0 }
+                                ?.let { "${compactLibraryCountStage33(it)} items" },
+                            prominent = true,
+                        ) {
+                            if (continueOffline.isEmpty()) {
+                                LibraryShelfState(
+                                    title = "Nothing offline yet",
+                                    message = "Movies and episodes you download will appear here.",
+                                )
+                            } else {
+                                ContinueOfflineRowStage33(
+                                    items = continueOffline,
+                                    onSelected = onContinueOfflineSelected,
+                                )
+                            }
                         }
                     }
 
                     if (searchActive) {
-                        val matchingMovies = movies.filter { it.name.contains(normalizedSearchQuery, ignoreCase = true) }
-                        val matchingSeries = series.filter { it.name.contains(normalizedSearchQuery, ignoreCase = true) }
-                        LibraryShelfHeader(
-                            title = "Movies",
-                            actionLabel = "${compactLibraryCountStage33(matchingMovies.size)} matches",
-                        )
-                        if (matchingMovies.isEmpty()) {
-                            LibraryShelfState(
-                                title = "No movie matches",
-                                message = "Try another title or close search to browse categories.",
-                            )
-                        } else {
-                            MovieRowStage33(
-                                movies = LibraryBrowsePolicy.homePreview(matchingMovies),
-                                onMovieSelected = onMovieSelected,
+                        item(key = "search-movies-header") {
+                            LibraryShelfHeader(
+                                title = "Movies",
+                                actionLabel = "${compactLibraryCountStage33(matchingMovies.size)} matches",
                             )
                         }
-
-                        LibraryShelfHeader(
-                            title = "Series",
-                            actionLabel = "${compactLibraryCountStage33(matchingSeries.size)} matches",
-                        )
-                        if (matchingSeries.isEmpty()) {
-                            LibraryShelfState(
-                                title = "No series matches",
-                                message = "Try another title or close search to browse categories.",
+                        item(key = "search-movies-results") {
+                            if (matchingMovies.isEmpty()) {
+                                LibraryShelfState(
+                                    title = "No movie matches",
+                                    message = "Try another title or close search to browse categories.",
+                                )
+                            } else {
+                                MovieRowStage33(
+                                    movies = LibraryBrowsePolicy.homePreview(matchingMovies),
+                                    onMovieSelected = onMovieSelected,
+                                )
+                            }
+                        }
+                        item(key = "search-series-header") {
+                            LibraryShelfHeader(
+                                title = "Series",
+                                actionLabel = "${compactLibraryCountStage33(matchingSeries.size)} matches",
                             )
-                        } else {
-                            SeriesRowStage33(
-                                seriesItems = LibraryBrowsePolicy.homePreview(matchingSeries),
-                                onSeriesSelected = onSeriesSelected,
-                            )
+                        }
+                        item(key = "search-series-results") {
+                            if (matchingSeries.isEmpty()) {
+                                LibraryShelfState(
+                                    title = "No series matches",
+                                    message = "Try another title or close search to browse categories.",
+                                )
+                            } else {
+                                SeriesRowStage33(
+                                    seriesItems = LibraryBrowsePolicy.homePreview(matchingSeries),
+                                    onSeriesSelected = onSeriesSelected,
+                                )
+                            }
                         }
                     } else {
-                        LibraryShelfHeader(
-                            title = "Movies",
-                            actionLabel = movies.size.takeIf { it > 0 }?.let { "${compactLibraryCountStage33(it)} titles" },
-                        )
-                        when {
-                            movies.isEmpty() -> LibraryShelfState(
-                                title = "No movies available",
-                                message = "Refresh ${catalog.activeSourceName ?: "the active source"} to load movie metadata.",
-                            )
-                            movieCategories.isEmpty() -> LibraryCategoryMovieShelfStage33(
+                        item(key = "movies-header") {
+                            LibraryShelfHeader(
                                 title = "Movies",
-                                movies = movies,
-                                onShowAll = {
-                                    browseAllKindName = LibraryBrowseKind.MOVIES.name
-                                    browseAllCategoryName = "Movies"
-                                },
-                                onMovieSelected = onMovieSelected,
+                                actionLabel = movies.size.takeIf { it > 0 }
+                                    ?.let { "${compactLibraryCountStage33(it)} titles" },
                             )
-                            else -> movieCategories.forEach { category ->
-                                val categoryMovies = moviesByCategory[category.categoryKey].orEmpty()
-                                if (categoryMovies.isNotEmpty()) {
-                                    LibraryCategoryMovieShelfStage33(
-                                        title = category.name,
-                                        movies = categoryMovies,
-                                        onShowAll = {
-                                            browseAllKindName = LibraryBrowseKind.MOVIES.name
-                                            browseAllCategoryKey = category.categoryKey
-                                            browseAllCategoryName = category.name
-                                        },
-                                        onMovieSelected = onMovieSelected,
-                                    )
-                                }
+                        }
+                        when {
+                            movies.isEmpty() -> item(key = "movies-empty") {
+                                LibraryShelfState(
+                                    title = "No movies available",
+                                    message = "Refresh ${catalog.activeSourceName ?: "the active source"} to load movie metadata.",
+                                )
+                            }
+                            populatedMovieCategories.isEmpty() -> item(key = "movies-all") {
+                                LibraryCategoryMovieShelfStage33(
+                                    title = "Movies",
+                                    movies = movies,
+                                    onShowAll = {
+                                        browseAllKindName = LibraryBrowseKind.MOVIES.name
+                                        browseAllCategoryName = "Movies"
+                                    },
+                                    onMovieSelected = onMovieSelected,
+                                )
+                            }
+                            else -> items(
+                                items = populatedMovieCategories,
+                                key = { category -> "movie-category:${category.categoryKey}" },
+                            ) { category ->
+                                LibraryCategoryMovieShelfStage33(
+                                    title = category.name,
+                                    movies = moviesByCategory[category.categoryKey].orEmpty(),
+                                    onShowAll = {
+                                        browseAllKindName = LibraryBrowseKind.MOVIES.name
+                                        browseAllCategoryKey = category.categoryKey
+                                        browseAllCategoryName = category.name
+                                    },
+                                    onMovieSelected = onMovieSelected,
+                                )
                             }
                         }
 
-                        LibraryShelfHeader(
-                            title = "Series",
-                            actionLabel = series.size.takeIf { it > 0 }?.let { "${compactLibraryCountStage33(it)} titles" },
-                        )
-                        when {
-                            series.isEmpty() -> LibraryShelfState(
-                                title = "No series available",
-                                message = "Refresh ${catalog.activeSourceName ?: "the active source"} to load series metadata.",
-                            )
-                            seriesCategories.isEmpty() -> LibraryCategorySeriesShelfStage33(
+                        item(key = "series-header") {
+                            LibraryShelfHeader(
                                 title = "Series",
-                                seriesItems = series,
-                                onShowAll = {
-                                    browseAllKindName = LibraryBrowseKind.SERIES.name
-                                    browseAllCategoryName = "Series"
-                                },
-                                onSeriesSelected = onSeriesSelected,
+                                actionLabel = series.size.takeIf { it > 0 }
+                                    ?.let { "${compactLibraryCountStage33(it)} titles" },
                             )
-                            else -> seriesCategories.forEach { category ->
-                                val categorySeries = seriesByCategory[category.categoryKey].orEmpty()
-                                if (categorySeries.isNotEmpty()) {
-                                    LibraryCategorySeriesShelfStage33(
-                                        title = category.name,
-                                        seriesItems = categorySeries,
-                                        onShowAll = {
-                                            browseAllKindName = LibraryBrowseKind.SERIES.name
-                                            browseAllCategoryKey = category.categoryKey
-                                            browseAllCategoryName = category.name
-                                        },
-                                        onSeriesSelected = onSeriesSelected,
-                                    )
-                                }
+                        }
+                        when {
+                            series.isEmpty() -> item(key = "series-empty") {
+                                LibraryShelfState(
+                                    title = "No series available",
+                                    message = "Refresh ${catalog.activeSourceName ?: "the active source"} to load series metadata.",
+                                )
+                            }
+                            populatedSeriesCategories.isEmpty() -> item(key = "series-all") {
+                                LibraryCategorySeriesShelfStage33(
+                                    title = "Series",
+                                    seriesItems = series,
+                                    onShowAll = {
+                                        browseAllKindName = LibraryBrowseKind.SERIES.name
+                                        browseAllCategoryName = "Series"
+                                    },
+                                    onSeriesSelected = onSeriesSelected,
+                                )
+                            }
+                            else -> items(
+                                items = populatedSeriesCategories,
+                                key = { category -> "series-category:${category.categoryKey}" },
+                            ) { category ->
+                                LibraryCategorySeriesShelfStage33(
+                                    title = category.name,
+                                    seriesItems = seriesByCategory[category.categoryKey].orEmpty(),
+                                    onShowAll = {
+                                        browseAllKindName = LibraryBrowseKind.SERIES.name
+                                        browseAllCategoryKey = category.categoryKey
+                                        browseAllCategoryName = category.name
+                                    },
+                                    onSeriesSelected = onSeriesSelected,
+                                )
                             }
                         }
                     }
-
                 }
             }
-
-            Spacer(modifier = Modifier.height(OwnPlaySpacing.Xl))
         }
     }
 }
