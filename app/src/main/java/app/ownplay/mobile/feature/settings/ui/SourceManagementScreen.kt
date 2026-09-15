@@ -448,7 +448,11 @@ internal fun SourceManagementScreen(
                                 )
 
                                 is SourceResult.Failure -> showStatus(
-                                    "Source not removed",
+                                    if (result.error.code == "SOURCE_REMOVED_CLEANUP_FAILED") {
+                                        "Source removed"
+                                    } else {
+                                        "Source not removed"
+                                    },
                                     result.error.safeMessage,
                                 )
                             }
@@ -488,7 +492,7 @@ private fun RemoveSourcePanel(
                 color = OwnPlayColors.TextPrimary,
             )
             Text(
-                text = "This removes the source and its provider catalog from this device. Secure credentials for this source are also removed.",
+                text = "This removes the source, its provider catalog, secure credentials, and OwnPlay-managed downloads for this source from this device.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = OwnPlayColors.TextSecondary,
             )

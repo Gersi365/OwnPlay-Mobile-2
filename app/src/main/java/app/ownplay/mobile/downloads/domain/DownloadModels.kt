@@ -58,6 +58,11 @@ data class DownloadItem(
             ?.let { total -> (bytesDownloaded.toDouble() / total.toDouble()).coerceIn(0.0, 1.0).toFloat() }
 }
 
+internal data class DownloadCleanupTarget(
+    val downloadId: String,
+    val localReference: String?,
+)
+
 sealed interface DownloadOperationResult {
     data class Success(val item: DownloadItem? = null) : DownloadOperationResult
 

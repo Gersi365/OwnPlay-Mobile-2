@@ -9,6 +9,7 @@ data class LibraryDownloadEpisodeContext(
     val seriesName: String,
     val seasonNumber: Int,
     val episodeNumber: Int,
+    val available: Boolean,
 )
 
 /**
@@ -45,6 +46,7 @@ class LibraryDownloadMetadataResolver(
                 seriesName = episode.seriesName,
                 seasonNumber = episode.seasonNumber,
                 episodeNumber = episode.episodeNumber,
+                available = episode.available,
             )
         }
     }

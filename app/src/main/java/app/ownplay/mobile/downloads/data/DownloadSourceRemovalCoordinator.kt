@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.work.WorkManager
 import androidx.work.await
 import app.ownplay.mobile.data.db.DownloadDao
+import app.ownplay.mobile.downloads.domain.DownloadCleanupTarget
 import app.ownplay.mobile.downloads.domain.DownloadIdentity
 import java.io.File
 import kotlinx.coroutines.Dispatchers
@@ -15,31 +16,49 @@ internal class DownloadSourceRemovalCoordinator(
     private val downloadDao: DownloadDao,
     private val workManager: WorkManager,
 ) {
-    private val filesDir = context.applicationContext.filesDir
+    private val appContext = context.applicationContext
+    private val filesDir = appContext.filesDir
+    private val publicFileStore = PublicDownloadFileStore(appContext)
 
-    suspend fun captureDownloadIds(sourceId: String): List<String> =
+    suspend fun captureDownloads(sourceId: String): List<DownloadCleanupTarget> =
         downloadDao.observeForSource(sourceId).first()
-            .map { row -> row.downloadId }
-            .filter(String::isNotBlank)
-            .distinct()
+            .filter { row -> row.downloadId.isNotBlank() }
+            .distinctBy { row -> row.downloadId }
+            .map { row ->
+                DownloadCleanupTarget(
+                    downloadId = row.downloadId,
+                    localReference = row.localReference,
+                )
+            }
 
-    suspend fun cleanup(downloadIds: List<String>) {
-        val safeToDelete = mutableListOf<String>()
-        downloadIds.filter(String::isNotBlank).distinct().forEach { downloadId ->
+    suspend fun cleanup(targets: List<DownloadCleanupTarget>): Boolean {
+        var complete = true
+        val safeToDelete = mutableListOf<DownloadCleanupTarget>()
+        targets.distinctBy { it.downloadId }.forEach { target ->
             val cancelled = runCatching {
-                workManager.cancelUniqueWork(workName(downloadId)).await()
+                workManager.cancelUniqueWork(workName(target.downloadId)).await()
             }.isSuccess
-            if (cancelled) safeToDelete += downloadId
+            if (cancelled) {
+                safeToDelete += target
+            } else {
+                complete = false
+            }
         }
 
         withContext(Dispatchers.IO) {
-            safeToDelete.forEach { downloadId ->
-                runCatching {
-                    deletePrivateDownloadFiles(downloadId)
-                    deletePrivateMetadata(downloadId)
+            safeToDelete.forEach { target ->
+                val publicReference = target.localReference?.takeIf(publicFileStore::handles)
+                if (publicReference != null && !publicFileStore.delete(publicReference)) {
+                    complete = false
                 }
+                val privateCleanupSucceeded = runCatching {
+                    deletePrivateDownloadFiles(target.downloadId)
+                    deletePrivateMetadata(target.downloadId)
+                }.isSuccess
+                if (!privateCleanupSucceeded) complete = false
             }
         }
+        return complete
     }
 
     private fun deletePrivateDownloadFiles(downloadId: String) {

@@ -1,5 +1,6 @@
 package app.ownplay.mobile.core
 
+import app.ownplay.mobile.downloads.domain.DownloadCleanupTarget
 import app.ownplay.mobile.sources.domain.NewSource
 import app.ownplay.mobile.sources.domain.RefreshSummary
 import app.ownplay.mobile.sources.domain.Source
@@ -14,8 +15,8 @@ import kotlinx.coroutines.withContext
 
 internal class CoordinatedSourceRepository(
     private val delegate: SourceRepository,
-    private val captureSourceDownloads: suspend (String) -> List<String>,
-    private val cleanupSourceDownloads: suspend (List<String>) -> Unit,
+    private val captureSourceDownloads: suspend (String) -> List<DownloadCleanupTarget>,
+    private val cleanupSourceDownloads: suspend (List<DownloadCleanupTarget>) -> Boolean,
 ) : SourceRepository {
     override fun observeSources(): Flow<List<Source>> = delegate.observeSources()
 
@@ -41,8 +42,16 @@ internal class CoordinatedSourceRepository(
 
         val result = delegate.removeSource(sourceId)
         if (result is SourceResult.Success) {
-            withContext(NonCancellable) {
+            val cleanupComplete = withContext(NonCancellable) {
                 cleanupSourceDownloads(downloadIds)
+            }
+            if (!cleanupComplete) {
+                return SourceResult.Failure(
+                    SourceError(
+                        code = "SOURCE_REMOVED_CLEANUP_FAILED",
+                        safeMessage = "The source was removed, but some downloaded files could not be deleted from device storage.",
+                    ),
+                )
             }
         }
         return result

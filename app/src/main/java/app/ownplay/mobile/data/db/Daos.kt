@@ -661,13 +661,13 @@ interface DownloadDao {
         SET state = 'FAILED',
             localReference = NULL,
             integrityMetadata = NULL,
-            failureReason = 'INTEGRITY',
+            failureReason = :failureCode,
             updatedAt = :updatedAt
         WHERE downloadId = :downloadId
           AND state = 'COMPLETED'
         """,
     )
-    suspend fun markCompletedIntegrityFailure(downloadId: String, updatedAt: Long): Int
+    suspend fun markCompletedFailure(downloadId: String, failureCode: String, updatedAt: Long): Int
 
     @Query("DELETE FROM downloads WHERE downloadId = :downloadId")
     suspend fun delete(downloadId: String): Int

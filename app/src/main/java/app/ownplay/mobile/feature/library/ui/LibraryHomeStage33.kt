@@ -59,6 +59,7 @@ import app.ownplay.mobile.downloads.domain.DownloadItem
 import app.ownplay.mobile.downloads.domain.DownloadState
 import app.ownplay.mobile.feature.library.domain.ContinueWatchingItem
 import app.ownplay.mobile.feature.library.domain.LibraryCatalog
+import app.ownplay.mobile.feature.library.domain.LibraryMediaKind
 import app.ownplay.mobile.feature.library.domain.LibraryMovie
 import app.ownplay.mobile.feature.library.domain.LibrarySeries
 
@@ -676,7 +677,11 @@ private fun ContinueOfflineCardStage33(
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
     val progress = item.progressFraction
-    val displayTitle = item.metadata?.title ?: item.title
+    val displayTitle = if (item.mediaKind == LibraryMediaKind.EPISODE) {
+        item.title
+    } else {
+        item.metadata?.title ?: item.title
+    }
     val stateLabel = when (item.state) {
         DownloadState.COMPLETED -> "Available offline"
         DownloadState.QUEUED -> "Queued for download"

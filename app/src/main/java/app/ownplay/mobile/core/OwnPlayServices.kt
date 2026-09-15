@@ -160,7 +160,7 @@ class OwnPlayServices private constructor(
         )
         CoordinatedSourceRepository(
             delegate = delegate,
-            captureSourceDownloads = removalCoordinator::captureDownloadIds,
+            captureSourceDownloads = removalCoordinator::captureDownloads,
             cleanupSourceDownloads = removalCoordinator::cleanup,
         )
     }
