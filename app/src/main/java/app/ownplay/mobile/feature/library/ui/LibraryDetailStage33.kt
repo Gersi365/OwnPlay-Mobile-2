@@ -22,6 +22,7 @@ import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -46,8 +47,10 @@ import app.ownplay.mobile.design.OwnPlaySpacing
 import app.ownplay.mobile.downloads.domain.DownloadAction
 import app.ownplay.mobile.downloads.domain.DownloadItem
 import app.ownplay.mobile.downloads.domain.DownloadState
+import app.ownplay.mobile.downloads.domain.DownloadStatePolicy
 import app.ownplay.mobile.downloads.domain.OfflineAvailability
 import app.ownplay.mobile.downloads.ui.DownloadControls
+import app.ownplay.mobile.downloads.ui.rememberDownloadPermissionDispatcher
 import app.ownplay.mobile.feature.library.domain.LibraryDetailStartPolicy
 import app.ownplay.mobile.feature.library.domain.LibraryEpisode
 import app.ownplay.mobile.feature.library.domain.LibraryMediaKind
@@ -538,12 +541,17 @@ private fun EpisodeRowStage33(
     modifier: Modifier = Modifier,
 ) {
     val hasProgress = episode.resumePositionMs != null
-    val actions = LibraryDetailStartPolicy.actions(
-        hasProgress = hasProgress,
-        preferResume = preferResume,
-    )
     val displayTitle = episodeDisplayTitleStage33(episode)
     val completedOffline = downloadItem?.state == DownloadState.COMPLETED
+    var permissionMessage by remember(episode.episodeId) { mutableStateOf<String?>(null) }
+    val permissionDispatcher = rememberDownloadPermissionDispatcher(
+        onBlocked = { message -> permissionMessage = message },
+    )
+    val downloadAction = if (completedOffline) {
+        DownloadAction.REMOVE
+    } else {
+        DownloadStatePolicy.primaryAction(downloadItem)
+    }
 
     fun startEpisode(mode: LibraryStartMode) {
         if (completedOffline) {
@@ -557,6 +565,11 @@ private fun EpisodeRowStage33(
         } else {
             onPlay(mode)
         }
+    }
+
+    fun dispatchDownloadAction(action: DownloadAction) {
+        permissionMessage = null
+        permissionDispatcher(action, onDownloadAction)
     }
 
     Row(
@@ -593,64 +606,137 @@ private fun EpisodeRowStage33(
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 2,
             )
-            DownloadControls(
-                item = downloadItem,
-                onAction = onDownloadAction,
-                compact = true,
-            )
-            actions.secondary?.let { secondary ->
-                EpisodeInlineStartAction(
-                    text = secondaryStartLabelStage33(secondary),
-                    contentDescription = startModeContentDescriptionStage33(secondary, displayTitle),
-                    onClick = { startEpisode(secondary) },
+            downloadItem?.let { item ->
+                Text(
+                    text = episodeDownloadStatusStage33(item),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (item.state == DownloadState.FAILED) {
+                        OwnPlayColors.TextSecondary
+                    } else {
+                        OwnPlayColors.TextMuted
+                    },
+                    maxLines = 1,
+                )
+            }
+            permissionMessage?.let { message ->
+                Text(
+                    text = message,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = OwnPlayColors.TextSecondary,
                 )
             }
         }
-        EpisodePrimaryPlayAction(
-            contentDescription = startModeContentDescriptionStage33(actions.primary, displayTitle),
-            onClick = { startEpisode(actions.primary) },
+        EpisodeActionClusterStage33(
+            hasProgress = hasProgress,
+            preferResume = preferResume,
+            downloadAction = downloadAction,
+            displayTitle = displayTitle,
+            onPlay = { startEpisode(LibraryStartMode.BEGINNING) },
+            onResume = { startEpisode(LibraryStartMode.RESUME) },
+            onDownloadAction = ::dispatchDownloadAction,
         )
     }
 }
 
 @Composable
-private fun EpisodePrimaryPlayAction(
+private fun EpisodeActionClusterStage33(
+    hasProgress: Boolean,
+    preferResume: Boolean,
+    downloadAction: DownloadAction,
+    displayTitle: String,
+    onPlay: () -> Unit,
+    onResume: () -> Unit,
+    onDownloadAction: (DownloadAction) -> Unit,
+) {
+    Surface(
+        color = OwnPlayColors.SurfaceElevated.copy(alpha = 0.72f),
+        shape = OwnPlayShapeTokens.Action,
+        tonalElevation = 0.dp,
+    ) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(0.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            EpisodeClusterIconStage33(
+                glyph = "▶",
+                contentDescription = "Play $displayTitle from beginning",
+                emphasized = !hasProgress || !preferResume,
+                onClick = onPlay,
+            )
+            if (hasProgress) {
+                EpisodeClusterIconStage33(
+                    glyph = "↪",
+                    contentDescription = "Resume $displayTitle",
+                    emphasized = preferResume,
+                    onClick = onResume,
+                )
+            }
+            EpisodeClusterIconStage33(
+                glyph = episodeDownloadActionGlyphStage33(downloadAction),
+                contentDescription = episodeDownloadActionDescriptionStage33(downloadAction, displayTitle),
+                emphasized = false,
+                onClick = { onDownloadAction(downloadAction) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun EpisodeClusterIconStage33(
+    glyph: String,
     contentDescription: String,
+    emphasized: Boolean,
     onClick: () -> Unit,
 ) {
     Box(
         modifier = Modifier
-            .size(48.dp)
+            .size(44.dp)
             .clickable(role = Role.Button, onClick = onClick)
             .semantics { this.contentDescription = contentDescription },
         contentAlignment = Alignment.Center,
     ) {
         Text(
-            text = "▶",
-            style = MaterialTheme.typography.titleLarge,
-            color = OwnPlayColors.Accent,
+            text = glyph,
+            style = MaterialTheme.typography.titleMedium,
+            color = if (emphasized) OwnPlayColors.Accent else OwnPlayColors.TextSecondary,
             fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
         )
     }
 }
 
-@Composable
-private fun EpisodeInlineStartAction(
-    text: String,
-    contentDescription: String,
-    onClick: () -> Unit,
-) {
-    Text(
-        text = "↻ $text",
-        modifier = Modifier
-            .clickable(role = Role.Button, onClick = onClick)
-            .padding(vertical = 7.dp)
-            .semantics { this.contentDescription = contentDescription },
-        style = MaterialTheme.typography.labelMedium,
-        color = OwnPlayColors.TextMuted,
-        fontWeight = FontWeight.Medium,
-        maxLines = 1,
-    )
+private fun episodeDownloadStatusStage33(item: DownloadItem): String = when (item.state) {
+    DownloadState.QUEUED -> "Queued"
+    DownloadState.DOWNLOADING -> item.progressFraction?.let { progress ->
+        "Downloading ${(progress * 100f).toInt().coerceIn(0, 100)}%"
+    } ?: "Downloading"
+    DownloadState.PAUSED -> "Paused"
+    DownloadState.FAILED -> "Download needs attention"
+    DownloadState.COMPLETED -> if (item.resumePositionMs != null) {
+        "Downloaded • resume available"
+    } else {
+        "Downloaded"
+    }
+}
+
+private fun episodeDownloadActionGlyphStage33(action: DownloadAction): String = when (action) {
+    DownloadAction.DOWNLOAD -> "↓"
+    DownloadAction.PAUSE -> "Ⅱ"
+    DownloadAction.RESUME -> "↪"
+    DownloadAction.RETRY -> "↻"
+    DownloadAction.REMOVE -> "×"
+    DownloadAction.PLAY_OFFLINE -> "▶"
+    DownloadAction.RESUME_OFFLINE -> "↪"
+}
+
+private fun episodeDownloadActionDescriptionStage33(action: DownloadAction, title: String): String = when (action) {
+    DownloadAction.DOWNLOAD -> "Download $title"
+    DownloadAction.PAUSE -> "Pause download for $title"
+    DownloadAction.RESUME -> "Resume download for $title"
+    DownloadAction.RETRY -> "Retry download for $title"
+    DownloadAction.REMOVE -> "Remove downloaded $title"
+    DownloadAction.PLAY_OFFLINE -> "Play downloaded $title"
+    DownloadAction.RESUME_OFFLINE -> "Resume downloaded $title"
 }
 
 private fun startActionStage33(

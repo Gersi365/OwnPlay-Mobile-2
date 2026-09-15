@@ -20,6 +20,7 @@ import app.ownplay.mobile.downloads.domain.DownloadOperationResult
 import app.ownplay.mobile.downloads.domain.DownloadRepository
 import app.ownplay.mobile.downloads.domain.OfflineAvailability
 import app.ownplay.mobile.feature.library.data.LibraryDownloadMetadataResolver
+import app.ownplay.mobile.feature.library.domain.LibraryCatalog
 import app.ownplay.mobile.feature.library.domain.LibraryEpisode
 import app.ownplay.mobile.feature.library.domain.LibraryMediaKind
 import app.ownplay.mobile.feature.library.domain.LibraryMediaMetadata
@@ -36,6 +37,7 @@ import kotlinx.coroutines.launch
 
 @Composable
 fun LibraryShell(
+    catalog: LibraryCatalog?,
     libraryRepository: LibraryRepository,
     downloadRepository: DownloadRepository,
     downloadMetadataResolver: LibraryDownloadMetadataResolver,
@@ -45,10 +47,8 @@ fun LibraryShell(
     onFullscreenChanged: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val catalogFlow = remember(libraryRepository) { libraryRepository.observeCatalog() }
     val downloadsFlow = remember(downloadRepository) { downloadRepository.observeDownloads() }
     val visibilityFlow = remember(libraryVisibilityPreferences) { libraryVisibilityPreferences.visibility }
-    val catalog by catalogFlow.collectAsState(initial = null)
     val storedDownloads by downloadsFlow.collectAsState(initial = emptyList())
     val visibility by visibilityFlow.collectAsState(initial = LibraryVisibilitySnapshot())
     val scope = rememberCoroutineScope()

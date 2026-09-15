@@ -196,15 +196,7 @@ internal fun LibraryHomeStage33(
             }
 
             when {
-                catalog == null -> item(key = "library-loading") {
-                    LibraryShelfSection(title = "Library", prominent = true) {
-                        LibraryShelfState(
-                            title = "Loading Library",
-                            message = "Reading the active source and saved progress.",
-                            tone = LibraryStateTone.LOADING,
-                        )
-                    }
-                }
+                catalog == null -> Unit
 
                 catalog.activeSourceId == null -> item(key = "library-no-source") {
                     LibraryShelfSection(title = "Library", prominent = true) {

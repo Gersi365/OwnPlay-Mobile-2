@@ -59,6 +59,8 @@ fun OwnPlayApp(
         val playerInteractionState = rememberPlayerInteractionState()
         val settingsFlow = remember(services.settingsPreferences) { services.settingsPreferences.settings }
         val settings by settingsFlow.collectAsState(initial = SettingsSnapshot())
+        val libraryCatalogFlow = remember(services.libraryRepository) { services.libraryRepository.observeCatalog() }
+        val libraryCatalog by libraryCatalogFlow.collectAsState(initial = null)
 
         fun setContentFullscreen(kind: ContentFullscreenKind) {
             contentFullscreenKind = kind
@@ -150,6 +152,7 @@ fun OwnPlayApp(
                             )
 
                             AppDestination.Library -> LibraryShell(
+                                catalog = libraryCatalog,
                                 libraryRepository = services.libraryRepository,
                                 downloadRepository = services.downloadRepository,
                                 downloadMetadataResolver = services.libraryDownloadMetadataResolver,
