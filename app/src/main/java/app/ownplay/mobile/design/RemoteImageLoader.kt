@@ -9,14 +9,14 @@ import androidx.compose.ui.graphics.asImageBitmap
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileInputStream
-import java.net.HttpURLConnection
-import java.net.URL
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
+import okhttp3.OkHttpClient
+import okhttp3.Request
 
 internal enum class RemoteImageProfile(
     internal val maxBytes: Int,
@@ -31,9 +31,16 @@ internal object OwnPlayRemoteImageLoader {
     private val inFlightLock = Any()
     private val inFlight = mutableMapOf<String, Deferred<Bitmap?>>()
 
+    @Volatile
+    private var httpClient: OkHttpClient? = null
+
     private val memoryCache = object : LruCache<String, Bitmap>(MEMORY_CACHE_KB) {
         override fun sizeOf(key: String, value: Bitmap): Int =
             (value.allocationByteCount / 1024).coerceAtLeast(1)
+    }
+
+    fun configure(client: OkHttpClient) {
+        httpClient = client
     }
 
     suspend fun load(
@@ -87,27 +94,25 @@ internal object OwnPlayRemoteImageLoader {
     }
 
     private fun fetchHttpBitmap(locator: String, profile: RemoteImageProfile): Bitmap? {
-        val connection = try {
-            URL(locator).openConnection() as? HttpURLConnection
-        } catch (_: Exception) {
-            null
-        } ?: return null
-
-        connection.connectTimeout = CONNECT_TIMEOUT_MS
-        connection.readTimeout = READ_TIMEOUT_MS
-        connection.instanceFollowRedirects = true
+        val client = httpClient ?: return null
+        val request = try {
+            Request.Builder().url(locator).get().build()
+        } catch (_: IllegalArgumentException) {
+            return null
+        }
 
         return try {
-            if (connection.responseCode !in 200..299) return null
-            val announcedLength = connection.contentLengthLong
-            if (announcedLength > profile.maxBytes) return null
-            connection.inputStream.use { input ->
-                readAndDecode(input.readBytesLimited(profile.maxBytes), profile.maxDimension)
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return null
+                val body = response.body
+                val announcedLength = body.contentLength()
+                if (announcedLength > profile.maxBytes) return null
+                body.byteStream().use { input ->
+                    readAndDecode(input.readBytesLimited(profile.maxBytes), profile.maxDimension)
+                }
             }
         } catch (_: Exception) {
             null
-        } finally {
-            connection.disconnect()
         }
     }
 
@@ -146,8 +151,6 @@ internal object OwnPlayRemoteImageLoader {
 
     private const val FILE_SCHEME = "file://"
     private const val MEMORY_CACHE_KB = 24 * 1024
-    private const val CONNECT_TIMEOUT_MS = 4_000
-    private const val READ_TIMEOUT_MS = 5_000
     private const val NETWORK_BUFFER_BYTES = 8 * 1024
     private const val DEFAULT_BUFFER_CAPACITY = 32 * 1024
 }

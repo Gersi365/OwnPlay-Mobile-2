@@ -78,10 +78,12 @@ fun PlayerGlassScrims(modifier: Modifier = Modifier) {
 
 enum class PlayerGlassGlyph {
     BACK,
+    PREVIOUS,
     REWIND_10,
     PLAY,
     PAUSE,
     FORWARD_10,
+    NEXT,
 }
 
 @Composable
@@ -162,6 +164,23 @@ private fun PlayerGlassGlyphContent(glyph: PlayerGlassGlyph, emphasized: Boolean
                         )
                     }
 
+                    PlayerGlassGlyph.PREVIOUS -> {
+                        drawLine(
+                            color = Color.White,
+                            start = Offset(size.width * 0.28f, size.height * 0.24f),
+                            end = Offset(size.width * 0.28f, size.height * 0.76f),
+                            strokeWidth = strokeWidth,
+                            cap = StrokeCap.Round,
+                        )
+                        val path = androidx.compose.ui.graphics.Path().apply {
+                            moveTo(size.width * 0.70f, size.height * 0.24f)
+                            lineTo(size.width * 0.38f, size.height * 0.50f)
+                            lineTo(size.width * 0.70f, size.height * 0.76f)
+                            close()
+                        }
+                        drawPath(path = path, color = Color.White)
+                    }
+
                     PlayerGlassGlyph.PLAY -> {
                         val path = androidx.compose.ui.graphics.Path().apply {
                             moveTo(size.width * 0.38f, size.height * 0.24f)
@@ -188,6 +207,23 @@ private fun PlayerGlassGlyphContent(glyph: PlayerGlassGlyph, emphasized: Boolean
                             size = Size(barWidth, barHeight),
                             cornerRadius = CornerRadius(barWidth * 0.20f),
                         )
+                    }
+
+                    PlayerGlassGlyph.NEXT -> {
+                        drawLine(
+                            color = Color.White,
+                            start = Offset(size.width * 0.72f, size.height * 0.24f),
+                            end = Offset(size.width * 0.72f, size.height * 0.76f),
+                            strokeWidth = strokeWidth,
+                            cap = StrokeCap.Round,
+                        )
+                        val path = androidx.compose.ui.graphics.Path().apply {
+                            moveTo(size.width * 0.30f, size.height * 0.24f)
+                            lineTo(size.width * 0.62f, size.height * 0.50f)
+                            lineTo(size.width * 0.30f, size.height * 0.76f)
+                            close()
+                        }
+                        drawPath(path = path, color = Color.White)
                     }
 
                     PlayerGlassGlyph.REWIND_10,

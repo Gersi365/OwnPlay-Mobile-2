@@ -87,6 +87,15 @@ interface CatalogDao {
     @Upsert
     suspend fun upsertCategories(rows: List<ProviderCategoryEntity>)
 
+    @Query("SELECT * FROM live_channels WHERE sourceId = :sourceId ORDER BY channelId")
+    suspend fun getLiveChannelsForRefresh(sourceId: String): List<LiveChannelEntity>
+
+    @Query("SELECT * FROM movies WHERE sourceId = :sourceId")
+    suspend fun getMoviesForRefresh(sourceId: String): List<MovieEntity>
+
+    @Query("SELECT * FROM series WHERE sourceId = :sourceId")
+    suspend fun getSeriesForRefresh(sourceId: String): List<SeriesEntity>
+
     @Upsert
     suspend fun upsertLiveChannels(rows: List<LiveChannelEntity>)
 
@@ -453,6 +462,40 @@ interface LibraryDao {
           ON p.sourceId = s.sourceId
          AND p.mediaKind = 'EPISODE'
          AND p.contentId = e.episodeId
+        WHERE s.sourceId = :sourceId
+          AND e.episodeId IN (:episodeIds)
+        ORDER BY e.seriesId ASC, e.seasonNumber ASC, e.episodeNumber ASC, e.episodeId ASC
+        """,
+    )
+    suspend fun getEpisodesForProgress(
+        sourceId: String,
+        episodeIds: List<String>,
+    ): List<EpisodeLibraryView>
+
+    @Query(
+        """
+        SELECT
+            e.episodeId AS episodeId,
+            e.seriesId AS seriesId,
+            s.sourceId AS sourceId,
+            s.name AS seriesName,
+            e.providerEpisodeId AS providerEpisodeId,
+            e.seasonNumber AS seasonNumber,
+            e.episodeNumber AS episodeNumber,
+            e.title AS title,
+            e.durationMs AS durationMs,
+            e.extension AS extension,
+            e.available AS available,
+            p.positionMs AS progressPositionMs,
+            p.durationMs AS progressDurationMs,
+            p.completed AS progressCompleted,
+            p.updatedAt AS progressUpdatedAt
+        FROM episodes AS e
+        INNER JOIN series AS s ON s.seriesId = e.seriesId
+        LEFT JOIN playback_progress AS p
+          ON p.sourceId = s.sourceId
+         AND p.mediaKind = 'EPISODE'
+         AND p.contentId = e.episodeId
         WHERE e.seriesId = :seriesId
           AND e.available = 1
         ORDER BY e.seasonNumber ASC, e.episodeNumber ASC, e.episodeId ASC
@@ -618,13 +661,13 @@ interface DownloadDao {
         SET state = 'FAILED',
             localReference = NULL,
             integrityMetadata = NULL,
-            failureReason = 'INTEGRITY',
+            failureReason = :failureCode,
             updatedAt = :updatedAt
         WHERE downloadId = :downloadId
           AND state = 'COMPLETED'
         """,
     )
-    suspend fun markCompletedIntegrityFailure(downloadId: String, updatedAt: Long): Int
+    suspend fun markCompletedFailure(downloadId: String, failureCode: String, updatedAt: Long): Int
 
     @Query("DELETE FROM downloads WHERE downloadId = :downloadId")
     suspend fun delete(downloadId: String): Int

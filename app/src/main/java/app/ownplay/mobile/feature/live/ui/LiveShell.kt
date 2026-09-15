@@ -344,14 +344,22 @@ fun LiveShell(
     }
 
     LaunchedEffect(
+        playback.mediaId,
         playback.phase,
         playback.audioTrackPresent,
         playback.audioTrackSupported,
         playback.audioTrackSelected,
         fallbackLoadRequest,
     ) {
+        val fallback = fallbackLoadRequest ?: return@LaunchedEffect
+        if (playback.mediaId != fallback.media.id) return@LaunchedEffect
         if (LivePlaybackFallbackPolicy.shouldUseFallback(playback)) {
-            val fallback = fallbackLoadRequest ?: return@LaunchedEffect
+            fallbackLoadRequest = null
+            playbackController.load(fallback)
+            return@LaunchedEffect
+        }
+        if (LivePlaybackFallbackPolicy.shouldUseFallbackAfterBuffering(playback)) {
+            delay(LivePlaybackFallbackPolicy.PRIMARY_BUFFERING_TIMEOUT_MS)
             fallbackLoadRequest = null
             playbackController.load(fallback)
         }
@@ -365,6 +373,20 @@ fun LiveShell(
         val selectedId = presentationState.selectedChannelId
         if (selectedId != null && channels.none { it.channelId == selectedId }) {
             dispatch(LiveIntent.ChannelUnavailable(selectedId))
+        }
+    }
+
+    LaunchedEffect(
+        visibleChannels,
+        presentationState.presentation,
+        presentationState.selectedChannelId,
+    ) {
+        val selectedId = presentationState.selectedChannelId ?: return@LaunchedEffect
+        if (
+            presentationState.presentation == LivePresentation.PREVIEW &&
+            visibleChannels.none { it.channelId == selectedId }
+        ) {
+            dispatch(LiveIntent.BackPressed)
         }
     }
 
@@ -1240,6 +1262,24 @@ private fun FullscreenLive(
                         )
                     }
                 }
+                PlayerGlassIconAction(
+                    glyph = PlayerGlassGlyph.PREVIOUS,
+                    contentDescription = "Previous channel",
+                    onClick = {
+                        optionsVisible = false
+                        overlayVisible = true
+                        onPreviousChannel()
+                    },
+                )
+                PlayerGlassIconAction(
+                    glyph = PlayerGlassGlyph.NEXT,
+                    contentDescription = "Next channel",
+                    onClick = {
+                        optionsVisible = false
+                        overlayVisible = true
+                        onNextChannel()
+                    },
+                )
                 PlayerGlassPillAction(
                     text = "Options",
                     emphasized = optionsVisible,
@@ -1332,7 +1372,8 @@ private fun rememberLiveGuide(
         }
         while (true) {
             guide = liveRepository.loadNowNext(stableChannelId)
-            delay(125_000L)
+            val nowMs = System.currentTimeMillis()
+            delay(app.ownplay.mobile.feature.live.domain.LiveGuidePolicy.refreshDelayMs(guide, nowMs))
         }
     }
     return guide

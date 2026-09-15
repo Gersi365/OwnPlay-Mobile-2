@@ -34,14 +34,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import app.ownplay.mobile.data.prefs.LibraryVisibilityPreferences
 import app.ownplay.mobile.data.prefs.SettingsPreferences
 import app.ownplay.mobile.design.OwnPlayColors
 import app.ownplay.mobile.design.OwnPlayPanel
 import app.ownplay.mobile.design.OwnPlayShapeTokens
 import app.ownplay.mobile.design.OwnPlaySpacing
 import app.ownplay.mobile.design.OwnPlayTopBar
-import app.ownplay.mobile.downloads.domain.DownloadRepository
 import app.ownplay.mobile.feature.live.domain.LiveRepository
 import app.ownplay.mobile.feature.settings.domain.BackupRepository
 import app.ownplay.mobile.feature.settings.domain.ProviderRefreshInterval
@@ -54,7 +52,6 @@ private enum class SettingsPage {
     SOURCES,
     BACKUP_RESTORE,
     MANAGE_LIVE,
-    MANAGE_DOWNLOADS,
     HELP,
     PRIVACY,
 }
@@ -75,11 +72,8 @@ private data class SettingRowModel(
 fun SettingsShell(
     sourceRepository: SourceRepository,
     settingsPreferences: SettingsPreferences,
-    libraryVisibilityPreferences: LibraryVisibilityPreferences,
     backupRepository: BackupRepository,
     liveRepository: LiveRepository,
-    downloadRepository: DownloadRepository,
-    onPlayOffline: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var pageName by rememberSaveable { mutableStateOf(SettingsPage.MAIN.name) }
@@ -95,7 +89,6 @@ fun SettingsShell(
             onOpenSources = { pageName = SettingsPage.SOURCES.name },
             onOpenBackupRestore = { pageName = SettingsPage.BACKUP_RESTORE.name },
             onManageLive = { pageName = SettingsPage.MANAGE_LIVE.name },
-            onManageDownloads = { pageName = SettingsPage.MANAGE_DOWNLOADS.name },
             onHelp = { pageName = SettingsPage.HELP.name },
             onPrivacy = { pageName = SettingsPage.PRIVACY.name },
             modifier = modifier,
@@ -116,14 +109,6 @@ fun SettingsShell(
 
         SettingsPage.MANAGE_LIVE -> LiveManagementScreen(
             liveRepository = liveRepository,
-            onBack = { pageName = SettingsPage.MAIN.name },
-            modifier = modifier,
-        )
-
-        SettingsPage.MANAGE_DOWNLOADS -> DownloadManagementScreen(
-            downloadRepository = downloadRepository,
-            libraryVisibilityPreferences = libraryVisibilityPreferences,
-            onPlayOffline = onPlayOffline,
             onBack = { pageName = SettingsPage.MAIN.name },
             modifier = modifier,
         )
@@ -159,7 +144,6 @@ private fun MainSettings(
     onOpenSources: () -> Unit,
     onOpenBackupRestore: () -> Unit,
     onManageLive: () -> Unit,
-    onManageDownloads: () -> Unit,
     onHelp: () -> Unit,
     onPrivacy: () -> Unit,
     modifier: Modifier = Modifier,
@@ -176,16 +160,21 @@ private fun MainSettings(
     Column(
         modifier = modifier.fillMaxSize().verticalScroll(rememberScrollState()),
     ) {
-        OwnPlayTopBar(showTagline = true)
+        OwnPlayTopBar(showTagline = false)
         Column(
             modifier = Modifier.padding(horizontal = OwnPlaySpacing.Lg),
-            verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Xl),
+            verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Lg),
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text("Settings", style = MaterialTheme.typography.headlineMedium, color = OwnPlayColors.TextPrimary)
+                Text(
+                    "Settings",
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = OwnPlayColors.TextPrimary,
+                    fontWeight = FontWeight.SemiBold,
+                )
                 Text(
                     "Personalize your viewing experience",
-                    style = MaterialTheme.typography.bodyLarge,
+                    style = MaterialTheme.typography.bodySmall,
                     color = OwnPlayColors.TextSecondary,
                 )
             }
@@ -225,16 +214,6 @@ private fun MainSettings(
                         settings.providerRefreshInterval.summary,
                         SettingTrailing.Chevron,
                     ) { intervalChooserVisible = !intervalChooserVisible },
-                    SettingRowModel(
-                        "Show channel logos",
-                        "Use provider artwork in Live browsing",
-                        SettingTrailing.Toggle(settings.showChannelLogos),
-                    ) { scope.launch { settingsPreferences.setShowChannelLogos(!settings.showChannelLogos) } },
-                    SettingRowModel(
-                        "Hide channel prefix",
-                        "Display “ITALY | Rai 1” as “Rai 1” without changing provider data",
-                        SettingTrailing.Toggle(settings.hideChannelPrefix),
-                    ) { scope.launch { settingsPreferences.setHideChannelPrefix(!settings.hideChannelPrefix) } },
                 ),
             )
 
@@ -249,13 +228,23 @@ private fun MainSettings(
             }
 
             SettingsSection(
-                title = "Downloads",
-                subtitle = "Offline media",
-                marker = "↓",
+                title = "Appearance",
+                subtitle = "How Live browsing is presented",
+                marker = "◐",
                 rows = listOf(
-                    SettingRowModel("Manage downloads", "Pause, resume, retry, show or hide in Library, delete, or play offline", SettingTrailing.Chevron, onManageDownloads),
+                    SettingRowModel(
+                        "Show channel logos",
+                        "Use provider artwork in Live browsing",
+                        SettingTrailing.Toggle(settings.showChannelLogos),
+                    ) { scope.launch { settingsPreferences.setShowChannelLogos(!settings.showChannelLogos) } },
+                    SettingRowModel(
+                        "Hide channel prefix",
+                        "Display “ITALY | Rai 1” as “Rai 1” without changing provider data",
+                        SettingTrailing.Toggle(settings.hideChannelPrefix),
+                    ) { scope.launch { settingsPreferences.setHideChannelPrefix(!settings.hideChannelPrefix) } },
                 ),
             )
+
 
             SettingsSection(
                 title = "Data",
@@ -293,17 +282,17 @@ private fun ProviderRefreshIntervalChooser(
 ) {
     OwnPlayPanel(modifier = Modifier.fillMaxWidth()) {
         Column(
-            modifier = Modifier.padding(OwnPlaySpacing.Lg),
+            modifier = Modifier.padding(OwnPlaySpacing.Md),
             verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm),
         ) {
             Text(
                 "Provider refresh interval",
-                style = MaterialTheme.typography.titleMedium,
+                style = MaterialTheme.typography.titleSmall,
                 color = OwnPlayColors.TextPrimary,
             )
             Text(
                 "Choose when OwnPlay should refresh configured providers automatically.",
-                style = MaterialTheme.typography.bodyMedium,
+                style = MaterialTheme.typography.bodySmall,
                 color = OwnPlayColors.TextSecondary,
             )
             ProviderRefreshInterval.values().forEach { interval ->
@@ -317,12 +306,12 @@ private fun ProviderRefreshIntervalChooser(
                     Text(
                         text = if (interval == selected) "●" else "○",
                         modifier = Modifier.width(28.dp),
-                        style = MaterialTheme.typography.titleMedium,
+                        style = MaterialTheme.typography.titleSmall,
                         color = if (interval == selected) OwnPlayColors.Accent else OwnPlayColors.TextMuted,
                     )
                     Text(
                         interval.summary,
-                        style = MaterialTheme.typography.bodyLarge,
+                        style = MaterialTheme.typography.bodyMedium,
                         color = OwnPlayColors.TextPrimary,
                     )
                 }
@@ -338,29 +327,34 @@ private fun SettingsSection(
     marker: String,
     rows: List<SettingRowModel>,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm)) {
+    Column(verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Xs)) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(
                 modifier = Modifier
-                    .size(32.dp)
+                    .size(24.dp)
                     .clip(OwnPlayShapeTokens.Small)
-                    .background(OwnPlayColors.Accent.copy(alpha = 0.10f)),
+                    .background(OwnPlayColors.Accent.copy(alpha = 0.08f)),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
                     marker,
-                    style = MaterialTheme.typography.labelLarge,
+                    style = MaterialTheme.typography.labelMedium,
                     color = OwnPlayColors.Accent,
-                    fontWeight = FontWeight.Bold,
+                    fontWeight = FontWeight.SemiBold,
                 )
             }
-            Spacer(modifier = Modifier.width(OwnPlaySpacing.Md))
+            Spacer(modifier = Modifier.width(OwnPlaySpacing.Sm))
             Column(modifier = Modifier.weight(1f)) {
-                Text(title, style = MaterialTheme.typography.titleMedium, color = OwnPlayColors.TextPrimary)
-                Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = OwnPlayColors.TextMuted)
+                Text(
+                    title,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = OwnPlayColors.TextPrimary,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(subtitle, style = MaterialTheme.typography.bodySmall, color = OwnPlayColors.TextMuted)
             }
         }
         OwnPlayPanel(modifier = Modifier.fillMaxWidth()) {
@@ -385,12 +379,17 @@ private fun SettingRow(row: SettingRowModel) {
         modifier = Modifier
             .fillMaxWidth()
             .then(interactionModifier)
-            .padding(vertical = 10.dp),
+            .padding(vertical = OwnPlaySpacing.Sm),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(modifier = Modifier.weight(1f)) {
-            Text(row.title, style = MaterialTheme.typography.bodyLarge, color = OwnPlayColors.TextPrimary)
-            Text(row.summary, style = MaterialTheme.typography.bodyMedium, color = OwnPlayColors.TextSecondary)
+            Text(
+                row.title,
+                style = MaterialTheme.typography.bodyMedium,
+                color = OwnPlayColors.TextPrimary,
+                fontWeight = FontWeight.Medium,
+            )
+            Text(row.summary, style = MaterialTheme.typography.bodySmall, color = OwnPlayColors.TextSecondary)
         }
         Spacer(modifier = Modifier.width(OwnPlaySpacing.Md))
         when (val trailing = row.trailing) {

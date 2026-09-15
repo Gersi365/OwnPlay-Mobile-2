@@ -9,7 +9,7 @@ internal object BackupChannelPersonalizationRestorePolicy {
             favorite = record.favorite,
             hidden = record.hidden,
             localName = record.localName,
-            localLogo = existing?.localLogo,
+            localLogo = if (record.localLogoIncluded) record.localLogo else existing?.localLogo,
             manualOrder = record.manualOrder,
         )
 }

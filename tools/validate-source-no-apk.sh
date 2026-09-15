@@ -144,6 +144,7 @@ echo "Validated Gradle version: $gradle_version"
 
 "${GRADLE_CMD[@]}" \
   :app:compileDebugKotlin \
+  :app:compileDebugAndroidTestKotlin \
   :app:testDebugUnitTest \
   :app:lintDebug \
   --rerun-tasks \

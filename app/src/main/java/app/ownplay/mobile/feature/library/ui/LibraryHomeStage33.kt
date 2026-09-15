@@ -3,6 +3,7 @@ package app.ownplay.mobile.feature.library.ui
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -11,7 +12,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -30,10 +31,8 @@ import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -59,7 +58,7 @@ import app.ownplay.mobile.downloads.domain.DownloadItem
 import app.ownplay.mobile.downloads.domain.DownloadState
 import app.ownplay.mobile.feature.library.domain.ContinueWatchingItem
 import app.ownplay.mobile.feature.library.domain.LibraryCatalog
-import app.ownplay.mobile.feature.library.domain.LibraryCategory
+import app.ownplay.mobile.feature.library.domain.LibraryMediaKind
 import app.ownplay.mobile.feature.library.domain.LibraryMovie
 import app.ownplay.mobile.feature.library.domain.LibrarySeries
 
@@ -74,12 +73,12 @@ internal fun LibraryHomeStage33(
     downloads: List<DownloadItem>,
     visibility: LibraryVisibilitySnapshot,
     errorMessage: String?,
-    onContinueResume: (ContinueWatchingItem) -> Unit,
+    onContinueSelected: (ContinueWatchingItem) -> Unit,
     onContinueMarkWatched: (ContinueWatchingItem) -> Unit,
     onContinueClearProgress: (ContinueWatchingItem) -> Unit,
     onMovieSelected: (LibraryMovie) -> Unit,
     onSeriesSelected: (LibrarySeries) -> Unit,
-    onDownloadedSelected: (DownloadItem) -> Unit,
+    onContinueOfflineSelected: (DownloadItem) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var searchVisible by rememberSaveable(catalog?.activeSourceId) { mutableStateOf(false) }
@@ -99,19 +98,41 @@ internal fun LibraryHomeStage33(
     }
     val movies = catalog?.movies.orEmpty()
     val series = catalog?.series.orEmpty()
-    val visibleContinueWatching = catalog?.continueWatching.orEmpty().filterNot { item ->
-        visibility.isContinueWatchingHidden(item.sourceId, item.mediaKind, item.contentId)
+    val moviesByCategory = remember(movies) { movies.groupBy { it.categoryKey } }
+    val seriesByCategory = remember(series) { series.groupBy { it.categoryKey } }
+    val populatedMovieCategories = remember(movieCategories, moviesByCategory) {
+        movieCategories.filter { moviesByCategory[it.categoryKey].orEmpty().isNotEmpty() }
     }
-    val visibleDownloads = downloads.filterNot { item -> visibility.isDownloadHidden(item.downloadId) }
+    val populatedSeriesCategories = remember(seriesCategories, seriesByCategory) {
+        seriesCategories.filter { seriesByCategory[it.categoryKey].orEmpty().isNotEmpty() }
+    }
+    val visibleContinueWatching = remember(catalog?.continueWatching, visibility) {
+        catalog?.continueWatching.orEmpty().filterNot { item ->
+            visibility.isContinueWatchingHidden(item.sourceId, item.mediaKind, item.contentId)
+        }
+    }
+    val continueOffline = remember(downloads, catalog?.activeSourceId) {
+        downloads.filter { it.sourceId == catalog?.activeSourceId }
+    }
     val normalizedSearchQuery = searchQuery.trim()
     val searchActive = normalizedSearchQuery.isNotEmpty()
+    val matchingMovies = remember(movies, normalizedSearchQuery) {
+        if (normalizedSearchQuery.isEmpty()) emptyList() else {
+            movies.filter { it.name.contains(normalizedSearchQuery, ignoreCase = true) }
+        }
+    }
+    val matchingSeries = remember(series, normalizedSearchQuery) {
+        if (normalizedSearchQuery.isEmpty()) emptyList() else {
+            series.filter { it.name.contains(normalizedSearchQuery, ignoreCase = true) }
+        }
+    }
 
     if (browseAllKind != null) {
         val allMovies = if (browseAllKind == LibraryBrowseKind.MOVIES) {
-            browseAllCategoryKey?.let { key -> movies.filter { it.categoryKey == key } } ?: movies
+            browseAllCategoryKey?.let { key -> moviesByCategory[key].orEmpty() } ?: movies
         } else emptyList()
         val allSeries = if (browseAllKind == LibraryBrowseKind.SERIES) {
-            browseAllCategoryKey?.let { key -> series.filter { it.categoryKey == key } } ?: series
+            browseAllCategoryKey?.let { key -> seriesByCategory[key].orEmpty() } ?: series
         } else emptyList()
         LibraryAllGridStage33(
             kind = browseAllKind,
@@ -139,197 +160,224 @@ internal fun LibraryHomeStage33(
             },
         )
 
-        Column(
+        LazyColumn(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = OwnPlaySpacing.Lg),
+                .weight(1f),
+            contentPadding = PaddingValues(
+                start = OwnPlaySpacing.Lg,
+                end = OwnPlaySpacing.Lg,
+                bottom = OwnPlaySpacing.Xl,
+            ),
             verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Lg),
         ) {
             if (searchVisible) {
-                OwnPlaySearchField(
-                    query = searchQuery,
-                    onQueryChange = { searchQuery = it },
-                    onClose = {
-                        searchQuery = ""
-                        searchVisible = false
-                    },
-                    placeholder = "Search movies and series",
-                )
+                item(key = "library-search") {
+                    OwnPlaySearchField(
+                        query = searchQuery,
+                        onQueryChange = { searchQuery = it },
+                        onClose = {
+                            searchQuery = ""
+                            searchVisible = false
+                        },
+                        placeholder = "Search movies and series",
+                    )
+                }
             }
 
             if (errorMessage != null) {
-                LibraryShelfState(
-                    title = "Action unavailable",
-                    message = errorMessage,
-                    tone = LibraryStateTone.ERROR,
-                )
+                item(key = "library-error") {
+                    LibraryShelfState(
+                        title = "Action unavailable",
+                        message = errorMessage,
+                        tone = LibraryStateTone.ERROR,
+                    )
+                }
             }
 
             when {
-                catalog == null -> LibraryShelfSection(title = "Library", prominent = true) {
-                    LibraryShelfState(
-                        title = "Loading Library",
-                        message = "Reading the active source and saved progress.",
-                        tone = LibraryStateTone.LOADING,
-                    )
-                }
+                catalog == null -> Unit
 
-                catalog.activeSourceId == null -> LibraryShelfSection(title = "Library", prominent = true) {
-                    LibraryShelfState(
-                        title = "No active source",
-                        message = "Add or select a source in Settings to populate your Library.",
-                    )
+                catalog.activeSourceId == null -> item(key = "library-no-source") {
+                    LibraryShelfSection(title = "Library", prominent = true) {
+                        LibraryShelfState(
+                            title = "No active source",
+                            message = "Add or select a source in Settings to populate your Library.",
+                        )
+                    }
                 }
 
                 else -> {
-                    LibraryShelfSection(
-                        title = "Continue Watching",
-                        actionLabel = visibleContinueWatching.size.takeIf { it > 0 }
-                            ?.let { "${compactLibraryCountStage33(it)} in progress" },
-                        prominent = true,
-                    ) {
-                        if (visibleContinueWatching.isEmpty()) {
-                            LibraryShelfState(
-                                title = "Nothing to resume yet",
-                                message = "Movies and episodes with saved progress will appear here.",
-                            )
-                        } else {
-                            ContinueWatchingRowStage33(
-                                items = visibleContinueWatching,
-                                onResume = onContinueResume,
-                                onMarkWatched = onContinueMarkWatched,
-                                onClearProgress = onContinueClearProgress,
-                            )
+                    item(key = "continue-watching") {
+                        LibraryShelfSection(
+                            title = "Continue Watching",
+                            actionLabel = visibleContinueWatching.size.takeIf { it > 0 }
+                                ?.let { "${compactLibraryCountStage33(it)} in progress" },
+                            prominent = true,
+                        ) {
+                            if (visibleContinueWatching.isEmpty()) {
+                                LibraryShelfState(
+                                    title = "Nothing to resume yet",
+                                    message = "Movies and episodes with saved progress will appear here.",
+                                )
+                            } else {
+                                ContinueWatchingRowStage33(
+                                    items = visibleContinueWatching,
+                                    onSelected = onContinueSelected,
+                                    onMarkWatched = onContinueMarkWatched,
+                                    onClearProgress = onContinueClearProgress,
+                                )
+                            }
+                        }
+                    }
+
+                    item(key = "continue-offline") {
+                        LibraryShelfSection(
+                            title = "Continue Offline",
+                            actionLabel = continueOffline.size.takeIf { it > 0 }
+                                ?.let { "${compactLibraryCountStage33(it)} items" },
+                            prominent = true,
+                        ) {
+                            if (continueOffline.isEmpty()) {
+                                LibraryShelfState(
+                                    title = "Nothing offline yet",
+                                    message = "Movies and episodes you download will appear here.",
+                                )
+                            } else {
+                                ContinueOfflineRowStage33(
+                                    items = continueOffline,
+                                    onSelected = onContinueOfflineSelected,
+                                )
+                            }
                         }
                     }
 
                     if (searchActive) {
-                        val matchingMovies = movies.filter { it.name.contains(normalizedSearchQuery, ignoreCase = true) }
-                        val matchingSeries = series.filter { it.name.contains(normalizedSearchQuery, ignoreCase = true) }
-                        LibraryShelfHeader(
-                            title = "Movies",
-                            actionLabel = "${compactLibraryCountStage33(matchingMovies.size)} matches",
-                        )
-                        if (matchingMovies.isEmpty()) {
-                            LibraryShelfState(
-                                title = "No movie matches",
-                                message = "Try another title or close search to browse categories.",
-                            )
-                        } else {
-                            MovieRowStage33(
-                                movies = LibraryBrowsePolicy.homePreview(matchingMovies),
-                                onMovieSelected = onMovieSelected,
+                        item(key = "search-movies-header") {
+                            LibraryShelfHeader(
+                                title = "Movies",
+                                actionLabel = "${compactLibraryCountStage33(matchingMovies.size)} matches",
                             )
                         }
-
-                        LibraryShelfHeader(
-                            title = "Series",
-                            actionLabel = "${compactLibraryCountStage33(matchingSeries.size)} matches",
-                        )
-                        if (matchingSeries.isEmpty()) {
-                            LibraryShelfState(
-                                title = "No series matches",
-                                message = "Try another title or close search to browse categories.",
+                        item(key = "search-movies-results") {
+                            if (matchingMovies.isEmpty()) {
+                                LibraryShelfState(
+                                    title = "No movie matches",
+                                    message = "Try another title or close search to browse categories.",
+                                )
+                            } else {
+                                MovieRowStage33(
+                                    movies = LibraryBrowsePolicy.homePreview(matchingMovies),
+                                    onMovieSelected = onMovieSelected,
+                                )
+                            }
+                        }
+                        item(key = "search-series-header") {
+                            LibraryShelfHeader(
+                                title = "Series",
+                                actionLabel = "${compactLibraryCountStage33(matchingSeries.size)} matches",
                             )
-                        } else {
-                            SeriesRowStage33(
-                                seriesItems = LibraryBrowsePolicy.homePreview(matchingSeries),
-                                onSeriesSelected = onSeriesSelected,
-                            )
+                        }
+                        item(key = "search-series-results") {
+                            if (matchingSeries.isEmpty()) {
+                                LibraryShelfState(
+                                    title = "No series matches",
+                                    message = "Try another title or close search to browse categories.",
+                                )
+                            } else {
+                                SeriesRowStage33(
+                                    seriesItems = LibraryBrowsePolicy.homePreview(matchingSeries),
+                                    onSeriesSelected = onSeriesSelected,
+                                )
+                            }
                         }
                     } else {
-                        LibraryShelfHeader(
-                            title = "Movies",
-                            actionLabel = movies.size.takeIf { it > 0 }?.let { "${compactLibraryCountStage33(it)} titles" },
-                        )
-                        when {
-                            movies.isEmpty() -> LibraryShelfState(
-                                title = "No movies available",
-                                message = "Refresh ${catalog.activeSourceName ?: "the active source"} to load movie metadata.",
-                            )
-                            movieCategories.isEmpty() -> LibraryCategoryMovieShelfStage33(
+                        item(key = "movies-header") {
+                            LibraryShelfHeader(
                                 title = "Movies",
-                                movies = movies,
-                                onShowAll = {
-                                    browseAllKindName = LibraryBrowseKind.MOVIES.name
-                                    browseAllCategoryName = "Movies"
-                                },
-                                onMovieSelected = onMovieSelected,
+                                actionLabel = movies.size.takeIf { it > 0 }
+                                    ?.let { "${compactLibraryCountStage33(it)} titles" },
                             )
-                            else -> movieCategories.forEach { category ->
-                                val categoryMovies = movies.filter { it.categoryKey == category.categoryKey }
-                                if (categoryMovies.isNotEmpty()) {
-                                    LibraryCategoryMovieShelfStage33(
-                                        title = category.name,
-                                        movies = categoryMovies,
-                                        onShowAll = {
-                                            browseAllKindName = LibraryBrowseKind.MOVIES.name
-                                            browseAllCategoryKey = category.categoryKey
-                                            browseAllCategoryName = category.name
-                                        },
-                                        onMovieSelected = onMovieSelected,
-                                    )
-                                }
-                            }
                         }
-
-                        LibraryShelfHeader(
-                            title = "Series",
-                            actionLabel = series.size.takeIf { it > 0 }?.let { "${compactLibraryCountStage33(it)} titles" },
-                        )
                         when {
-                            series.isEmpty() -> LibraryShelfState(
-                                title = "No series available",
-                                message = "Refresh ${catalog.activeSourceName ?: "the active source"} to load series metadata.",
-                            )
-                            seriesCategories.isEmpty() -> LibraryCategorySeriesShelfStage33(
-                                title = "Series",
-                                seriesItems = series,
-                                onShowAll = {
-                                    browseAllKindName = LibraryBrowseKind.SERIES.name
-                                    browseAllCategoryName = "Series"
-                                },
-                                onSeriesSelected = onSeriesSelected,
-                            )
-                            else -> seriesCategories.forEach { category ->
-                                val categorySeries = series.filter { it.categoryKey == category.categoryKey }
-                                if (categorySeries.isNotEmpty()) {
-                                    LibraryCategorySeriesShelfStage33(
-                                        title = category.name,
-                                        seriesItems = categorySeries,
-                                        onShowAll = {
-                                            browseAllKindName = LibraryBrowseKind.SERIES.name
-                                            browseAllCategoryKey = category.categoryKey
-                                            browseAllCategoryName = category.name
-                                        },
-                                        onSeriesSelected = onSeriesSelected,
-                                    )
-                                }
+                            movies.isEmpty() -> item(key = "movies-empty") {
+                                LibraryShelfState(
+                                    title = "No movies available",
+                                    message = "Refresh ${catalog.activeSourceName ?: "the active source"} to load movie metadata.",
+                                )
+                            }
+                            populatedMovieCategories.isEmpty() -> item(key = "movies-all") {
+                                LibraryCategoryMovieShelfStage33(
+                                    title = "Movies",
+                                    movies = movies,
+                                    onShowAll = {
+                                        browseAllKindName = LibraryBrowseKind.MOVIES.name
+                                        browseAllCategoryName = "Movies"
+                                    },
+                                    onMovieSelected = onMovieSelected,
+                                )
+                            }
+                            else -> items(
+                                items = populatedMovieCategories,
+                                key = { category -> "movie-category:${category.categoryKey}" },
+                            ) { category ->
+                                LibraryCategoryMovieShelfStage33(
+                                    title = category.name,
+                                    movies = moviesByCategory[category.categoryKey].orEmpty(),
+                                    onShowAll = {
+                                        browseAllKindName = LibraryBrowseKind.MOVIES.name
+                                        browseAllCategoryKey = category.categoryKey
+                                        browseAllCategoryName = category.name
+                                    },
+                                    onMovieSelected = onMovieSelected,
+                                )
                             }
                         }
-                    }
 
-                    LibraryShelfSection(
-                        title = "Downloaded Media",
-                        actionLabel = visibleDownloads.size.takeIf { it > 0 }
-                            ?.let { "${compactLibraryCountStage33(it)} saved" },
-                    ) {
-                        if (visibleDownloads.isEmpty()) {
-                            LibraryShelfState(
-                                title = "No downloaded media",
-                                message = "Downloaded movies and episodes stay listed here until you remove them from OwnPlay.",
+                        item(key = "series-header") {
+                            LibraryShelfHeader(
+                                title = "Series",
+                                actionLabel = series.size.takeIf { it > 0 }
+                                    ?.let { "${compactLibraryCountStage33(it)} titles" },
                             )
-                        } else {
-                            DownloadedRowStage33(
-                                items = visibleDownloads,
-                                onSelected = onDownloadedSelected,
-                            )
+                        }
+                        when {
+                            series.isEmpty() -> item(key = "series-empty") {
+                                LibraryShelfState(
+                                    title = "No series available",
+                                    message = "Refresh ${catalog.activeSourceName ?: "the active source"} to load series metadata.",
+                                )
+                            }
+                            populatedSeriesCategories.isEmpty() -> item(key = "series-all") {
+                                LibraryCategorySeriesShelfStage33(
+                                    title = "Series",
+                                    seriesItems = series,
+                                    onShowAll = {
+                                        browseAllKindName = LibraryBrowseKind.SERIES.name
+                                        browseAllCategoryName = "Series"
+                                    },
+                                    onSeriesSelected = onSeriesSelected,
+                                )
+                            }
+                            else -> items(
+                                items = populatedSeriesCategories,
+                                key = { category -> "series-category:${category.categoryKey}" },
+                            ) { category ->
+                                LibraryCategorySeriesShelfStage33(
+                                    title = category.name,
+                                    seriesItems = seriesByCategory[category.categoryKey].orEmpty(),
+                                    onShowAll = {
+                                        browseAllKindName = LibraryBrowseKind.SERIES.name
+                                        browseAllCategoryKey = category.categoryKey
+                                        browseAllCategoryName = category.name
+                                    },
+                                    onSeriesSelected = onSeriesSelected,
+                                )
+                            }
                         }
                     }
                 }
             }
-
-            Spacer(modifier = Modifier.height(OwnPlaySpacing.Xl))
         }
     }
 }
@@ -378,7 +426,7 @@ private fun MovieRowStage33(
     onMovieSelected: (LibraryMovie) -> Unit,
 ) {
     BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-        val posterWidth = (maxWidth * 0.39f).coerceIn(126.dp, 148.dp)
+        val posterWidth = compactPosterWidthStage33(maxWidth)
         PosterLazyRowStage33 {
             items(movies, key = { it.movieId }) { movie ->
                 PosterCardStage33(
@@ -399,7 +447,7 @@ private fun SeriesRowStage33(
     onSeriesSelected: (LibrarySeries) -> Unit,
 ) {
     BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-        val posterWidth = (maxWidth * 0.39f).coerceIn(126.dp, 148.dp)
+        val posterWidth = compactPosterWidthStage33(maxWidth)
         PosterLazyRowStage33 {
             items(seriesItems, key = { it.seriesId }) { series ->
                 PosterCardStage33(
@@ -422,11 +470,12 @@ private fun PosterLazyRowStage33(content: androidx.compose.foundation.lazy.LazyL
         modifier = Modifier.fillMaxWidth(),
         state = state,
         flingBehavior = fling,
-        horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),
+        horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm),
         content = content,
     )
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun PosterCardStage33(
     title: String,
@@ -474,7 +523,8 @@ private fun PosterCardStage33(
         Column(
             modifier = Modifier
                 .align(Alignment.BottomStart)
-                .padding(horizontal = 10.dp, vertical = 9.dp),
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             Text(
@@ -486,10 +536,13 @@ private fun PosterCardStage33(
             )
             Text(
                 text = title,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .basicMarquee(),
                 style = MaterialTheme.typography.labelLarge,
                 color = Color.White,
                 fontWeight = FontWeight.SemiBold,
-                maxLines = 2,
+                maxLines = 1,
             )
         }
     }
@@ -499,25 +552,25 @@ private fun PosterCardStage33(
 @Composable
 private fun ContinueWatchingRowStage33(
     items: List<ContinueWatchingItem>,
-    onResume: (ContinueWatchingItem) -> Unit,
+    onSelected: (ContinueWatchingItem) -> Unit,
     onMarkWatched: (ContinueWatchingItem) -> Unit,
     onClearProgress: (ContinueWatchingItem) -> Unit,
 ) {
     BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-        val posterWidth = (maxWidth * 0.39f).coerceIn(126.dp, 148.dp)
+        val posterWidth = compactPosterWidthStage33(maxWidth)
         val listState = rememberLazyListState()
         val flingBehavior = rememberSnapFlingBehavior(listState, SnapPosition.Start)
         LazyRow(
             modifier = Modifier.fillMaxWidth(),
             state = listState,
             flingBehavior = flingBehavior,
-            horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),
+            horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm),
         ) {
             items(items, key = { "${it.sourceId}:${it.mediaKind}:${it.contentId}" }) { item ->
                 ContinueWatchingCardStage33(
                     item = item,
                     cardWidth = posterWidth,
-                    onResume = { onResume(item) },
+                    onSelected = { onSelected(item) },
                     onMarkWatched = { onMarkWatched(item) },
                     onClearProgress = { onClearProgress(item) },
                 )
@@ -531,7 +584,7 @@ private fun ContinueWatchingRowStage33(
 private fun ContinueWatchingCardStage33(
     item: ContinueWatchingItem,
     cardWidth: Dp,
-    onResume: () -> Unit,
+    onSelected: () -> Unit,
     onMarkWatched: () -> Unit,
     onClearProgress: () -> Unit,
 ) {
@@ -557,7 +610,7 @@ private fun ContinueWatchingCardStage33(
                     .combinedClickable(
                         interactionSource = interactionSource,
                         indication = null,
-                        onClick = onResume,
+                        onClick = onSelected,
                         onLongClick = {
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                             menuVisible = true
@@ -610,6 +663,9 @@ private fun ContinueWatchingCardStage33(
         }
         Text(
             text = item.title,
+            modifier = Modifier
+                .fillMaxWidth()
+                .basicMarquee(),
             style = MaterialTheme.typography.labelLarge,
             color = OwnPlayColors.TextPrimary,
             fontWeight = FontWeight.SemiBold,
@@ -626,38 +682,119 @@ private fun ContinueWatchingCardStage33(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun DownloadedRowStage33(
+private fun ContinueOfflineRowStage33(
     items: List<DownloadItem>,
     onSelected: (DownloadItem) -> Unit,
 ) {
     BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-        val posterWidth = (maxWidth * 0.39f).coerceIn(126.dp, 148.dp)
+        val posterWidth = compactPosterWidthStage33(maxWidth)
         val state = rememberLazyListState()
         val fling = rememberSnapFlingBehavior(state, SnapPosition.Start)
         LazyRow(
             modifier = Modifier.fillMaxWidth(),
             state = state,
             flingBehavior = fling,
-            horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),
+            horizontalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm),
         ) {
             items(items, key = { it.downloadId }) { item ->
-                val eyebrow = when (item.state) {
-                    DownloadState.COMPLETED -> "DOWNLOADED"
-                    DownloadState.DOWNLOADING -> "DOWNLOADING"
-                    DownloadState.QUEUED -> "QUEUED"
-                    DownloadState.PAUSED -> "PAUSED"
-                    DownloadState.FAILED -> "NEEDS ATTENTION"
-                }
-                PosterCardStage33(
-                    title = item.metadata?.title ?: item.title,
-                    artworkUrl = item.metadata?.posterUrl,
-                    eyebrow = eyebrow,
+                ContinueOfflineCardStage33(
+                    item = item,
                     cardWidth = posterWidth,
-                    onClick = { onSelected(item) },
+                    onSelected = { onSelected(item) },
                 )
             }
         }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun ContinueOfflineCardStage33(
+    item: DownloadItem,
+    cardWidth: Dp,
+    onSelected: () -> Unit,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val progress = item.progressFraction
+    val displayTitle = if (item.mediaKind == LibraryMediaKind.EPISODE) {
+        item.title
+    } else {
+        item.metadata?.title ?: item.title
+    }
+    val stateLabel = when (item.state) {
+        DownloadState.COMPLETED -> "Available offline"
+        DownloadState.QUEUED -> "Queued for download"
+        DownloadState.DOWNLOADING -> progress
+            ?.let { "Downloading ${(it * 100).toInt().coerceIn(0, 100)}%" }
+            ?: "Downloading"
+        DownloadState.PAUSED -> progress
+            ?.let { "Paused at ${(it * 100).toInt().coerceIn(0, 100)}%" }
+            ?: "Paused"
+        DownloadState.FAILED -> "Download needs attention"
+    }
+
+    Column(
+        modifier = Modifier.width(cardWidth),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(0.68f)
+                .clip(OwnPlayShapeTokens.Medium)
+                .background(OwnPlayColors.SurfaceElevated)
+                .combinedClickable(
+                    interactionSource = interactionSource,
+                    indication = null,
+                    onClick = onSelected,
+                    onLongClick = null,
+                ),
+        ) {
+            LibraryRemoteArtwork(
+                locator = item.metadata?.posterUrl ?: item.metadata?.backdropUrl,
+                contentDescription = "$displayTitle poster",
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
+            )
+            if (isPressed) {
+                Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.12f)))
+            }
+            if (progress != null && item.state != DownloadState.COMPLETED) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .height(2.dp)
+                        .background(Color.White.copy(alpha = 0.18f)),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(progress)
+                            .height(2.dp)
+                            .background(OwnPlayColors.Accent),
+                    )
+                }
+            }
+        }
+        Text(
+            text = displayTitle,
+            modifier = Modifier
+                .fillMaxWidth()
+                .basicMarquee(),
+            style = MaterialTheme.typography.labelLarge,
+            color = OwnPlayColors.TextPrimary,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+        )
+        Text(
+            text = stateLabel,
+            style = MaterialTheme.typography.bodySmall,
+            color = if (item.state == DownloadState.FAILED) OwnPlayColors.Accent else OwnPlayColors.TextMuted,
+            maxLines = 1,
+        )
     }
 }
 
@@ -738,6 +875,9 @@ private fun LibraryAllGridStage33(
         }
     }
 }
+
+private fun compactPosterWidthStage33(maxWidth: Dp): Dp =
+    (maxWidth * 0.31f).coerceIn(104.dp, 118.dp)
 
 private fun compactLibraryCountStage33(count: Int): String = when {
     count >= 1_000_000 -> {

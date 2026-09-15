@@ -26,6 +26,23 @@ class LivePlaybackFallbackPolicyTest {
         )
     }
 
+
+    @Test
+    fun `buffering primary becomes fallback eligible after timeout`() {
+        val buffering = PlaybackSnapshot(phase = PlaybackPhase.BUFFERING)
+        assertTrue(LivePlaybackFallbackPolicy.shouldUseFallbackAfterBuffering(buffering))
+        assertTrue(LivePlaybackFallbackPolicy.PRIMARY_BUFFERING_TIMEOUT_MS >= 5_000L)
+    }
+
+    @Test
+    fun `ready primary is not buffering fallback eligible`() {
+        assertFalse(
+            LivePlaybackFallbackPolicy.shouldUseFallbackAfterBuffering(
+                PlaybackSnapshot(phase = PlaybackPhase.READY),
+            ),
+        )
+    }
+
     @Test
     fun `ready stream with selected supported audio stays on primary`() {
         assertFalse(

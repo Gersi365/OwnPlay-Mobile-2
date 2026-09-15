@@ -13,12 +13,16 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -36,6 +40,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -43,6 +48,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -565,12 +571,15 @@ private fun CategoryManagement(
                                 overflow = TextOverflow.Ellipsis,
                             )
                         }
-                        TextButton(
-                            onClick = { onToggleCategory(category) },
-                            contentPadding = PaddingValues(horizontal = OwnPlaySpacing.Sm),
-                        ) {
-                            Text(if (category.hidden) "Show" else "Hide", style = MaterialTheme.typography.labelMedium)
-                        }
+                        VisibilityToggle(
+                            visible = !category.hidden,
+                            contentDescription = if (category.hidden) {
+                                "Show ${category.name} in Live"
+                            } else {
+                                "Hide ${category.name} from Live"
+                            },
+                            onToggle = { onToggleCategory(category) },
+                        )
                         DragHandle(
                             itemKey = category.categoryKey,
                             contentDescription = "Reorder ${category.name}",
@@ -727,68 +736,103 @@ private fun ChannelManagement(
                         .fillMaxWidth()
                         .reorderVisual(dragState),
                 ) {
-                    Row(
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = OwnPlaySpacing.Md, vertical = OwnPlaySpacing.Sm),
-                        verticalAlignment = Alignment.CenterVertically,
+                        verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Xs),
                     ) {
-                        Text(
-                            text = (absoluteIndex + 1).toString().padStart(3, '0'),
-                            modifier = Modifier.padding(end = OwnPlaySpacing.Sm),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = OwnPlayColors.TextSecondary,
-                        )
-                        Column(modifier = Modifier.weight(1f).padding(end = OwnPlaySpacing.Sm)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
                             Text(
-                                text = channel.name,
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = OwnPlayColors.TextPrimary,
-                                fontWeight = FontWeight.SemiBold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                            Text(
-                                text = buildList {
-                                    add(if (channel.hidden) "Hidden" else "Visible")
-                                    if (channel.favorite) add("Favorite")
-                                    if (channel.localName != null) add("Custom name")
-                                    if (channel.localLogo != null) add("Custom logo")
-                                }.joinToString(" • "),
+                                text = (absoluteIndex + 1).toString().padStart(3, '0'),
+                                modifier = Modifier.padding(end = OwnPlaySpacing.Sm),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = OwnPlayColors.TextSecondary,
-                                maxLines = 1,
+                            )
+                            Column(modifier = Modifier.weight(1f).padding(end = OwnPlaySpacing.Sm)) {
+                                Text(
+                                    text = channel.name,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = OwnPlayColors.TextPrimary,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Text(
+                                    text = buildList {
+                                        add(if (channel.hidden) "Hidden" else "Visible")
+                                        if (channel.favorite) add("Favorite")
+                                        if (channel.localName != null) add("Custom name")
+                                        if (channel.localLogo != null) add("Custom logo")
+                                    }.joinToString(" • "),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = OwnPlayColors.TextSecondary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                            VisibilityToggle(
+                                visible = !channel.hidden,
+                                contentDescription = if (channel.hidden) {
+                                    "Show ${channel.name} in Live"
+                                } else {
+                                    "Hide ${channel.name} from Live"
+                                },
+                                onToggle = { onToggleChannel(channel) },
                             )
                         }
-                        TextButton(
-                            onClick = { onToggleFavorite(channel) },
-                            contentPadding = PaddingValues(horizontal = OwnPlaySpacing.Xs),
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End,
+                            verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Text(if (channel.favorite) "★" else "☆", style = MaterialTheme.typography.labelLarge)
+                            TextButton(
+                                onClick = { onToggleFavorite(channel) },
+                                modifier = Modifier
+                                    .size(48.dp)
+                                    .semantics {
+                                        contentDescription = if (channel.favorite) {
+                                            "Remove ${channel.name} from favorites"
+                                        } else {
+                                            "Add ${channel.name} to favorites"
+                                        }
+                                    },
+                                contentPadding = PaddingValues(0.dp),
+                            ) {
+                                Text(
+                                    if (channel.favorite) "★" else "☆",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = if (channel.favorite) OwnPlayColors.Accent else OwnPlayColors.TextSecondary,
+                                )
+                            }
+                            TextButton(
+                                onClick = {
+                                    editChannelId = channel.channelId
+                                    editNameValue = channel.localName.orEmpty()
+                                    editLogoValue = channel.localLogo.orEmpty()
+                                },
+                                modifier = Modifier
+                                    .size(48.dp)
+                                    .semantics { contentDescription = "Edit ${channel.name}" },
+                                contentPadding = PaddingValues(0.dp),
+                            ) {
+                                Text(
+                                    "✎",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = OwnPlayColors.TextSecondary,
+                                )
+                            }
+                            DragHandle(
+                                itemKey = channel.channelId,
+                                contentDescription = "Reorder ${channel.name}",
+                                enabled = reorderEnabled,
+                                state = dragState,
+                                listState = listState,
+                            ) { direction -> onMoveChannel(channel.channelId, direction) }
                         }
-                        TextButton(
-                            onClick = {
-                                editChannelId = channel.channelId
-                                editNameValue = channel.localName.orEmpty()
-                                editLogoValue = channel.localLogo.orEmpty()
-                            },
-                            contentPadding = PaddingValues(horizontal = OwnPlaySpacing.Xs),
-                        ) {
-                            Text("Edit", style = MaterialTheme.typography.labelMedium)
-                        }
-                        TextButton(
-                            onClick = { onToggleChannel(channel) },
-                            contentPadding = PaddingValues(horizontal = OwnPlaySpacing.Sm),
-                        ) {
-                            Text(if (channel.hidden) "Show" else "Hide", style = MaterialTheme.typography.labelMedium)
-                        }
-                        DragHandle(
-                            itemKey = channel.channelId,
-                            contentDescription = "Reorder ${channel.name}",
-                            enabled = reorderEnabled,
-                            state = dragState,
-                            listState = listState,
-                        ) { direction -> onMoveChannel(channel.channelId, direction) }
                     }
                 }
             }
@@ -822,9 +866,9 @@ private fun ManagementTools(
         ) {
             Text(
                 text = if (reorderEnabled) {
-                    "Hide/Show is immediate. Hold the grip to reorder; drag to an edge to scroll."
+                    "Visibility changes are immediate. Hold the grip to reorder; drag to an edge to scroll."
                 } else {
-                    "Search is active. Clear it to reorder; Hide/Show still works."
+                    "Search is active. Clear it to reorder; visibility still works."
                 },
                 modifier = Modifier.weight(1f),
                 style = MaterialTheme.typography.bodySmall,
@@ -859,6 +903,42 @@ private fun ManagementHeader(title: String, subtitle: String, onBack: () -> Unit
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
+    }
+}
+
+@Composable
+private fun VisibilityToggle(
+    visible: Boolean,
+    contentDescription: String,
+    onToggle: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .size(48.dp)
+            .toggleable(
+                value = visible,
+                role = Role.Switch,
+                onValueChange = { onToggle() },
+            )
+            .semantics { this.contentDescription = contentDescription },
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            modifier = Modifier
+                .width(42.dp)
+                .height(24.dp)
+                .clip(CircleShape)
+                .background(if (visible) OwnPlayColors.AccentStrong else OwnPlayColors.Divider)
+                .padding(3.dp),
+            contentAlignment = if (visible) Alignment.CenterEnd else Alignment.CenterStart,
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(18.dp)
+                    .clip(CircleShape)
+                    .background(OwnPlayColors.TextPrimary),
+            )
+        }
     }
 }
 
@@ -944,7 +1024,7 @@ private fun DragHandle(
 
     Box(
         modifier = Modifier
-            .size(44.dp)
+            .size(48.dp)
             .background(
                 color = if (state.dragging) OwnPlayColors.AccentSoft else OwnPlayColors.SurfaceElevated,
                 shape = RoundedCornerShape(10.dp),

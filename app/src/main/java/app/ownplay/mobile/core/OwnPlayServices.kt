@@ -8,7 +8,9 @@ import app.ownplay.mobile.data.prefs.LibraryVisibilityPreferences
 import app.ownplay.mobile.data.prefs.SettingsPreferences
 import app.ownplay.mobile.data.security.CredentialStore
 import app.ownplay.mobile.data.security.KeystoreCredentialStore
+import app.ownplay.mobile.design.OwnPlayRemoteImageLoader
 import app.ownplay.mobile.downloads.data.DownloadRepositoryImpl
+import app.ownplay.mobile.downloads.data.DownloadSourceRemovalCoordinator
 import app.ownplay.mobile.downloads.data.DownloadStreamResolver
 import app.ownplay.mobile.downloads.domain.DownloadRepository
 import app.ownplay.mobile.feature.library.data.LibraryDownloadMetadataResolver
@@ -91,6 +93,13 @@ class OwnPlayServices private constructor(
         }
     }
 
+    private val imageHttpDispatcher: Dispatcher by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        Dispatcher().apply {
+            maxRequests = MAX_IMAGE_REQUESTS
+            maxRequestsPerHost = MAX_IMAGE_REQUESTS_PER_HOST
+        }
+    }
+
     private val httpClient: OkHttpClient by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         OkHttpClient.Builder()
             .dispatcher(providerHttpDispatcher)
@@ -109,6 +118,15 @@ class OwnPlayServices private constructor(
             .build()
     }
 
+    private val imageHttpClient: OkHttpClient by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        httpClient.newBuilder()
+            .dispatcher(imageHttpDispatcher)
+            .connectTimeout(4, TimeUnit.SECONDS)
+            .readTimeout(5, TimeUnit.SECONDS)
+            .callTimeout(10, TimeUnit.SECONDS)
+            .build()
+    }
+
     private val providerTransport: ProviderHttpTransport by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         ProviderHttpTransport(httpClient)
     }
@@ -117,19 +135,33 @@ class OwnPlayServices private constructor(
         OkHttpXtreamClient(providerTransport)
     }
 
+    init {
+        OwnPlayRemoteImageLoader.configure(imageHttpClient)
+    }
+
     val sourceRepository: SourceRepository by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         val catalogLoader = SourceCatalogLoader(
             xtreamClient = xtreamClient,
             m3uClient = OkHttpM3uClient(providerTransport),
             m3uParser = M3uParser(),
         )
-        SourceRepositoryImpl(
+        val delegate = SourceRepositoryImpl(
             database = database,
             sourceDao = database.sourceDao(),
             catalogDao = database.catalogDao(),
             activeSourcePreferences = activeSourcePreferences,
             credentialStore = credentialStore,
             catalogLoader = catalogLoader,
+        )
+        val removalCoordinator = DownloadSourceRemovalCoordinator(
+            context = applicationContext,
+            downloadDao = database.downloadDao(),
+            workManager = WorkManager.getInstance(applicationContext),
+        )
+        CoordinatedSourceRepository(
+            delegate = delegate,
+            captureSourceDownloads = removalCoordinator::captureDownloads,
+            cleanupSourceDownloads = removalCoordinator::cleanup,
         )
     }
 
@@ -180,6 +212,8 @@ class OwnPlayServices private constructor(
         private const val MAX_PROVIDER_REQUESTS_PER_HOST = 4
         private const val MAX_DOWNLOAD_REQUESTS = 4
         private const val MAX_DOWNLOAD_REQUESTS_PER_HOST = 2
+        private const val MAX_IMAGE_REQUESTS = 6
+        private const val MAX_IMAGE_REQUESTS_PER_HOST = 4
 
         fun create(context: Context): OwnPlayServices = OwnPlayServices(context)
     }

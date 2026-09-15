@@ -1,6 +1,7 @@
 package app.ownplay.mobile.downloads.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -11,7 +12,6 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -20,7 +20,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import app.ownplay.mobile.design.OwnPlayColors
 import app.ownplay.mobile.design.OwnPlayPrimaryButton
@@ -91,14 +93,20 @@ fun DownloadControls(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (compact) {
-                DownloadCompactAction(
-                    text = compactActionLabel(primaryAction),
-                    emphasized = primaryAction != DownloadAction.DOWNLOAD,
-                    onClick = { dispatchAction(primaryAction) },
-                )
+                if (item?.state != DownloadState.COMPLETED) {
+                    DownloadInlineAction(
+                        text = compactActionLabel(primaryAction),
+                        glyph = compactActionGlyph(primaryAction),
+                        contentDescription = actionLabel(primaryAction),
+                        emphasized = true,
+                        onClick = { dispatchAction(primaryAction) },
+                    )
+                }
                 if (item != null) {
-                    DownloadCompactAction(
+                    DownloadInlineAction(
                         text = "Remove",
+                        glyph = "×",
+                        contentDescription = "Remove download",
                         emphasized = false,
                         onClick = { dispatchAction(DownloadAction.REMOVE) },
                     )
@@ -122,29 +130,33 @@ fun DownloadControls(
 }
 
 @Composable
-private fun DownloadCompactAction(
+private fun DownloadInlineAction(
     text: String,
+    glyph: String,
+    contentDescription: String,
     emphasized: Boolean,
     onClick: () -> Unit,
 ) {
-    Surface(
-        onClick = onClick,
-        modifier = Modifier.heightIn(min = 48.dp),
-        shape = OwnPlayShapeTokens.Small,
-        color = if (emphasized) OwnPlayColors.Accent.copy(alpha = 0.10f) else Color.Transparent,
-        tonalElevation = 0.dp,
+    Row(
+        modifier = Modifier
+            .heightIn(min = 48.dp)
+            .clickable(role = Role.Button, onClick = onClick)
+            .padding(horizontal = 2.dp)
+            .semantics { this.contentDescription = contentDescription },
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                text = text,
-                style = MaterialTheme.typography.labelLarge,
-                color = if (emphasized) OwnPlayColors.Accent else OwnPlayColors.TextMuted,
-                maxLines = 1,
-            )
-        }
+        Text(
+            text = glyph,
+            style = MaterialTheme.typography.labelLarge,
+            color = if (emphasized) OwnPlayColors.Accent else OwnPlayColors.TextMuted,
+        )
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelMedium,
+            color = if (emphasized) OwnPlayColors.Accent else OwnPlayColors.TextMuted,
+            maxLines = 1,
+        )
     }
 }
 
@@ -159,7 +171,7 @@ private fun statusLabel(item: DownloadItem): String = when (item.state) {
     DownloadState.COMPLETED -> if (item.resumePositionMs != null) {
         "Downloaded • resume available"
     } else {
-        "Downloaded • verified offline"
+        "Downloaded"
     }
 }
 
@@ -169,16 +181,27 @@ private fun compactActionLabel(action: DownloadAction): String = when (action) {
     DownloadAction.RESUME -> "Resume"
     DownloadAction.RETRY -> "Retry"
     DownloadAction.REMOVE -> "Remove"
-    DownloadAction.PLAY_OFFLINE -> "Offline"
-    DownloadAction.RESUME_OFFLINE -> "Offline"
+    DownloadAction.PLAY_OFFLINE -> "Play"
+    DownloadAction.RESUME_OFFLINE -> "Resume"
+}
+
+private fun compactActionGlyph(action: DownloadAction): String = when (action) {
+    DownloadAction.DOWNLOAD -> "↓"
+    DownloadAction.PAUSE -> "Ⅱ"
+    DownloadAction.RESUME,
+    DownloadAction.PLAY_OFFLINE,
+    DownloadAction.RESUME_OFFLINE,
+    -> "▶"
+    DownloadAction.RETRY -> "↻"
+    DownloadAction.REMOVE -> "×"
 }
 
 private fun actionLabel(action: DownloadAction): String = when (action) {
-    DownloadAction.DOWNLOAD -> "Download"
-    DownloadAction.PAUSE -> "Pause"
+    DownloadAction.DOWNLOAD -> "Download Offline"
+    DownloadAction.PAUSE -> "Pause Download"
     DownloadAction.RESUME -> "Resume Download"
-    DownloadAction.RETRY -> "Retry"
-    DownloadAction.REMOVE -> "Remove"
+    DownloadAction.RETRY -> "Retry Download"
+    DownloadAction.REMOVE -> "Remove Download"
     DownloadAction.PLAY_OFFLINE -> "Play Offline"
     DownloadAction.RESUME_OFFLINE -> "Resume Offline"
 }
