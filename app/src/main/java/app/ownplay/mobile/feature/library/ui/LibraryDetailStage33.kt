@@ -78,12 +78,39 @@ internal fun MovieDetailStage33(
 ) {
     BackHandler(onBack = onBack)
     val metadata = detail?.metadata ?: movie.toBaseMetadata()
-    val startActions = LibraryDetailStartPolicy.actions(
-        hasProgress = movie.resumePositionMs != null,
-        preferResume = preferResume,
+    val hasProgress = movie.resumePositionMs != null
+    val completedOffline = downloadItem?.state == DownloadState.COMPLETED
+    var permissionMessage by remember(movie.movieId) { mutableStateOf<String?>(null) }
+    val permissionDispatcher = rememberDownloadPermissionDispatcher(
+        onBlocked = { message -> permissionMessage = message },
     )
-    val playLabel = startModeLabelStage33(startActions.primary)
-    val playAction = startActionStage33(startActions.primary, onResume, onBeginning)
+    val downloadAction = if (completedOffline) {
+        DownloadAction.REMOVE
+    } else {
+        DownloadStatePolicy.primaryAction(downloadItem)
+    }
+
+    fun startMovie(mode: LibraryStartMode) {
+        if (completedOffline) {
+            onDownloadAction(
+                if (mode == LibraryStartMode.RESUME) {
+                    DownloadAction.RESUME_OFFLINE
+                } else {
+                    DownloadAction.PLAY_OFFLINE
+                },
+                metadata,
+            )
+        } else if (mode == LibraryStartMode.RESUME) {
+            onResume()
+        } else {
+            onBeginning()
+        }
+    }
+
+    fun dispatchDownloadAction(action: DownloadAction) {
+        permissionMessage = null
+        permissionDispatcher(action) { permitted -> onDownloadAction(permitted, metadata) }
+    }
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -93,8 +120,8 @@ internal fun MovieDetailStage33(
             metadata = metadata,
             label = "MOVIE",
             favorite = movie.favorite,
-            playLabel = playLabel,
-            onPlay = playAction,
+            playLabel = "Play",
+            onPlay = null,
             onFavoriteToggle = onFavoriteToggle,
             onBack = onBack,
         )
@@ -116,21 +143,35 @@ internal fun MovieDetailStage33(
                     tone = LibraryStateTone.ERROR,
                 )
             }
-            LibraryMetadataBodyStage33(metadata)
-            LibraryShelfHeader(title = "Offline")
-            DownloadControls(
-                item = downloadItem,
-                onAction = { action -> onDownloadAction(action, metadata) },
-                modifier = Modifier.fillMaxWidth(),
+            InlineMediaActionClusterStage33(
+                hasProgress = hasProgress,
+                preferResume = preferResume,
+                downloadAction = downloadAction,
+                displayTitle = metadata.title,
+                onPlay = { startMovie(LibraryStartMode.BEGINNING) },
+                onResume = { startMovie(LibraryStartMode.RESUME) },
+                onDownloadAction = ::dispatchDownloadAction,
             )
-            startActions.secondary?.let { secondary ->
-                LibrarySecondaryAction(
-                    text = secondaryStartLabelStage33(secondary),
-                    onClick = startActionStage33(secondary, onResume, onBeginning),
-                    modifier = Modifier.fillMaxWidth(0.62f),
-                    glyph = startModeGlyphStage33(secondary),
+            downloadItem?.let { item ->
+                Text(
+                    text = downloadStatusStage33(item),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (item.state == DownloadState.FAILED) {
+                        OwnPlayColors.TextSecondary
+                    } else {
+                        OwnPlayColors.TextMuted
+                    },
+                    maxLines = 1,
                 )
             }
+            permissionMessage?.let { message ->
+                Text(
+                    text = message,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = OwnPlayColors.TextSecondary,
+                )
+            }
+            LibraryMetadataBodyStage33(metadata)
             Spacer(modifier = Modifier.height(OwnPlaySpacing.Xl))
         }
     }
@@ -608,7 +649,7 @@ private fun EpisodeRowStage33(
             )
             downloadItem?.let { item ->
                 Text(
-                    text = episodeDownloadStatusStage33(item),
+                    text = downloadStatusStage33(item),
                     style = MaterialTheme.typography.bodySmall,
                     color = if (item.state == DownloadState.FAILED) {
                         OwnPlayColors.TextSecondary
@@ -626,7 +667,7 @@ private fun EpisodeRowStage33(
                 )
             }
         }
-        EpisodeActionClusterStage33(
+        InlineMediaActionClusterStage33(
             hasProgress = hasProgress,
             preferResume = preferResume,
             downloadAction = downloadAction,
@@ -639,7 +680,7 @@ private fun EpisodeRowStage33(
 }
 
 @Composable
-private fun EpisodeActionClusterStage33(
+private fun InlineMediaActionClusterStage33(
     hasProgress: Boolean,
     preferResume: Boolean,
     downloadAction: DownloadAction,
@@ -657,23 +698,23 @@ private fun EpisodeActionClusterStage33(
             horizontalArrangement = Arrangement.spacedBy(0.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            EpisodeClusterIconStage33(
+            InlineMediaActionIconStage33(
                 glyph = "▶",
                 contentDescription = "Play $displayTitle from beginning",
                 emphasized = !hasProgress || !preferResume,
                 onClick = onPlay,
             )
             if (hasProgress) {
-                EpisodeClusterIconStage33(
+                InlineMediaActionIconStage33(
                     glyph = "↪",
                     contentDescription = "Resume $displayTitle",
                     emphasized = preferResume,
                     onClick = onResume,
                 )
             }
-            EpisodeClusterIconStage33(
-                glyph = episodeDownloadActionGlyphStage33(downloadAction),
-                contentDescription = episodeDownloadActionDescriptionStage33(downloadAction, displayTitle),
+            InlineMediaActionIconStage33(
+                glyph = downloadActionGlyphStage33(downloadAction),
+                contentDescription = downloadActionDescriptionStage33(downloadAction, displayTitle),
                 emphasized = false,
                 onClick = { onDownloadAction(downloadAction) },
             )
@@ -682,7 +723,7 @@ private fun EpisodeActionClusterStage33(
 }
 
 @Composable
-private fun EpisodeClusterIconStage33(
+private fun InlineMediaActionIconStage33(
     glyph: String,
     contentDescription: String,
     emphasized: Boolean,
@@ -705,7 +746,7 @@ private fun EpisodeClusterIconStage33(
     }
 }
 
-private fun episodeDownloadStatusStage33(item: DownloadItem): String = when (item.state) {
+private fun downloadStatusStage33(item: DownloadItem): String = when (item.state) {
     DownloadState.QUEUED -> "Queued"
     DownloadState.DOWNLOADING -> item.progressFraction?.let { progress ->
         "Downloading ${(progress * 100f).toInt().coerceIn(0, 100)}%"
@@ -719,7 +760,7 @@ private fun episodeDownloadStatusStage33(item: DownloadItem): String = when (ite
     }
 }
 
-private fun episodeDownloadActionGlyphStage33(action: DownloadAction): String = when (action) {
+private fun downloadActionGlyphStage33(action: DownloadAction): String = when (action) {
     DownloadAction.DOWNLOAD -> "↓"
     DownloadAction.PAUSE -> "Ⅱ"
     DownloadAction.RESUME -> "↪"
@@ -729,7 +770,7 @@ private fun episodeDownloadActionGlyphStage33(action: DownloadAction): String = 
     DownloadAction.RESUME_OFFLINE -> "↪"
 }
 
-private fun episodeDownloadActionDescriptionStage33(action: DownloadAction, title: String): String = when (action) {
+private fun downloadActionDescriptionStage33(action: DownloadAction, title: String): String = when (action) {
     DownloadAction.DOWNLOAD -> "Download $title"
     DownloadAction.PAUSE -> "Pause download for $title"
     DownloadAction.RESUME -> "Resume download for $title"
