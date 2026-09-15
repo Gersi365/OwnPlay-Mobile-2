@@ -179,11 +179,11 @@ private fun compactActionGlyph(action: DownloadAction): String = when (action) {
 }
 
 private fun actionLabel(action: DownloadAction): String = when (action) {
-    DownloadAction.DOWNLOAD -> "Download"
-    DownloadAction.PAUSE -> "Pause"
+    DownloadAction.DOWNLOAD -> "Download Offline"
+    DownloadAction.PAUSE -> "Pause Download"
     DownloadAction.RESUME -> "Resume Download"
-    DownloadAction.RETRY -> "Retry"
-    DownloadAction.REMOVE -> "Remove"
+    DownloadAction.RETRY -> "Retry Download"
+    DownloadAction.REMOVE -> "Remove Download"
     DownloadAction.PLAY_OFFLINE -> "Play Offline"
     DownloadAction.RESUME_OFFLINE -> "Resume Offline"
 }

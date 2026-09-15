@@ -207,6 +207,25 @@ internal fun LibraryHomeStage33(
                         }
                     }
 
+                    LibraryShelfSection(
+                        title = "Continue Offline",
+                        actionLabel = continueOffline.size.takeIf { it > 0 }
+                            ?.let { "${compactLibraryCountStage33(it)} items" },
+                        prominent = true,
+                    ) {
+                        if (continueOffline.isEmpty()) {
+                            LibraryShelfState(
+                                title = "Nothing offline yet",
+                                message = "Movies and episodes you download will appear here.",
+                            )
+                        } else {
+                            ContinueOfflineRowStage33(
+                                items = continueOffline,
+                                onSelected = onContinueOfflineSelected,
+                            )
+                        }
+                    }
+
                     if (searchActive) {
                         val matchingMovies = movies.filter { it.name.contains(normalizedSearchQuery, ignoreCase = true) }
                         val matchingSeries = series.filter { it.name.contains(normalizedSearchQuery, ignoreCase = true) }
@@ -310,25 +329,6 @@ internal fun LibraryHomeStage33(
                                     )
                                 }
                             }
-                        }
-                    }
-
-                    LibraryShelfSection(
-                        title = "Continue Offline",
-                        actionLabel = continueOffline.size.takeIf { it > 0 }
-                            ?.let { "${compactLibraryCountStage33(it)} items" },
-                        prominent = true,
-                    ) {
-                        if (continueOffline.isEmpty()) {
-                            LibraryShelfState(
-                                title = "Nothing offline yet",
-                                message = "Movies and episodes you download will appear here.",
-                            )
-                        } else {
-                            ContinueOfflineRowStage33(
-                                items = continueOffline,
-                                onSelected = onContinueOfflineSelected,
-                            )
                         }
                     }
 

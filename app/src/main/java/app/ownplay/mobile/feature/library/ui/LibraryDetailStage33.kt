@@ -41,10 +41,8 @@ import app.ownplay.mobile.design.OwnPlaySpacing
 import app.ownplay.mobile.downloads.domain.DownloadAction
 import app.ownplay.mobile.downloads.domain.DownloadItem
 import app.ownplay.mobile.downloads.domain.DownloadState
-import app.ownplay.mobile.downloads.domain.DownloadStatePolicy
 import app.ownplay.mobile.downloads.domain.OfflineAvailability
 import app.ownplay.mobile.downloads.ui.DownloadControls
-import app.ownplay.mobile.downloads.ui.rememberDownloadPermissionDispatcher
 import app.ownplay.mobile.feature.library.domain.LibraryDetailStartPolicy
 import app.ownplay.mobile.feature.library.domain.LibraryEpisode
 import app.ownplay.mobile.feature.library.domain.LibraryMediaKind
@@ -78,14 +76,6 @@ internal fun MovieDetailStage33(
     )
     val playLabel = startModeLabelStage33(startActions.primary)
     val playAction = startActionStage33(startActions.primary, onResume, onBeginning)
-    var downloadPermissionMessage by remember(movie.movieId) { mutableStateOf<String?>(null) }
-    val downloadPermissionDispatcher = rememberDownloadPermissionDispatcher(
-        onBlocked = { message -> downloadPermissionMessage = message },
-    )
-    val offlineAction = DownloadStatePolicy.primaryAction(downloadItem)
-    val offlineActionLabel = offlineActionLabelStage33(offlineAction)
-    val offlineStatus = downloadPermissionMessage ?: offlineStatusStage33(downloadItem)
-
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -97,15 +87,6 @@ internal fun MovieDetailStage33(
             favorite = movie.favorite,
             playLabel = playLabel,
             onPlay = playAction,
-            offlineActionLabel = offlineActionLabel,
-            offlineActionGlyph = offlineActionGlyphStage33(offlineAction),
-            offlineStatus = offlineStatus,
-            onOfflineAction = {
-                downloadPermissionMessage = null
-                downloadPermissionDispatcher(offlineAction) { allowedAction ->
-                    onDownloadAction(allowedAction, metadata)
-                }
-            },
             onFavoriteToggle = onFavoriteToggle,
             onBack = onBack,
         )
@@ -128,20 +109,18 @@ internal fun MovieDetailStage33(
                 )
             }
             LibraryMetadataBodyStage33(metadata)
+            LibraryShelfHeader(title = "Offline")
+            DownloadControls(
+                item = downloadItem,
+                onAction = { action -> onDownloadAction(action, metadata) },
+                modifier = Modifier.fillMaxWidth(),
+            )
             startActions.secondary?.let { secondary ->
                 LibrarySecondaryAction(
                     text = secondaryStartLabelStage33(secondary),
                     onClick = startActionStage33(secondary, onResume, onBeginning),
                     modifier = Modifier.fillMaxWidth(0.62f),
                     glyph = startModeGlyphStage33(secondary),
-                )
-            }
-            if (downloadItem != null) {
-                LibrarySecondaryAction(
-                    text = "Remove download",
-                    onClick = { onDownloadAction(DownloadAction.REMOVE, metadata) },
-                    modifier = Modifier.fillMaxWidth(0.56f),
-                    glyph = LibraryActionGlyph.DISMISS,
                 )
             }
             Spacer(modifier = Modifier.height(OwnPlaySpacing.Xl))
@@ -308,33 +287,6 @@ internal fun ManagedDownloadDetailStage33(
         hasProgress = item.resumePositionMs != null,
         preferResume = preferResume,
     )
-    val primaryMode = startActions.primary
-    val playLabel = startModeLabelStage33(primaryMode)
-    val primaryAction: (() -> Unit)? = if (
-        item.state == DownloadState.COMPLETED && availability == OfflineAvailability.AVAILABLE
-    ) {
-        { onPlayOffline(primaryMode) }
-    } else {
-        null
-    }
-    var downloadPermissionMessage by remember(item.downloadId) { mutableStateOf<String?>(null) }
-    val downloadPermissionDispatcher = rememberDownloadPermissionDispatcher(
-        onBlocked = { message -> downloadPermissionMessage = message },
-    )
-    val downloadAction = item.takeIf { it.state != DownloadState.COMPLETED }
-        ?.let(DownloadStatePolicy::primaryAction)
-    val heroOfflineActionLabel = downloadAction?.let(::offlineActionLabelStage33)
-    val heroOfflineStatus = downloadPermissionMessage ?: downloadedMediaStatusStage33(item, availability)
-    val heroOfflineActionGlyph = downloadAction?.let(::offlineActionGlyphStage33)
-    val heroOfflineAction: (() -> Unit)? = downloadAction?.let { action ->
-        {
-            downloadPermissionMessage = null
-            downloadPermissionDispatcher(action) { allowedAction ->
-                onDownloadAction(allowedAction)
-            }
-        }
-    }
-
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -344,12 +296,8 @@ internal fun ManagedDownloadDetailStage33(
             metadata = metadata,
             label = if (item.mediaKind == LibraryMediaKind.MOVIE) "MOVIE" else "EPISODE",
             favorite = null,
-            playLabel = playLabel,
-            onPlay = primaryAction,
-            offlineActionLabel = heroOfflineActionLabel,
-            offlineActionGlyph = heroOfflineActionGlyph,
-            offlineStatus = heroOfflineStatus,
-            onOfflineAction = heroOfflineAction,
+            playLabel = startModeLabelStage33(startActions.primary),
+            onPlay = null,
             onFavoriteToggle = null,
             onBack = onBack,
         )
@@ -358,9 +306,22 @@ internal fun ManagedDownloadDetailStage33(
             verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),
         ) {
             LibraryMetadataBodyStage33(metadata)
+            LibraryShelfHeader(title = "Offline")
+            DownloadControls(
+                item = item,
+                onAction = { action ->
+                    when (action) {
+                        DownloadAction.PLAY_OFFLINE -> onPlayOffline(LibraryStartMode.BEGINNING)
+                        DownloadAction.RESUME_OFFLINE -> onPlayOffline(LibraryStartMode.RESUME)
+                        DownloadAction.REMOVE -> onRemove()
+                        else -> onDownloadAction(action)
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+            )
             LibraryShelfState(
-                title = "Saved offline",
-                message = "This title is no longer available in the active Library. Offline controls remain available here.",
+                title = "Offline copy",
+                message = "This title is no longer available in the active Library. Offline download controls remain available here.",
                 tone = LibraryStateTone.WARNING,
             )
             errorMessage?.let {
@@ -380,12 +341,6 @@ internal fun ManagedDownloadDetailStage33(
                     )
                 }
             }
-            LibrarySecondaryAction(
-                text = "Remove download",
-                onClick = onRemove,
-                modifier = Modifier.fillMaxWidth(0.56f),
-                glyph = LibraryActionGlyph.DISMISS,
-            )
             Spacer(modifier = Modifier.height(OwnPlaySpacing.Xl))
         }
     }
@@ -398,10 +353,6 @@ private fun LibraryDetailHeroStage33(
     favorite: Boolean?,
     playLabel: String,
     onPlay: (() -> Unit)?,
-    offlineActionLabel: String? = null,
-    offlineActionGlyph: LibraryActionGlyph? = null,
-    offlineStatus: String? = null,
-    onOfflineAction: (() -> Unit)? = null,
     onFavoriteToggle: (() -> Unit)?,
     onBack: () -> Unit,
 ) {
@@ -499,28 +450,6 @@ private fun LibraryDetailHeroStage33(
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 3,
                 )
-                if (offlineActionLabel != null && onOfflineAction != null) {
-                    Text(
-                        text = "OFFLINE",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = OwnPlayColors.TextMuted,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    LibraryPrimaryAction(
-                        text = offlineActionLabel,
-                        onClick = onOfflineAction,
-                        modifier = Modifier.fillMaxWidth(0.82f),
-                        glyph = offlineActionGlyph,
-                    )
-                }
-                offlineStatus?.let { status ->
-                    Text(
-                        text = status,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = OwnPlayColors.TextSecondary,
-                        maxLines = 2,
-                    )
-                }
                 if (onPlay != null && playLabel == "Resume") {
                     Text(
                         text = "Resume available",
@@ -684,53 +613,6 @@ private fun startModeLabelStage33(mode: LibraryStartMode): String =
 private fun secondaryStartLabelStage33(mode: LibraryStartMode): String =
     if (mode == LibraryStartMode.RESUME) "Resume" else "Play from beginning"
 
-
-private fun offlineActionGlyphStage33(action: DownloadAction): LibraryActionGlyph = when (action) {
-    DownloadAction.DOWNLOAD -> LibraryActionGlyph.DOWNLOAD
-    DownloadAction.PAUSE -> LibraryActionGlyph.PAUSE
-    DownloadAction.RESUME -> LibraryActionGlyph.DOWNLOAD
-    DownloadAction.RETRY -> LibraryActionGlyph.RETRY
-    DownloadAction.REMOVE -> LibraryActionGlyph.DISMISS
-    DownloadAction.PLAY_OFFLINE,
-    DownloadAction.RESUME_OFFLINE,
-    -> LibraryActionGlyph.OFFLINE
-}
-
-private fun offlineActionLabelStage33(action: DownloadAction): String = when (action) {
-    DownloadAction.DOWNLOAD -> "Download"
-    DownloadAction.PAUSE -> "Pause"
-    DownloadAction.RESUME -> "Resume"
-    DownloadAction.RETRY -> "Retry"
-    DownloadAction.REMOVE -> "Remove"
-    DownloadAction.PLAY_OFFLINE -> "Play Offline"
-    DownloadAction.RESUME_OFFLINE -> "Resume Offline"
-}
-
-private fun offlineStatusStage33(item: DownloadItem?): String = when (item?.state) {
-    null -> "Save this movie for offline viewing."
-    DownloadState.QUEUED -> "Queued for offline viewing."
-    DownloadState.DOWNLOADING -> item.progressFraction?.let { progress ->
-        "Downloading ${((progress * 100f).toInt()).coerceIn(0, 100)}% for offline viewing."
-    } ?: "Downloading for offline viewing."
-    DownloadState.PAUSED -> "Download paused."
-    DownloadState.FAILED -> "Download needs attention."
-    DownloadState.COMPLETED -> if (item.resumePositionMs != null) {
-        "Available offline • resume available."
-    } else {
-        "Available offline."
-    }
-}
-
-private fun downloadedMediaStatusStage33(
-    item: DownloadItem,
-    availability: OfflineAvailability?,
-): String = when {
-    item.state != DownloadState.COMPLETED -> offlineStatusStage33(item)
-    availability == null -> "Checking offline availability."
-    availability == OfflineAvailability.AVAILABLE -> offlineStatusStage33(item)
-    availability == OfflineAvailability.MISSING -> "Offline copy missing • retry the download."
-    else -> "Preparing offline copy."
-}
 
 private fun startModeGlyphStage33(mode: LibraryStartMode): LibraryActionGlyph =
     if (mode == LibraryStartMode.RESUME) LibraryActionGlyph.PLAY else LibraryActionGlyph.RESTART
