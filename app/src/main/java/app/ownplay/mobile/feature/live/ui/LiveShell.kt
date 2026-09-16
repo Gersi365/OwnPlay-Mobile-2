@@ -65,7 +65,12 @@ import app.ownplay.mobile.feature.live.domain.LiveCustomGroup
 import app.ownplay.mobile.feature.live.domain.LiveEffect
 import app.ownplay.mobile.feature.live.domain.LiveEpgProgressPolicy
 import app.ownplay.mobile.feature.live.domain.LiveIntent
+import app.ownplay.mobile.feature.live.domain.LiveManagementCatalog
 import app.ownplay.mobile.feature.live.domain.LiveNowNext
+import app.ownplay.mobile.feature.live.domain.LiveOrganizationMode
+import app.ownplay.mobile.feature.live.domain.LiveOrganizationPresentationPolicy
+import app.ownplay.mobile.feature.live.domain.LiveOrganizationRepository
+import app.ownplay.mobile.feature.live.domain.LiveOrganizationSnapshot
 import app.ownplay.mobile.feature.live.domain.LivePlaybackResolution
 import app.ownplay.mobile.feature.live.domain.LivePresentation
 import app.ownplay.mobile.feature.live.domain.LivePresentationReducer
@@ -100,6 +105,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun LiveShell(
     liveRepository: LiveRepository,
+    liveOrganizationRepository: LiveOrganizationRepository,
     playbackController: PlaybackController,
     showChannelLogos: Boolean,
     hideChannelPrefix: Boolean,
@@ -110,6 +116,23 @@ fun LiveShell(
 ) {
     val catalogFlow = remember(liveRepository) { liveRepository.observeCatalog() }
     val catalog by catalogFlow.collectAsState(initial = null)
+    val managementCatalogFlow = remember(liveRepository) { liveRepository.observeManagementCatalog() }
+    val managementCatalog by managementCatalogFlow.collectAsState(initial = LiveManagementCatalog())
+    val activeSourceId = catalog?.activeSourceId
+    val organization by produceState<LiveOrganizationSnapshot?>(
+        initialValue = null,
+        liveOrganizationRepository,
+        activeSourceId,
+    ) {
+        val sourceId = activeSourceId
+        if (sourceId == null) {
+            value = null
+        } else {
+            liveOrganizationRepository.observeOrganization(sourceId).collect { snapshot ->
+                value = snapshot
+            }
+        }
+    }
     val playback by playbackController.state.collectAsState()
     val scope = rememberCoroutineScope()
     val browseListState = rememberLazyListState()
@@ -203,11 +226,60 @@ fun LiveShell(
         transition.effects.forEach(::applyEffect)
     }
 
-    val channels = catalog?.channels.orEmpty()
+    val providerChannels = catalog?.channels.orEmpty()
     val customGroups = catalog?.customGroups.orEmpty()
     val rawCategories = catalog?.categories.orEmpty()
-    val categories = remember(rawCategories) { LiveBrowsePolicy.visibleCategories(rawCategories) }
-    var selectedCategoryKey by remember(catalog?.activeSourceId) { mutableStateOf<String?>(null) }
+    val providerCategories = remember(rawCategories) { LiveBrowsePolicy.visibleCategories(rawCategories) }
+    val ownPlayModeActive = organization?.activeMode == LiveOrganizationMode.OWNPLAY
+    val currentOrganization = organization
+    val organizationTabs = remember(currentOrganization, ownPlayModeActive) {
+        if (ownPlayModeActive && currentOrganization != null) {
+            LiveOrganizationPresentationPolicy.browseTabs(currentOrganization)
+        } else {
+            emptyList()
+        }
+    }
+    val ownPlayChannelIdsByCategory = remember(organizationTabs) {
+        organizationTabs.associate { tab -> tab.categoryId to tab.channelIds }
+    }
+    val ownPlayChannels = remember(
+        managementCatalog.activeSourceId,
+        managementCatalog.channels,
+        catalog?.activeSourceId,
+    ) {
+        if (managementCatalog.activeSourceId != catalog?.activeSourceId) {
+            emptyList()
+        } else {
+            managementCatalog.channels.map { channel ->
+                LiveChannel(
+                    channelId = channel.channelId,
+                    sourceId = channel.sourceId,
+                    categoryKey = channel.categoryKey,
+                    name = channel.localName ?: channel.name,
+                    logoUrl = channel.localLogo ?: channel.logoUrl,
+                    sortOrder = channel.providerOrder,
+                    favorite = channel.favorite,
+                )
+            }
+        }
+    }
+    val channels = if (ownPlayModeActive) ownPlayChannels else providerChannels
+    val categories = remember(providerCategories, organizationTabs, ownPlayModeActive) {
+        if (ownPlayModeActive) {
+            organizationTabs.mapIndexed { index, tab ->
+                LiveCategory(
+                    categoryKey = tab.categoryId,
+                    name = tab.label,
+                    providerOrder = index,
+                )
+            }
+        } else {
+            providerCategories
+        }
+    }
+    var selectedCategoryKey by remember(catalog?.activeSourceId, organization?.activeMode) {
+        mutableStateOf<String?>(null)
+    }
     var selectedCustomGroupId by remember(catalog?.activeSourceId) { mutableStateOf<String?>(null) }
     val activeCategoryKey = LiveBrowsePolicy.activeCategoryKey(categories, selectedCategoryKey)
     val selectedCustomGroup = remember(customGroups, selectedCustomGroupId) {
@@ -219,11 +291,15 @@ fun LiveShell(
     val customGroupChannels = remember(channels, selectedCustomGroup) {
         LiveBrowsePolicy.customGroupChannels(channels, selectedCustomGroup?.channelIds.orEmpty())
     }
+    val channelById = remember(channels) { channels.associateBy { channel -> channel.channelId } }
     val visibleChannels = remember(
         channels,
+        channelById,
         favoriteChannels,
         customGroupChannels,
         activeCategoryKey,
+        ownPlayModeActive,
+        ownPlayChannelIdsByCategory,
         favoritesOnly,
         selectedCustomGroup,
         searchActive,
@@ -239,8 +315,12 @@ fun LiveShell(
             selectedCustomGroup != null -> customGroupChannels
             favoritesOnly -> favoriteChannels
             else -> activeCategoryKey?.let { key ->
-                channels.filter { channel -> channel.categoryKey == key }
-            } ?: channels
+                if (ownPlayModeActive) {
+                    ownPlayChannelIdsByCategory[key].orEmpty().mapNotNull(channelById::get)
+                } else {
+                    channels.filter { channel -> channel.categoryKey == key }
+                }
+            } ?: if (ownPlayModeActive) emptyList() else channels
         }
     }
     val showCategories = !searchActive && (
@@ -267,9 +347,16 @@ fun LiveShell(
         favoritesOnly = false
         selectedCustomGroupId = null
         selectedCategoryKey = categoryKey
+        val selectedBelongsToCategory = selectedChannel?.let { channel ->
+            if (ownPlayModeActive) {
+                categoryKey != null && channel.channelId in ownPlayChannelIdsByCategory[categoryKey].orEmpty()
+            } else {
+                channel.categoryKey == categoryKey
+            }
+        } ?: false
         if (
             presentationState.presentation == LivePresentation.PREVIEW &&
-            selectedChannel?.categoryKey != categoryKey
+            !selectedBelongsToCategory
         ) {
             dispatch(LiveIntent.BackPressed)
         }
@@ -331,10 +418,10 @@ fun LiveShell(
         }
     }
 
-    LaunchedEffect(catalog?.activeSourceId, catalog?.channels?.size) {
+    LaunchedEffect(catalog?.activeSourceId, channels.size, ownPlayModeActive) {
         val hasActiveSource = catalog?.activeSourceId != null
-        val hasNoProviderChannels = catalog?.channels?.isEmpty() == true
-        if (hasActiveSource && hasNoProviderChannels) {
+        val hasNoAvailableChannels = channels.isEmpty()
+        if (hasActiveSource && hasNoAvailableChannels) {
             waitingForInitialChannels = true
             delay(12_000)
             waitingForInitialChannels = false
@@ -418,6 +505,7 @@ fun LiveShell(
         LiveBrowseAndPreview(
             catalog = catalog,
             waitingForInitialChannels = waitingForInitialChannels,
+            availableChannelCount = channels.size,
             channels = visibleChannels,
             categories = categories,
             favoriteCount = favoriteChannels.size,
@@ -490,6 +578,7 @@ fun LiveShell(
 private fun LiveBrowseAndPreview(
     catalog: LiveCatalog?,
     waitingForInitialChannels: Boolean,
+    availableChannelCount: Int,
     channels: List<LiveChannel>,
     categories: List<LiveCategory>,
     favoriteCount: Int,
@@ -620,7 +709,7 @@ private fun LiveBrowseAndPreview(
                 }
             }
 
-            catalog.channels.isEmpty() && waitingForInitialChannels -> item {
+            availableChannelCount == 0 && waitingForInitialChannels -> item {
                 Box(modifier = Modifier.padding(horizontal = OwnPlaySpacing.Lg, vertical = OwnPlaySpacing.Sm)) {
                     OwnPlayStatePanel(
                         title = "Loading Live channels…",
@@ -629,7 +718,7 @@ private fun LiveBrowseAndPreview(
                 }
             }
 
-            catalog.channels.isEmpty() -> item {
+            availableChannelCount == 0 -> item {
                 Box(modifier = Modifier.padding(horizontal = OwnPlaySpacing.Lg, vertical = OwnPlaySpacing.Sm)) {
                     OwnPlayStatePanel(
                         title = "Live channels are not ready",
@@ -655,9 +744,9 @@ private fun LiveBrowseAndPreview(
                         message = if (searchQuery.isNotBlank()) {
                             "Try another channel name or close search to browse categories."
                         } else if (categorySwipeEnabled) {
-                            "Swipe left or right to browse another provider category."
+                            "Swipe left or right to browse another category."
                         } else {
-                            "Choose another provider category."
+                            "Choose another category."
                         },
                     )
                 }

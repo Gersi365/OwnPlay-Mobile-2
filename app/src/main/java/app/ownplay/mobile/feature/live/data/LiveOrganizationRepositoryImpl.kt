@@ -17,6 +17,7 @@ import app.ownplay.mobile.feature.live.domain.LiveChannelMembershipPersonalizati
 import app.ownplay.mobile.feature.live.domain.LiveChannelMembershipScope
 import app.ownplay.mobile.feature.live.domain.LiveClassificationConfidence
 import app.ownplay.mobile.feature.live.domain.LiveOrganizationCategory
+import app.ownplay.mobile.feature.live.domain.LiveOrganizationEvidencePolicy
 import app.ownplay.mobile.feature.live.domain.LiveOrganizationMode
 import app.ownplay.mobile.feature.live.domain.LiveOrganizationOrigin
 import app.ownplay.mobile.feature.live.domain.LiveOrganizationRepository
@@ -100,6 +101,7 @@ class LiveOrganizationRepositoryImpl(
                                 included = row.included,
                                 origin = row.origin.toOwnPlayOrigin(),
                                 confidence = row.confidence.toClassificationConfidence(),
+                                evidenceKeys = LiveOrganizationEvidencePolicy.decodeJsonArray(row.evidenceJson),
                                 hidden = row.hidden,
                                 manualOrder = row.manualOrder,
                             ),

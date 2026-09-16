@@ -139,6 +139,7 @@ fun OwnPlayApp(
                         when (selectedDestination) {
                             AppDestination.Live -> LiveShell(
                                 liveRepository = services.liveRepository,
+                                liveOrganizationRepository = services.liveOrganizationRepository,
                                 playbackController = services.playbackController,
                                 showChannelLogos = settings.showChannelLogos,
                                 hideChannelPrefix = settings.hideChannelPrefix,
@@ -171,6 +172,7 @@ fun OwnPlayApp(
                                 settingsPreferences = services.settingsPreferences,
                                 backupRepository = services.backupRepository,
                                 liveRepository = services.liveRepository,
+                                liveOrganizationRepository = services.liveOrganizationRepository,
                             )
                         }
                     }

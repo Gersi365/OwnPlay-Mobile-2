@@ -40,6 +40,7 @@ import app.ownplay.mobile.design.OwnPlayPanel
 import app.ownplay.mobile.design.OwnPlayShapeTokens
 import app.ownplay.mobile.design.OwnPlaySpacing
 import app.ownplay.mobile.design.OwnPlayTopBar
+import app.ownplay.mobile.feature.live.domain.LiveOrganizationRepository
 import app.ownplay.mobile.feature.live.domain.LiveRepository
 import app.ownplay.mobile.feature.settings.domain.BackupRepository
 import app.ownplay.mobile.feature.settings.domain.ProviderRefreshInterval
@@ -74,6 +75,7 @@ fun SettingsShell(
     settingsPreferences: SettingsPreferences,
     backupRepository: BackupRepository,
     liveRepository: LiveRepository,
+    liveOrganizationRepository: LiveOrganizationRepository,
     modifier: Modifier = Modifier,
 ) {
     var pageName by rememberSaveable { mutableStateOf(SettingsPage.MAIN.name) }
@@ -109,6 +111,7 @@ fun SettingsShell(
 
         SettingsPage.MANAGE_LIVE -> LiveManagementScreen(
             liveRepository = liveRepository,
+            liveOrganizationRepository = liveOrganizationRepository,
             onBack = { pageName = SettingsPage.MAIN.name },
             modifier = modifier,
         )

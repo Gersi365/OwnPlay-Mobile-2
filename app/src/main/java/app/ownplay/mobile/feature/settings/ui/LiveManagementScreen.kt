@@ -61,6 +61,7 @@ import app.ownplay.mobile.design.OwnPlaySpacing
 import app.ownplay.mobile.design.OwnPlayStatePanel
 import app.ownplay.mobile.design.OwnPlayTopBar
 import app.ownplay.mobile.feature.live.domain.LiveManagementCatalog
+import app.ownplay.mobile.feature.live.domain.LiveOrganizationRepository
 import app.ownplay.mobile.feature.live.domain.LivePersonalizationPolicy
 import app.ownplay.mobile.feature.live.domain.LiveRepository
 import app.ownplay.mobile.feature.live.domain.ManageableLiveCategory
@@ -73,6 +74,7 @@ import kotlinx.coroutines.sync.withLock
 
 private const val UNCATEGORIZED_SCOPE = "__ownplay_uncategorized__"
 private const val DESTINATION_HOME = "home"
+private const val DESTINATION_ORGANIZATION = "organization"
 private const val DESTINATION_CATEGORIES = "categories"
 private const val DESTINATION_CHANNEL_CATEGORIES = "channel_categories"
 private const val DESTINATION_CHANNELS = "channels"
@@ -122,6 +124,7 @@ private fun settleReorderOffset(
 @Composable
 fun LiveManagementScreen(
     liveRepository: LiveRepository,
+    liveOrganizationRepository: LiveOrganizationRepository,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -162,9 +165,17 @@ fun LiveManagementScreen(
         DESTINATION_HOME -> LiveManagementHome(
             catalog = catalog,
             onBack = onBack,
+            onManageOrganization = { destination = DESTINATION_ORGANIZATION },
             onManageCategories = { destination = DESTINATION_CATEGORIES },
             onManageChannels = { destination = DESTINATION_CHANNEL_CATEGORIES },
             onManageCustomGroups = { destination = DESTINATION_CUSTOM_GROUPS },
+            modifier = modifier,
+        )
+
+        DESTINATION_ORGANIZATION -> LiveOrganizationScreen(
+            liveRepository = liveRepository,
+            organizationRepository = liveOrganizationRepository,
+            onBack = { destination = DESTINATION_HOME },
             modifier = modifier,
         )
 
@@ -271,6 +282,7 @@ fun LiveManagementScreen(
 private fun LiveManagementHome(
     catalog: LiveManagementCatalog,
     onBack: () -> Unit,
+    onManageOrganization: () -> Unit,
     onManageCategories: () -> Unit,
     onManageChannels: () -> Unit,
     onManageCustomGroups: () -> Unit,
@@ -295,6 +307,11 @@ private fun LiveManagementHome(
             modifier = Modifier.padding(OwnPlaySpacing.Lg),
             verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Md),
         ) {
+            ManagementDestinationCard(
+                title = "Live organization",
+                summary = "Review discovered OwnPlay categories and choose Provider or OwnPlay per source.",
+                onClick = onManageOrganization,
+            )
             ManagementDestinationCard(
                 title = "Manage categories",
                 summary = "Show, hide, and reorder Live categories.",
