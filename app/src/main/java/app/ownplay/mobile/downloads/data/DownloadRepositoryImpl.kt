@@ -56,6 +56,7 @@ internal class DownloadRepositoryImpl(
     private val fileStore = DownloadFileStore(appContext.filesDir)
     private val publicFileStore = PublicDownloadFileStore(appContext)
     private val metadataStore = DownloadMetadataStore(appContext, httpClient)
+    private val notificationController = DownloadNotificationController(appContext)
     private val transferMutex = Mutex()
 
     override fun observeDownloads(): Flow<List<DownloadItem>> =
@@ -100,7 +101,10 @@ internal class DownloadRepositoryImpl(
             return failure("MEDIA_UNAVAILABLE", "This item is no longer available for download.")
         }
         val existing = downloadDao.getForContent(sourceId, mediaKind.name, contentId)
-        if (existing != null) return DownloadOperationResult.Success(existing.toDomainOrNull())
+        if (existing != null) {
+            syncNotification(existing.downloadId)
+            return DownloadOperationResult.Success(existing.toDomainOrNull())
+        }
         if (!publicFileStore.canWrite()) {
             return failure(
                 "STORAGE_PERMISSION_REQUIRED",
@@ -129,11 +133,13 @@ internal class DownloadRepositoryImpl(
         return try {
             downloadDao.insert(row)
             schedule(downloadId)
-            DownloadOperationResult.Success(row.toDomainOrNull())
+            syncNotification(downloadId)
+            DownloadOperationResult.Success(downloadDao.get(downloadId)?.toDomainOrNull())
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Exception) {
             downloadDao.failIfRunnable(downloadId, "SCHEDULER", nowMillis())
+            syncNotification(downloadId)
             failure("DOWNLOAD_SCHEDULE_FAILED", "The download could not be scheduled.")
         }
     }
@@ -206,6 +212,7 @@ internal class DownloadRepositoryImpl(
         val changed = downloadDao.pauseIfActive(downloadId, nowMillis())
         if (changed == 0) return invalidState(downloadId, "pause")
         workManager.cancelUniqueWork(workName(downloadId)).await()
+        syncNotification(downloadId)
         return DownloadOperationResult.Success(downloadDao.get(downloadId)?.toDomainOrNull())
     }
 
@@ -235,6 +242,7 @@ internal class DownloadRepositoryImpl(
         fileStore.delete(row)
         downloadDao.delete(downloadId)
         metadataStore.delete(downloadId)
+        notificationController.cancel(downloadId)
         return DownloadOperationResult.Success()
     }
 
@@ -322,7 +330,10 @@ internal class DownloadRepositoryImpl(
 
         when (val source = streamResolver.resolve(row)) {
             is DownloadSourceResolution.Failure -> {
-                if (source.retryable) DownloadWorkResult.RETRY else {
+                if (source.retryable) {
+                    downloadDao.queueIfDownloading(downloadId, nowMillis())
+                    DownloadWorkResult.RETRY
+                } else {
                     downloadDao.failIfRunnable(downloadId, source.code, nowMillis())
                     DownloadWorkResult.FAILURE
                 }
@@ -346,7 +357,10 @@ internal class DownloadRepositoryImpl(
                     downloadDao.failIfRunnable(downloadId, transfer.code, nowMillis())
                     DownloadWorkResult.FAILURE
                 }
-                TransferResult.TransientFailure -> DownloadWorkResult.RETRY
+                TransferResult.TransientFailure -> {
+                    downloadDao.queueIfDownloading(downloadId, nowMillis())
+                    DownloadWorkResult.RETRY
+                }
                 TransferResult.Stopped -> DownloadWorkResult.NO_OP
             }
         }
@@ -354,11 +368,13 @@ internal class DownloadRepositoryImpl(
 
     private suspend fun scheduleAndReturn(downloadId: String): DownloadOperationResult = try {
         schedule(downloadId)
+        syncNotification(downloadId)
         DownloadOperationResult.Success(downloadDao.get(downloadId)?.toDomainOrNull())
     } catch (cancelled: CancellationException) {
         throw cancelled
     } catch (_: Exception) {
         downloadDao.failIfRunnable(downloadId, "SCHEDULER", nowMillis())
+        syncNotification(downloadId)
         failure("DOWNLOAD_SCHEDULE_FAILED", "The download could not be scheduled.")
     }
 
@@ -370,6 +386,19 @@ internal class DownloadRepositoryImpl(
             .addTag("$WORK_TAG:$downloadId")
             .build()
         workManager.enqueueUniqueWork(workName(downloadId), ExistingWorkPolicy.REPLACE, request).await()
+    }
+
+    private suspend fun syncNotification(downloadId: String) {
+        val snapshot = downloadDao.get(downloadId)?.toNotificationSnapshotOrNull()
+        if (snapshot == null) {
+            notificationController.cancel(downloadId)
+            return
+        }
+        when (snapshot.state) {
+            DownloadState.QUEUED, DownloadState.PAUSED -> notificationController.show(snapshot)
+            DownloadState.DOWNLOADING -> notificationController.cancelControl(downloadId)
+            DownloadState.FAILED, DownloadState.COMPLETED -> notificationController.cancel(downloadId)
+        }
     }
 
     private suspend fun contentBelongsToSource(

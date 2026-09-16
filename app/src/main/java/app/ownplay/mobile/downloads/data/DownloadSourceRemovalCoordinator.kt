@@ -19,6 +19,7 @@ internal class DownloadSourceRemovalCoordinator(
     private val appContext = context.applicationContext
     private val filesDir = appContext.filesDir
     private val publicFileStore = PublicDownloadFileStore(appContext)
+    private val notificationController = DownloadNotificationController(appContext)
 
     suspend fun captureDownloads(sourceId: String): List<DownloadCleanupTarget> =
         downloadDao.observeForSource(sourceId).first()
@@ -39,6 +40,7 @@ internal class DownloadSourceRemovalCoordinator(
                 workManager.cancelUniqueWork(workName(target.downloadId)).await()
             }.isSuccess
             if (cancelled) {
+                notificationController.cancel(target.downloadId)
                 safeToDelete += target
             } else {
                 complete = false

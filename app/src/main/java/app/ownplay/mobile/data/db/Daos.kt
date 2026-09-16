@@ -628,6 +628,9 @@ interface DownloadDao {
     fun observeForSource(sourceId: String): Flow<List<DownloadEntity>>
 
     @Query("SELECT * FROM downloads WHERE downloadId = :downloadId LIMIT 1")
+    fun observe(downloadId: String): Flow<DownloadEntity?>
+
+    @Query("SELECT * FROM downloads WHERE downloadId = :downloadId LIMIT 1")
     suspend fun get(downloadId: String): DownloadEntity?
 
     @Query(
@@ -677,6 +680,16 @@ interface DownloadDao {
         """,
     )
     suspend fun queueIfPaused(downloadId: String, updatedAt: Long): Int
+
+    @Query(
+        """
+        UPDATE downloads
+        SET state = 'QUEUED', updatedAt = :updatedAt
+        WHERE downloadId = :downloadId
+          AND state = 'DOWNLOADING'
+        """,
+    )
+    suspend fun queueIfDownloading(downloadId: String, updatedAt: Long): Int
 
     @Query(
         """
