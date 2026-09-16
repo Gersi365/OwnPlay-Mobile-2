@@ -61,6 +61,7 @@ import app.ownplay.mobile.feature.live.domain.ChannelNameDisplayPolicy
 import app.ownplay.mobile.feature.live.domain.LiveCatalog
 import app.ownplay.mobile.feature.live.domain.LiveCategory
 import app.ownplay.mobile.feature.live.domain.LiveChannel
+import app.ownplay.mobile.feature.live.domain.LiveChannelVariantGroupingPolicy
 import app.ownplay.mobile.feature.live.domain.LiveCustomGroup
 import app.ownplay.mobile.feature.live.domain.LiveEffect
 import app.ownplay.mobile.feature.live.domain.LiveEpgProgressPolicy
@@ -259,6 +260,7 @@ fun LiveShell(
                     logoUrl = channel.localLogo ?: channel.logoUrl,
                     sortOrder = channel.providerOrder,
                     favorite = channel.favorite,
+                    manualOrder = null,
                 )
             }
         }
@@ -292,12 +294,25 @@ fun LiveShell(
         LiveBrowsePolicy.customGroupChannels(channels, selectedCustomGroup?.channelIds.orEmpty())
     }
     val channelById = remember(channels) { channels.associateBy { channel -> channel.channelId } }
+    val activeOwnPlayManualOrder = remember(currentOrganization, activeCategoryKey, ownPlayModeActive) {
+        if (!ownPlayModeActive || activeCategoryKey == null) {
+            false
+        } else {
+            currentOrganization?.memberships?.any { membership ->
+                membership.mode == LiveOrganizationMode.OWNPLAY &&
+                    membership.categoryId == activeCategoryKey &&
+                    membership.included &&
+                    membership.manualOrder != null
+            } == true
+        }
+    }
     val visibleChannels = remember(
         channels,
         channelById,
         favoriteChannels,
         customGroupChannels,
         activeCategoryKey,
+        activeOwnPlayManualOrder,
         ownPlayModeActive,
         ownPlayChannelIdsByCategory,
         favoritesOnly,
@@ -306,7 +321,7 @@ fun LiveShell(
         normalizedSearchQuery,
         hideChannelPrefix,
     ) {
-        when {
+        val baseChannels = when {
             searchActive -> channels.filter { channel ->
                 channel.name.contains(normalizedSearchQuery, ignoreCase = true) ||
                     ChannelNameDisplayPolicy.displayName(channel.name, hideChannelPrefix)
@@ -321,6 +336,15 @@ fun LiveShell(
                     channels.filter { channel -> channel.categoryKey == key }
                 }
             } ?: if (ownPlayModeActive) emptyList() else channels
+        }
+        val categoryBrowse = !searchActive && selectedCustomGroup == null && !favoritesOnly
+        if (!categoryBrowse) {
+            baseChannels
+        } else {
+            LiveChannelVariantGroupingPolicy.group(
+                channels = baseChannels,
+                preserveManualOrder = activeOwnPlayManualOrder || baseChannels.any { it.manualOrder != null },
+            )
         }
     }
     val showCategories = !searchActive && (
@@ -1136,11 +1160,6 @@ private fun ChannelRow(
                     .padding(horizontal = 10.dp, vertical = 10.dp),
                 style = MaterialTheme.typography.titleMedium,
                 color = if (channel.favorite) OwnPlayColors.Accent else OwnPlayColors.TextMuted,
-            )
-            Text(
-                text = "›",
-                style = MaterialTheme.typography.titleLarge,
-                color = if (selected) OwnPlayColors.Accent else OwnPlayColors.TextMuted,
             )
         }
     }

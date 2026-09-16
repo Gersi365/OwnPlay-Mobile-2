@@ -26,8 +26,8 @@ class LiveOrganizationPresentationPolicyTest {
 
         assertEquals(listOf("country", "sport", "football"), tabs.map { it.categoryId })
         assertEquals("Italy", tabs[0].label)
-        assertEquals("Italy › Sport", tabs[1].label)
-        assertEquals("Italy › Sport › Football", tabs[2].label)
+        assertEquals("Italy · Sport", tabs[1].label)
+        assertEquals("Italy · Sport · Football", tabs[2].label)
         assertEquals(listOf("dazn-1"), tabs[2].channelIds)
     }
 

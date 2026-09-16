@@ -18,6 +18,7 @@ data class LiveChannelView(
     val streamLocator: String,
     val favorite: Boolean,
     val sortOrder: Int,
+    val manualOrder: Int?,
 )
 
 data class ManageableLiveCategoryView(
@@ -179,7 +180,8 @@ interface CatalogDao {
             COALESCE(p.localLogo, c.logoUrl) AS logoUrl,
             c.streamLocator AS streamLocator,
             COALESCE(p.favorite, 0) AS favorite,
-            COALESCE(p.manualOrder, c.providerOrder) AS sortOrder
+            COALESCE(p.manualOrder, c.providerOrder) AS sortOrder,
+            p.manualOrder AS manualOrder
         FROM live_channels AS c
         LEFT JOIN channel_personalization AS p ON p.channelId = c.channelId
         LEFT JOIN category_personalization AS cp

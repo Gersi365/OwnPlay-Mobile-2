@@ -155,6 +155,12 @@ interface LiveOrganizationRepository {
 
     suspend fun setActiveMode(sourceId: String, mode: LiveOrganizationMode)
 
+    suspend fun createOwnPlayCategory(
+        sourceId: String,
+        parentCategoryId: String?,
+        displayName: String,
+    )
+
     suspend fun editOwnPlayMemberships(
         sourceId: String,
         targetCategoryId: String,

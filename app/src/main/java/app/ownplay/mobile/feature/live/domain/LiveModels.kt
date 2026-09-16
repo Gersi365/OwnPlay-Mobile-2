@@ -17,6 +17,7 @@ data class LiveChannel(
     val logoUrl: String?,
     val sortOrder: Int,
     val favorite: Boolean = false,
+    val manualOrder: Int? = null,
 )
 
 data class LiveCustomGroup(

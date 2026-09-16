@@ -131,6 +131,7 @@ class LiveRepositoryImpl(
                                     logoUrl = row.logoUrl,
                                     sortOrder = row.sortOrder,
                                     favorite = row.favorite,
+                                    manualOrder = row.manualOrder,
                                 )
                             },
                         customGroups = mapCustomGroups(groupRows, membershipRows),

@@ -90,21 +90,74 @@ object LiveOwnPlayDiscoveryPolicy {
     )
 
     private val semanticDefinitions = listOf(
-        SemanticDefinition("GENERAL", "General", aliases = setOf("GENERAL", "GENERALE")),
-        SemanticDefinition("FILM", "Film", aliases = setOf("FILM", "MOVIES", "MOVIE", "CINEMA")),
-        SemanticDefinition("SPORT", "Sport", aliases = setOf("SPORT", "SPORTS")),
+        SemanticDefinition(
+            "GENERAL",
+            "General",
+            aliases = setOf(
+                "GENERAL", "GENERALE", "GENERALISTE", "TE PERGJITHSHME", "PERGJITHSHME", "ALLGEMEIN",
+                "GERAL", "ΓΕΝΙΚΑ", "GENEL", "OGOLNE", "ALGEMEEN", "OBECNE", "VSEOBECNE", "ALTALANOS",
+                "OPĆENITO", "OPSTI", "SPLOSNO", "ОБЩИ", "ОБЩИЕ", "ЗАГАЛЬНІ",
+            ),
+        ),
+        SemanticDefinition(
+            "FILM",
+            "Film",
+            aliases = setOf(
+                "FILM", "FILMA", "FILMS", "MOVIES", "MOVIE", "CINEMA", "CINE", "PELICULA", "PELICULAS",
+                "FILME", "KINO", "FILMES", "ΤΑΙΝΙΕΣ", "ΣΙΝΕΜΑ", "FILMLER", "SINEMA", "FILMY", "FILMEK",
+                "MOZI", "FILMOVI", "FILMI", "ФИЛМИ", "ФИЛЬМЫ", "ФІЛЬМИ",
+            ),
+        ),
+        SemanticDefinition(
+            "SPORT",
+            "Sport",
+            aliases = setOf("SPORT", "SPORTS", "SPORTE", "ΑΘΛΗΤΙΚΑ", "SPOR", "СПОРТ"),
+        ),
         SemanticDefinition("DAZN", "DAZN", parentKey = "SPORT", aliases = setOf("DAZN")),
-        SemanticDefinition("FOOTBALL", "Football", parentKey = "SPORT", aliases = setOf("FOOTBALL", "CALCIO")),
+        SemanticDefinition(
+            "FOOTBALL",
+            "Football",
+            parentKey = "SPORT",
+            aliases = setOf(
+                "FOOTBALL", "FUTBOLL", "CALCIO", "FUSSBALL", "FUTBOL", "FUTEBOL", "ΠΟΔΟΣΦΑΙΡΟ", "FOTBAL",
+                "PILKA NOZNA", "VOETBAL", "LABDARUGAS", "NOGOMET", "FUDBAL", "ФУТБОЛ",
+            ),
+        ),
         SemanticDefinition("SERIE_A", "Serie A", parentKey = "SPORT", aliases = setOf("SERIE A")),
         SemanticDefinition("SERIE_B", "Serie B", parentKey = "SPORT", aliases = setOf("SERIE B")),
-        SemanticDefinition("NEWS", "News", aliases = setOf("NEWS", "NOTIZIE")),
-        SemanticDefinition("KIDS", "Kids", aliases = setOf("KIDS", "BAMBINI")),
-        SemanticDefinition("MUSIC", "Music", aliases = setOf("MUSIC", "MUSICA")),
+        SemanticDefinition(
+            "NEWS",
+            "News",
+            aliases = setOf(
+                "NEWS", "LAJME", "NOTIZIE", "NACHRICHTEN", "NOUVELLES", "INFORMATIONS", "ACTUALITES",
+                "NOTICIAS", "NOTICIAS 24H", "HABER", "HABERLER", "STIRI", "WIADOMOSCI", "NIEUWS", "ZPRAVY",
+                "SPRAVY", "HIREK", "VIJESTI", "VESTI", "NOVICE", "ΕΙΔΗΣΕΙΣ", "НОВИНИ", "НОВОСТИ",
+            ),
+        ),
+        SemanticDefinition(
+            "KIDS",
+            "Kids",
+            aliases = setOf(
+                "KIDS", "FEMIJE", "BAMBINI", "KINDER", "ENFANTS", "NINOS", "INFANTIL", "CRIANCAS", "ΠΑΙΔΙΚΑ",
+                "COCUK", "COPII", "DZIECI", "KINDEREN", "DETI", "GYEREKEK", "DJECA", "DECA", "OTROCI",
+                "ДЕЦА", "ДЕТИ", "ДІТИ",
+            ),
+        ),
+        SemanticDefinition(
+            "MUSIC",
+            "Music",
+            aliases = setOf(
+                "MUSIC", "MUZIKE", "MUZIKA", "MUSICA", "MUSIQUE", "MUSIK", "ΜΟΥΣΙΚΗ", "MUZIK", "MUZICA",
+                "MUZYKA", "MUZIEK", "HUDBA", "ZENE", "GLASBA", "МУЗИКА", "МУЗЫКА",
+            ),
+        ),
     )
 
     private val semanticByKey = semanticDefinitions.associateBy { it.key }
 
     private val explicitCountryAliases = mapOf(
+        "SHQIP" to "AL",
+        "SHQIPERI" to "AL",
         "ITALIA" to "IT",
         "DEUTSCHLAND" to "DE",
         "ESPANA" to "ES",
@@ -113,12 +166,18 @@ object LiveOwnPlayDiscoveryPolicy {
     )
 
     private val countries: List<CountryDefinition> by lazy {
+        val availableLocales = Locale.getAvailableLocales()
         Locale.getISOCountries().map { code ->
-            val displayName = Locale.Builder().setRegion(code).build().getDisplayCountry(Locale.ENGLISH)
-            val normalizedDisplayName = normalizeText(displayName)
+            val countryLocale = Locale.Builder().setRegion(code).build()
+            val displayName = countryLocale.getDisplayCountry(Locale.ENGLISH)
             val aliases = buildSet {
                 add(code)
-                if (normalizedDisplayName.isNotBlank()) add(normalizedDisplayName)
+                normalizeText(displayName).takeIf(String::isNotBlank)?.let(::add)
+                availableLocales.forEach { locale ->
+                    normalizeText(countryLocale.getDisplayCountry(locale))
+                        .takeIf(String::isNotBlank)
+                        ?.let(::add)
+                }
                 explicitCountryAliases
                     .filterValues { it == code }
                     .keys
@@ -130,6 +189,17 @@ object LiveOwnPlayDiscoveryPolicy {
                 aliases = aliases,
             )
         }
+    }
+
+    private val countryByAlias by lazy {
+        countries
+            .asSequence()
+            .flatMap { country -> country.aliases.asSequence().map { alias -> alias to country } }
+            .groupBy({ (alias, _) -> alias }, { (_, country) -> country })
+            .mapNotNull { (alias, matches) ->
+                matches.distinctBy(CountryDefinition::code).singleOrNull()?.let { country -> alias to country }
+            }
+            .toMap()
     }
 
     fun discover(
@@ -194,6 +264,28 @@ object LiveOwnPlayDiscoveryPolicy {
                         channelId = channel.channelId,
                         confidence = marker.confidence,
                         evidence = marker.evidence + "section-marker",
+                    )
+                }
+            }
+
+            val providerSemanticEvidence = providerCategorySemanticEvidence(channel.providerCategoryName)
+            providerSemanticEvidence.forEach { (semantic, confidence, evidence) ->
+                semanticPath(semantic).forEach { pathSemantic ->
+                    drafts += MembershipDraft(
+                        categoryId = semanticCategoryId(country.code, pathSemantic.key),
+                        channelId = channel.channelId,
+                        confidence = confidence,
+                        evidence = evidence,
+                    )
+                }
+            }
+            if (providerSemanticEvidence.isEmpty()) {
+                localProviderCategorySemantic(country, channel.providerCategoryName)?.let { semantic ->
+                    drafts += MembershipDraft(
+                        categoryId = semanticCategoryId(country.code, semantic.key),
+                        channelId = channel.channelId,
+                        confidence = LiveClassificationConfidence.HIGH,
+                        evidence = setOf("provider-category-local:${semantic.key.removePrefix(LOCAL_SEMANTIC_PREFIX)}"),
                     )
                 }
             }
@@ -294,10 +386,66 @@ object LiveOwnPlayDiscoveryPolicy {
         if (normalized.isBlank()) return null
         return semanticDefinitions.firstOrNull { definition ->
             definition.aliases.any { alias ->
-                normalized == alias || normalized.endsWith(" $alias")
+                val normalizedAlias = normalizeText(alias)
+                normalized == normalizedAlias || normalized.endsWith(" $normalizedAlias")
             }
         }
     }
+
+    private fun providerCategorySemanticEvidence(
+        providerCategoryName: String?,
+    ): List<Triple<SemanticDefinition, LiveClassificationConfidence, Set<String>>> {
+        val normalized = normalizedIdentity(providerCategoryName.orEmpty())
+        if (normalized.isBlank()) return emptyList()
+        return semanticDefinitions.mapNotNull { semantic ->
+            val matchedAlias = semantic.aliases
+                .asSequence()
+                .map(::normalizeText)
+                .filter(String::isNotBlank)
+                .sortedByDescending(String::length)
+                .firstOrNull { alias -> containsPhrase(normalized, alias) }
+                ?: return@mapNotNull null
+            Triple(
+                semantic,
+                LiveClassificationConfidence.HIGH,
+                setOf("provider-category:${semantic.key.lowercase(Locale.ROOT)}", "provider-category-alias:$matchedAlias"),
+            )
+        }
+    }
+
+    private fun localProviderCategorySemantic(
+        country: CountryDefinition,
+        providerCategoryName: String?,
+    ): SemanticDefinition? {
+        val normalized = normalizedIdentity(providerCategoryName.orEmpty())
+        if (normalized.isBlank()) return null
+        val countryAlias = country.aliases
+            .asSequence()
+            .map(::normalizeText)
+            .filter(String::isNotBlank)
+            .distinct()
+            .sortedByDescending(String::length)
+            .firstOrNull { alias -> containsPhrase(normalized, alias) }
+            ?: return null
+        val residual = " $normalized "
+            .replace(" $countryAlias ", " ")
+            .trim()
+            .replace(Regex("\\s+"), " ")
+        if (residual.isBlank()) return null
+        return SemanticDefinition(
+            key = LOCAL_SEMANTIC_PREFIX + residual.replace(' ', '_'),
+            displayName = localSemanticDisplayName(residual),
+            aliases = setOf(residual),
+        )
+    }
+
+    private fun localSemanticDisplayName(normalized: String): String = normalized
+        .lowercase(Locale.ROOT)
+        .split(' ')
+        .filter(String::isNotBlank)
+        .joinToString(" ") { token ->
+            token.replaceFirstChar { character -> character.titlecase(Locale.ROOT) }
+        }
 
     private fun directSemanticEvidence(
         channel: LiveOwnPlayDiscoveryChannel,
@@ -387,7 +535,20 @@ object LiveOwnPlayDiscoveryPolicy {
         val countryCode = tail.substring(0, semanticMarkerIndex)
         val semanticKey = tail.substring(semanticMarkerIndex + SEMANTIC_CATEGORY_MARKER.length)
         val country = countries.firstOrNull { it.code == countryCode } ?: return null
-        val semantic = semanticByKey[semanticKey] ?: return null
+        val semantic = semanticByKey[semanticKey]
+            ?: semanticKey
+                .takeIf { it.startsWith(LOCAL_SEMANTIC_PREFIX) }
+                ?.removePrefix(LOCAL_SEMANTIC_PREFIX)
+                ?.replace('_', ' ')
+                ?.takeIf(String::isNotBlank)
+                ?.let { localKey ->
+                    SemanticDefinition(
+                        key = semanticKey,
+                        displayName = localSemanticDisplayName(localKey),
+                        aliases = setOf(localKey),
+                    )
+                }
+            ?: return null
         val parentCategoryId = semantic.parentKey
             ?.let { parentKey -> semanticCategoryId(country.code, parentKey) }
             ?: countryCategoryId(country.code)
@@ -404,12 +565,15 @@ object LiveOwnPlayDiscoveryPolicy {
     private fun countryForProviderCategory(providerCategoryName: String?): CountryDefinition? {
         val normalized = normalizedIdentity(providerCategoryName.orEmpty())
         if (normalized.isBlank()) return null
-        return countries
-            .asSequence()
-            .flatMap { country -> country.aliases.asSequence().map { alias -> country to alias } }
-            .sortedByDescending { (_, alias) -> alias.length }
-            .firstOrNull { (_, alias) -> containsPhrase(normalized, alias) }
-            ?.first
+        val tokens = normalized.split(' ').filter(String::isNotBlank)
+        val maxWords = minOf(tokens.size, MAX_COUNTRY_ALIAS_WORDS)
+        for (wordCount in maxWords downTo 1) {
+            for (start in 0..tokens.size - wordCount) {
+                val alias = tokens.subList(start, start + wordCount).joinToString(" ")
+                countryByAlias[alias]?.let { return it }
+            }
+        }
+        return null
     }
 
     private fun countryCategoryId(countryCode: String): String = "$COUNTRY_CATEGORY_PREFIX$countryCode"
@@ -427,7 +591,7 @@ object LiveOwnPlayDiscoveryPolicy {
         return decomposed
             .replace(Regex("\\p{M}+"), "")
             .uppercase(Locale.ROOT)
-            .replace(Regex("[^A-Z0-9]+"), " ")
+            .replace(Regex("[^\\p{L}\\p{N}]+"), " ")
             .trim()
             .replace(Regex("\\s+"), " ")
     }
@@ -440,7 +604,9 @@ object LiveOwnPlayDiscoveryPolicy {
         }
 
     private const val MIN_DECORATIVE_MARKER_CHARACTERS = 4
+    private const val MAX_COUNTRY_ALIAS_WORDS = 6
     private const val COUNTRY_CATEGORY_PREFIX = "ownplay:country:"
     private const val SEMANTIC_CATEGORY_MARKER = ":semantic:"
+    private const val LOCAL_SEMANTIC_PREFIX = "LOCAL_"
     private const val COUNTRY_SEMANTIC_KEY = "COUNTRY"
 }

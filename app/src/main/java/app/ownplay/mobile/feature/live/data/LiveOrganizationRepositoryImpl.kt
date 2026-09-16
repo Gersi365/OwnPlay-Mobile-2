@@ -29,6 +29,8 @@ import app.ownplay.mobile.feature.live.domain.LiveOwnPlayChannelTreatment
 import app.ownplay.mobile.feature.live.domain.LiveOwnPlayManualEditPlan
 import app.ownplay.mobile.feature.live.domain.LiveOwnPlayManualEditPolicy
 import app.ownplay.mobile.feature.live.domain.LiveOwnPlayMembershipEditMode
+import java.util.Locale
+import java.util.UUID
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 
@@ -132,6 +134,48 @@ class LiveOrganizationRepositoryImpl(
                 LiveOrganizationPreferenceEntity(
                     sourceId = sourceId,
                     activeMode = mode.name,
+                ),
+            )
+        }
+    }
+
+    override suspend fun createOwnPlayCategory(
+        sourceId: String,
+        parentCategoryId: String?,
+        displayName: String,
+    ) {
+        val normalizedSourceId = sourceId.trim()
+        val normalizedParentId = parentCategoryId?.trim()?.takeIf(String::isNotEmpty)
+        val normalizedName = displayName.trim().replace(Regex("\\s+"), " ")
+        if (normalizedSourceId.isEmpty() || normalizedName.isEmpty() || normalizedName.length > MAX_MANUAL_CATEGORY_NAME_LENGTH) return
+        database.withTransaction {
+            if (sourceDao.get(normalizedSourceId) == null) return@withTransaction
+            val categories = organizationDao.getOwnPlayCategoriesForEdit(normalizedSourceId)
+            if (
+                normalizedParentId != null &&
+                categories.none { row -> row.available && row.categoryId == normalizedParentId }
+            ) {
+                return@withTransaction
+            }
+            val duplicateName = categories.any { row ->
+                row.available &&
+                    row.parentCategoryId == normalizedParentId &&
+                    row.displayName.trim().lowercase(Locale.ROOT) == normalizedName.lowercase(Locale.ROOT)
+            }
+            if (duplicateName) return@withTransaction
+            val generation = database.refreshStateDao().get(normalizedSourceId)?.generation ?: 0L
+            organizationDao.upsertOwnPlayCategories(
+                listOf(
+                    OwnPlayLiveCategoryEntity(
+                        sourceId = normalizedSourceId,
+                        categoryId = "$MANUAL_CATEGORY_PREFIX${UUID.randomUUID()}",
+                        parentCategoryId = normalizedParentId,
+                        displayName = normalizedName,
+                        semanticKey = null,
+                        origin = LiveOrganizationOrigin.MANUAL.name,
+                        available = true,
+                        lastSeenGeneration = generation,
+                    ),
                 ),
             )
         }
@@ -509,5 +553,7 @@ class LiveOrganizationRepositoryImpl(
     private companion object {
         const val LIVE_KIND = "LIVE"
         const val QUERY_BATCH_SIZE = 500
+        const val MAX_MANUAL_CATEGORY_NAME_LENGTH = 80
+        const val MANUAL_CATEGORY_PREFIX = "ownplay:manual:"
     }
 }

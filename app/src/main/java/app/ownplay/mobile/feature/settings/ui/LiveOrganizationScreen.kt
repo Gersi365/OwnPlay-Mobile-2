@@ -201,9 +201,11 @@ private fun LiveOrganizationOverview(
                         onReview = onReviewOwnPlay,
                     )
                 }
+            }
+            if (organization != null) {
                 item(key = "edit-ownplay") {
                     OwnPlaySecondaryButton(
-                        text = "Edit OwnPlay Categories",
+                        text = "Create or edit OwnPlay Categories",
                         onClick = onEditOwnPlay,
                         modifier = Modifier.fillMaxWidth(),
                     )

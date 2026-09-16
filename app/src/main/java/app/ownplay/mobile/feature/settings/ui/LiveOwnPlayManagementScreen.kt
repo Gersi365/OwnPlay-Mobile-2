@@ -118,6 +118,11 @@ private fun OwnPlayCategoryManagementList(
     modifier: Modifier,
 ) {
     val scope = rememberCoroutineScope()
+    var newCategoryName by rememberSaveable(sourceId) { mutableStateOf("") }
+    var newCategoryParentId by rememberSaveable(sourceId) { mutableStateOf<String?>(null) }
+    val newCategoryParentName = organization.categories
+        .firstOrNull { category -> category.categoryId == newCategoryParentId }
+        ?.displayName
     val siblingIdsByParent = remember(organization.categories) {
         organization.categories
             .filter { it.mode == LiveOrganizationMode.OWNPLAY }
@@ -134,22 +139,72 @@ private fun OwnPlayCategoryManagementList(
     Column(modifier = modifier.fillMaxSize()) {
         OwnPlayManagementHeader(
             title = "OwnPlay Categories",
-            subtitle = "Hide or reorder siblings, then open a category to edit channel memberships.",
+            subtitle = "Create categories, hide or reorder siblings, then open one to edit channel memberships.",
             onBack = onBack,
         )
-        if (categories.isEmpty()) {
-            OwnPlayStatePanel(
-                title = "No OwnPlay categories",
-                message = "Refresh the source to run discovery before editing classifications.",
-                modifier = Modifier.padding(OwnPlaySpacing.Lg),
-            )
-            return@Column
-        }
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(OwnPlaySpacing.Lg),
             verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm),
         ) {
+            item(key = "create-category") {
+                OwnPlayPanel(modifier = Modifier.fillMaxWidth()) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(OwnPlaySpacing.Md),
+                        verticalArrangement = Arrangement.spacedBy(OwnPlaySpacing.Sm),
+                    ) {
+                        Text(
+                            text = if (newCategoryParentId == null) "Create category" else "Create subcategory",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = OwnPlayColors.TextPrimary,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Text(
+                            text = newCategoryParentName?.let { parent -> "Inside $parent" } ?: "At OwnPlay root level",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = OwnPlayColors.TextSecondary,
+                        )
+                        OutlinedTextField(
+                            value = newCategoryName,
+                            onValueChange = { newCategoryName = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            label = { Text("Category name") },
+                        )
+                        OwnPlayPrimaryButton(
+                            text = "Create",
+                            onClick = {
+                                val name = newCategoryName
+                                scope.launch {
+                                    organizationRepository.createOwnPlayCategory(
+                                        sourceId = sourceId,
+                                        parentCategoryId = newCategoryParentId,
+                                        displayName = name,
+                                    )
+                                    newCategoryName = ""
+                                    newCategoryParentId = null
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        if (newCategoryParentId != null) {
+                            OwnPlaySecondaryButton(
+                                text = "Create at root instead",
+                                onClick = { newCategoryParentId = null },
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
+                    }
+                }
+            }
+            if (categories.isEmpty()) {
+                item(key = "no-ownplay-categories") {
+                    OwnPlayStatePanel(
+                        title = "No OwnPlay categories yet",
+                        message = "Create one manually or refresh the source to run automatic discovery.",
+                    )
+                }
+            }
             items(categories, key = { it.category.categoryId }) { row ->
                 val category = row.category
                 val siblingIds = siblingIdsByParent[category.parentCategoryId].orEmpty()
@@ -159,6 +214,10 @@ private fun OwnPlayCategoryManagementList(
                     canMoveUp = siblingIndex > 0,
                     canMoveDown = siblingIndex in 0 until siblingIds.lastIndex,
                     onOpen = { onOpenCategory(category.categoryId) },
+                    onAddSubcategory = {
+                        newCategoryParentId = category.categoryId
+                        newCategoryName = ""
+                    },
                     onToggleHidden = {
                         scope.launch {
                             organizationRepository.setCategoryHidden(
@@ -207,6 +266,7 @@ private fun OwnPlayCategoryManagementCard(
     canMoveUp: Boolean,
     canMoveDown: Boolean,
     onOpen: () -> Unit,
+    onAddSubcategory: () -> Unit,
     onToggleHidden: () -> Unit,
     onMove: (Int) -> Unit,
     onResetOrder: () -> Unit,
@@ -246,6 +306,11 @@ private fun OwnPlayCategoryManagementCard(
                 Text(
                     if (category.hidden) "Show" else "Hide",
                     modifier = Modifier.clickable(onClick = onToggleHidden),
+                    color = OwnPlayColors.Accent,
+                )
+                Text(
+                    "Add subcategory",
+                    modifier = Modifier.clickable(onClick = onAddSubcategory),
                     color = OwnPlayColors.Accent,
                 )
                 Text(

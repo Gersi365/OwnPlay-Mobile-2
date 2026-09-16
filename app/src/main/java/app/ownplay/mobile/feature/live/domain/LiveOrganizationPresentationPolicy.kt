@@ -128,7 +128,7 @@ object LiveOrganizationPresentationPolicy {
             val nextPath = path + category.category.displayName
             result += LiveOrganizationBrowseTab(
                 categoryId = category.category.categoryId,
-                label = nextPath.joinToString(" › "),
+                label = nextPath.joinToString(" · "),
                 depth = depth,
                 channelIds = category.channelIds,
             )

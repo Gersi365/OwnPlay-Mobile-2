@@ -67,6 +67,58 @@ class LiveOwnPlayDiscoveryPolicyTest {
     }
 
     @Test
+    fun `localized provider categories classify countries and semantics`() {
+        val result = LiveOwnPlayDiscoveryPolicy.discover(
+            listOf(
+                channel("al-music", "Shqipëri Muzikë", "Top Channel One"),
+                channel("al-kids", "Shqip Fëmijë", "Junior One"),
+                channel("al-news", "Shqipëri Lajme", "News One"),
+                channel("al-general", "Shqipëri Të Përgjithshme", "General One"),
+                channel("it-kids", "Italia Bambini", "Junior Due"),
+                channel("de-news", "Deutschland Nachrichten", "Nachrichten Eins"),
+                channel("fr-music", "France Musique", "Musique Un"),
+                channel("es-film", "España Películas", "Canal Uno"),
+                channel("gr-music", "Ελλάδα Μουσική", "Κανάλι Ένα"),
+                channel("bg-news", "България Новини", "Канал Едно"),
+            ),
+        )
+
+        fun has(countryCode: String, semanticKey: String) = result.categories.any { category ->
+            category.categoryId == "ownplay:country:$countryCode:semantic:$semanticKey"
+        }
+
+        assertTrue(has("AL", "MUSIC"))
+        assertTrue(has("AL", "KIDS"))
+        assertTrue(has("AL", "NEWS"))
+        assertTrue(has("AL", "GENERAL"))
+        assertTrue(has("IT", "KIDS"))
+        assertTrue(has("DE", "NEWS"))
+        assertTrue(has("FR", "MUSIC"))
+        assertTrue(has("ES", "FILM"))
+        assertTrue(has("GR", "MUSIC"))
+        assertTrue(has("BG", "NEWS"))
+    }
+
+    @Test
+    fun `unknown localized provider category becomes stable local semantic fallback`() {
+        val result = LiveOwnPlayDiscoveryPolicy.discover(
+            listOf(channel("se-local", "Sverige Barn", "Kanal Ett")),
+        )
+
+        val local = result.categories.single { category ->
+            category.categoryId == "ownplay:country:SE:semantic:LOCAL_BARN"
+        }
+        assertEquals("Barn", local.displayName)
+        assertEquals("ownplay:country:SE", local.parentCategoryId)
+        assertTrue(
+            result.memberships.any { membership ->
+                membership.channelId == "se-local" && membership.categoryId == local.categoryId
+            },
+        )
+        assertTrue(result.unclassifiedChannelIds.isEmpty())
+    }
+
+    @Test
     fun `high confidence decorative rows become section markers and are not channels`() {
         val result = LiveOwnPlayDiscoveryPolicy.discover(
             listOf(
