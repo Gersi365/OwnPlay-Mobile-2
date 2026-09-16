@@ -90,6 +90,17 @@ interface CatalogDao {
     @Query("SELECT * FROM live_channels WHERE sourceId = :sourceId ORDER BY channelId")
     suspend fun getLiveChannelsForRefresh(sourceId: String): List<LiveChannelEntity>
 
+    @Query(
+        """
+        SELECT * FROM provider_categories
+        WHERE sourceId = :sourceId
+          AND kind = :kind
+          AND available = 1
+        ORDER BY providerOrder, name COLLATE NOCASE, categoryKey
+        """,
+    )
+    suspend fun getAvailableCategoriesForRefresh(sourceId: String, kind: String): List<ProviderCategoryEntity>
+
     @Query("SELECT * FROM movies WHERE sourceId = :sourceId")
     suspend fun getMoviesForRefresh(sourceId: String): List<MovieEntity>
 

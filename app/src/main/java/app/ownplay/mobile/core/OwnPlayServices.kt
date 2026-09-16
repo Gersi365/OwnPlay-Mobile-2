@@ -16,7 +16,10 @@ import app.ownplay.mobile.downloads.domain.DownloadRepository
 import app.ownplay.mobile.feature.library.data.LibraryDownloadMetadataResolver
 import app.ownplay.mobile.feature.library.data.LibraryRepositoryImpl
 import app.ownplay.mobile.feature.library.domain.LibraryRepository
+import app.ownplay.mobile.feature.live.data.LiveOrganizationRepositoryImpl
+import app.ownplay.mobile.feature.live.data.LiveOwnPlayDiscoveryCoordinator
 import app.ownplay.mobile.feature.live.data.LiveRepositoryImpl
+import app.ownplay.mobile.feature.live.domain.LiveOrganizationRepository
 import app.ownplay.mobile.feature.live.domain.LiveRepository
 import app.ownplay.mobile.feature.settings.data.BackupRepositoryImpl
 import app.ownplay.mobile.feature.settings.data.ProviderRefreshScheduler
@@ -153,6 +156,7 @@ class OwnPlayServices private constructor(
             credentialStore = credentialStore,
             catalogLoader = catalogLoader,
         )
+        val liveDiscoveryCoordinator = LiveOwnPlayDiscoveryCoordinator(database)
         val removalCoordinator = DownloadSourceRemovalCoordinator(
             context = applicationContext,
             downloadDao = database.downloadDao(),
@@ -162,7 +166,14 @@ class OwnPlayServices private constructor(
             delegate = delegate,
             captureSourceDownloads = removalCoordinator::captureDownloads,
             cleanupSourceDownloads = removalCoordinator::cleanup,
+            afterSuccessfulRefresh = { summary ->
+                liveDiscoveryCoordinator.refresh(summary.sourceId, summary.generation)
+            },
         )
+    }
+
+    val liveOrganizationRepository: LiveOrganizationRepository by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        LiveOrganizationRepositoryImpl(database = database)
     }
 
     val liveRepository: LiveRepository by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {

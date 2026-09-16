@@ -32,6 +32,11 @@ data class OwnPlayLiveOrganizationCategoryView(
     val manualOrder: Int?,
 )
 
+data class ManualOwnPlayMembershipKeyView(
+    val categoryId: String,
+    val channelId: String,
+)
+
 data class OwnPlayLiveOrganizationMembershipView(
     val sourceId: String,
     val categoryId: String,
@@ -338,4 +343,42 @@ interface LiveOrganizationDao {
 
     @Upsert
     suspend fun upsertOwnPlayMemberships(rows: List<OwnPlayLiveChannelMembershipEntity>)
+
+    @Query(
+        """
+        SELECT categoryId FROM ownplay_live_categories
+        WHERE sourceId = :sourceId AND origin = 'MANUAL'
+        """,
+    )
+    suspend fun getManualOwnPlayCategoryIds(sourceId: String): List<String>
+
+    @Query(
+        """
+        SELECT categoryId, channelId FROM ownplay_live_channel_memberships
+        WHERE sourceId = :sourceId AND origin = 'MANUAL'
+        """,
+    )
+    suspend fun getManualOwnPlayMembershipKeys(sourceId: String): List<ManualOwnPlayMembershipKeyView>
+
+    @Query(
+        """
+        UPDATE ownplay_live_channel_memberships
+        SET available = 0
+        WHERE sourceId = :sourceId
+          AND origin = 'AUTO'
+          AND lastSeenGeneration != :generation
+        """,
+    )
+    suspend fun markMissingAutoOwnPlayMembershipsUnavailable(sourceId: String, generation: Long)
+
+    @Query(
+        """
+        UPDATE ownplay_live_categories
+        SET available = 0
+        WHERE sourceId = :sourceId
+          AND origin = 'AUTO'
+          AND lastSeenGeneration != :generation
+        """,
+    )
+    suspend fun markMissingAutoOwnPlayCategoriesUnavailable(sourceId: String, generation: Long)
 }
