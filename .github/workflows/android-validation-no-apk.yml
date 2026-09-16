@@ -60,3 +60,15 @@ jobs:
       - name: Validate source without APK generation
         shell: bash
         run: bash tools/validate-source-no-apk.sh
+
+      - name: Emit generated Room v3 schema on validation failure
+        if: failure()
+        shell: bash
+        run: |
+          schema="app/schemas/app.ownplay.mobile.data.db.OwnPlayDatabase/3.json"
+          if [[ -f "$schema" ]]; then
+            echo ROOM_SCHEMA_V3_BASE64_BEGIN
+            base64 -w0 "$schema"
+            echo
+            echo ROOM_SCHEMA_V3_BASE64_END
+          fi
