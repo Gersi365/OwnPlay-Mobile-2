@@ -1,8 +1,8 @@
 {
   "formatVersion": 1,
   "database": {
-    "version": 2,
-    "identityHash": "34fdc206381da376e05a3e4bc45637b9",
+    "version": 3,
+    "identityHash": "62fcf94def791eb0b70dc7f6d343df9f",
     "entities": [
       {
         "tableName": "sources",
@@ -1150,11 +1150,456 @@
             ]
           }
         ]
+      },
+      {
+        "tableName": "live_organization_preferences",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`sourceId` TEXT NOT NULL, `activeMode` TEXT NOT NULL, PRIMARY KEY(`sourceId`), FOREIGN KEY(`sourceId`) REFERENCES `sources`(`sourceId`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "sourceId",
+            "columnName": "sourceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "activeMode",
+            "columnName": "activeMode",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "sourceId"
+          ]
+        },
+        "foreignKeys": [
+          {
+            "table": "sources",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "sourceId"
+            ],
+            "referencedColumns": [
+              "sourceId"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "ownplay_live_categories",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`sourceId` TEXT NOT NULL, `categoryId` TEXT NOT NULL, `parentCategoryId` TEXT, `displayName` TEXT NOT NULL, `semanticKey` TEXT, `origin` TEXT NOT NULL, `available` INTEGER NOT NULL, `lastSeenGeneration` INTEGER NOT NULL, PRIMARY KEY(`sourceId`, `categoryId`), FOREIGN KEY(`sourceId`) REFERENCES `sources`(`sourceId`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "sourceId",
+            "columnName": "sourceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "categoryId",
+            "columnName": "categoryId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "parentCategoryId",
+            "columnName": "parentCategoryId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "displayName",
+            "columnName": "displayName",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "semanticKey",
+            "columnName": "semanticKey",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "origin",
+            "columnName": "origin",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "available",
+            "columnName": "available",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastSeenGeneration",
+            "columnName": "lastSeenGeneration",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "sourceId",
+            "categoryId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_ownplay_live_categories_sourceId",
+            "unique": false,
+            "columnNames": [
+              "sourceId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_ownplay_live_categories_sourceId` ON `${TABLE_NAME}` (`sourceId`)"
+          },
+          {
+            "name": "index_ownplay_live_categories_sourceId_parentCategoryId",
+            "unique": false,
+            "columnNames": [
+              "sourceId",
+              "parentCategoryId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_ownplay_live_categories_sourceId_parentCategoryId` ON `${TABLE_NAME}` (`sourceId`, `parentCategoryId`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "sources",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "sourceId"
+            ],
+            "referencedColumns": [
+              "sourceId"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "live_category_scope_personalization",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`sourceId` TEXT NOT NULL, `organizationMode` TEXT NOT NULL, `categoryId` TEXT NOT NULL, `hidden` INTEGER NOT NULL, `manualOrder` INTEGER, PRIMARY KEY(`sourceId`, `organizationMode`, `categoryId`), FOREIGN KEY(`sourceId`) REFERENCES `sources`(`sourceId`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "sourceId",
+            "columnName": "sourceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "organizationMode",
+            "columnName": "organizationMode",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "categoryId",
+            "columnName": "categoryId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "hidden",
+            "columnName": "hidden",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "manualOrder",
+            "columnName": "manualOrder",
+            "affinity": "INTEGER"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "sourceId",
+            "organizationMode",
+            "categoryId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_live_category_scope_personalization_sourceId",
+            "unique": false,
+            "columnNames": [
+              "sourceId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_live_category_scope_personalization_sourceId` ON `${TABLE_NAME}` (`sourceId`)"
+          },
+          {
+            "name": "index_live_category_scope_personalization_sourceId_organizationMode",
+            "unique": false,
+            "columnNames": [
+              "sourceId",
+              "organizationMode"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_live_category_scope_personalization_sourceId_organizationMode` ON `${TABLE_NAME}` (`sourceId`, `organizationMode`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "sources",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "sourceId"
+            ],
+            "referencedColumns": [
+              "sourceId"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "ownplay_live_channel_memberships",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`sourceId` TEXT NOT NULL, `categoryId` TEXT NOT NULL, `channelId` TEXT NOT NULL, `included` INTEGER NOT NULL, `origin` TEXT NOT NULL, `confidence` TEXT, `evidenceJson` TEXT, `available` INTEGER NOT NULL, `lastSeenGeneration` INTEGER NOT NULL, PRIMARY KEY(`sourceId`, `categoryId`, `channelId`), FOREIGN KEY(`sourceId`) REFERENCES `sources`(`sourceId`) ON UPDATE NO ACTION ON DELETE CASCADE , FOREIGN KEY(`sourceId`, `categoryId`) REFERENCES `ownplay_live_categories`(`sourceId`, `categoryId`) ON UPDATE NO ACTION ON DELETE CASCADE , FOREIGN KEY(`channelId`) REFERENCES `live_channels`(`channelId`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "sourceId",
+            "columnName": "sourceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "categoryId",
+            "columnName": "categoryId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "channelId",
+            "columnName": "channelId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "included",
+            "columnName": "included",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "origin",
+            "columnName": "origin",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "confidence",
+            "columnName": "confidence",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "evidenceJson",
+            "columnName": "evidenceJson",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "available",
+            "columnName": "available",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastSeenGeneration",
+            "columnName": "lastSeenGeneration",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "sourceId",
+            "categoryId",
+            "channelId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_ownplay_live_channel_memberships_sourceId",
+            "unique": false,
+            "columnNames": [
+              "sourceId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_ownplay_live_channel_memberships_sourceId` ON `${TABLE_NAME}` (`sourceId`)"
+          },
+          {
+            "name": "index_ownplay_live_channel_memberships_channelId",
+            "unique": false,
+            "columnNames": [
+              "channelId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_ownplay_live_channel_memberships_channelId` ON `${TABLE_NAME}` (`channelId`)"
+          },
+          {
+            "name": "index_ownplay_live_channel_memberships_sourceId_categoryId",
+            "unique": false,
+            "columnNames": [
+              "sourceId",
+              "categoryId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_ownplay_live_channel_memberships_sourceId_categoryId` ON `${TABLE_NAME}` (`sourceId`, `categoryId`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "sources",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "sourceId"
+            ],
+            "referencedColumns": [
+              "sourceId"
+            ]
+          },
+          {
+            "table": "ownplay_live_categories",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "sourceId",
+              "categoryId"
+            ],
+            "referencedColumns": [
+              "sourceId",
+              "categoryId"
+            ]
+          },
+          {
+            "table": "live_channels",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "channelId"
+            ],
+            "referencedColumns": [
+              "channelId"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "live_channel_membership_personalization",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`sourceId` TEXT NOT NULL, `organizationMode` TEXT NOT NULL, `categoryId` TEXT NOT NULL, `channelId` TEXT NOT NULL, `hidden` INTEGER NOT NULL, `manualOrder` INTEGER, PRIMARY KEY(`sourceId`, `organizationMode`, `categoryId`, `channelId`), FOREIGN KEY(`sourceId`) REFERENCES `sources`(`sourceId`) ON UPDATE NO ACTION ON DELETE CASCADE , FOREIGN KEY(`channelId`) REFERENCES `live_channels`(`channelId`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "sourceId",
+            "columnName": "sourceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "organizationMode",
+            "columnName": "organizationMode",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "categoryId",
+            "columnName": "categoryId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "channelId",
+            "columnName": "channelId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "hidden",
+            "columnName": "hidden",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "manualOrder",
+            "columnName": "manualOrder",
+            "affinity": "INTEGER"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "sourceId",
+            "organizationMode",
+            "categoryId",
+            "channelId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_live_channel_membership_personalization_sourceId",
+            "unique": false,
+            "columnNames": [
+              "sourceId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_live_channel_membership_personalization_sourceId` ON `${TABLE_NAME}` (`sourceId`)"
+          },
+          {
+            "name": "index_live_channel_membership_personalization_channelId",
+            "unique": false,
+            "columnNames": [
+              "channelId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_live_channel_membership_personalization_channelId` ON `${TABLE_NAME}` (`channelId`)"
+          },
+          {
+            "name": "index_live_channel_membership_personalization_sourceId_organizationMode_categoryId",
+            "unique": false,
+            "columnNames": [
+              "sourceId",
+              "organizationMode",
+              "categoryId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_live_channel_membership_personalization_sourceId_organizationMode_categoryId` ON `${TABLE_NAME}` (`sourceId`, `organizationMode`, `categoryId`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "sources",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "sourceId"
+            ],
+            "referencedColumns": [
+              "sourceId"
+            ]
+          },
+          {
+            "table": "live_channels",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "channelId"
+            ],
+            "referencedColumns": [
+              "channelId"
+            ]
+          }
+        ]
       }
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '34fdc206381da376e05a3e4bc45637b9')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '62fcf94def791eb0b70dc7f6d343df9f')"
     ]
   }
 }
