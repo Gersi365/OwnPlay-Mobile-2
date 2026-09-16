@@ -198,6 +198,25 @@ class LiveOwnPlayDiscoveryPolicyTest {
     }
 
     @Test
+    fun `large country catalog stays deterministic without speculative categories`() {
+        val channels = (1..5_000).map { index ->
+            channel(
+                id = "channel-$index",
+                providerCategory = "Italy HD",
+                name = "Channel $index",
+            )
+        }
+
+        val result = LiveOwnPlayDiscoveryPolicy.discover(channels)
+
+        assertEquals(listOf("ownplay:country:IT"), result.categories.map { it.categoryId })
+        assertEquals(5_000, result.memberships.size)
+        assertEquals(5_000, result.memberships.map { it.categoryId to it.channelId }.distinct().size)
+        assertTrue(result.automaticMarkerChannelIds.isEmpty())
+        assertEquals(5_000, result.unclassifiedChannelIds.size)
+    }
+
+    @Test
     fun `empty input stays empty`() {
         val result = LiveOwnPlayDiscoveryPolicy.discover(emptyList())
 

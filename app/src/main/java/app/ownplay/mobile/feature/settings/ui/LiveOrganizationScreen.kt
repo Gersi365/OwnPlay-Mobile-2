@@ -33,7 +33,7 @@ import app.ownplay.mobile.design.OwnPlaySpacing
 import app.ownplay.mobile.design.OwnPlayStatePanel
 import app.ownplay.mobile.design.OwnPlayTopBar
 import app.ownplay.mobile.feature.live.domain.LiveClassificationConfidence
-import app.ownplay.mobile.feature.live.domain.LiveManagementCatalog
+import app.ownplay.mobile.feature.live.domain.LiveManagementSource
 import app.ownplay.mobile.feature.live.domain.LiveOrganizationMode
 import app.ownplay.mobile.feature.live.domain.LiveOrganizationPresentationPolicy
 import app.ownplay.mobile.feature.live.domain.LiveOrganizationRepository
@@ -50,9 +50,9 @@ fun LiveOrganizationScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val catalogFlow = remember(liveRepository) { liveRepository.observeManagementCatalog() }
-    val catalog by catalogFlow.collectAsState(initial = LiveManagementCatalog())
-    val sourceId = catalog.activeSourceId
+    val sourceFlow = remember(liveRepository) { liveRepository.observeManagementSource() }
+    val managementSource by sourceFlow.collectAsState(initial = LiveManagementSource())
+    val sourceId = managementSource.sourceId
     val organization by produceState<LiveOrganizationSnapshot?>(
         initialValue = null,
         organizationRepository,
@@ -82,7 +82,9 @@ fun LiveOrganizationScreen(
     val currentOrganization = organization
     if (editorVisible && currentOrganization != null) {
         LiveOwnPlayManagementScreen(
-            catalog = catalog,
+            sourceId = sourceId,
+            sourceName = managementSource.sourceName,
+            liveRepository = liveRepository,
             organization = currentOrganization,
             organizationRepository = organizationRepository,
             onBack = { editorVisible = false },
@@ -93,7 +95,7 @@ fun LiveOrganizationScreen(
 
     if (reviewVisible && review != null && currentOrganization != null) {
         LiveOrganizationReviewScreen(
-            sourceName = catalog.activeSourceName,
+            sourceName = managementSource.sourceName,
             review = review,
             activeMode = currentOrganization.activeMode,
             onBack = { reviewVisible = false },
@@ -110,7 +112,7 @@ fun LiveOrganizationScreen(
     }
 
     LiveOrganizationOverview(
-        catalog = catalog,
+        source = managementSource,
         organization = organization,
         review = review,
         onBack = onBack,
@@ -126,7 +128,7 @@ fun LiveOrganizationScreen(
 
 @Composable
 private fun LiveOrganizationOverview(
-    catalog: LiveManagementCatalog,
+    source: LiveManagementSource,
     organization: LiveOrganizationSnapshot?,
     review: LiveOrganizationReviewSnapshot?,
     onBack: () -> Unit,
@@ -141,7 +143,7 @@ private fun LiveOrganizationOverview(
             subtitle = "Choose how channels are grouped for this source.",
             onBack = onBack,
         )
-        if (catalog.activeSourceId == null) {
+        if (source.sourceId == null) {
             OwnPlayStatePanel(
                 title = "No active source",
                 message = "Select and refresh a source before configuring Live organization.",
@@ -160,7 +162,7 @@ private fun LiveOrganizationOverview(
         ) {
             item(key = "source") {
                 Text(
-                    text = catalog.activeSourceName ?: "Active source",
+                    text = source.sourceName ?: "Active source",
                     style = MaterialTheme.typography.labelLarge,
                     color = OwnPlayColors.TextSecondary,
                 )

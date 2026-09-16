@@ -350,24 +350,15 @@ interface LiveOrganizationDao {
     @Query(
         """
         SELECT * FROM ownplay_live_channel_memberships
-        WHERE sourceId = :sourceId AND available = 1
+        WHERE sourceId = :sourceId
+          AND channelId IN (:channelIds)
         ORDER BY categoryId, channelId
         """,
     )
-    suspend fun getOwnPlayMembershipsForEdit(sourceId: String): List<OwnPlayLiveChannelMembershipEntity>
-
-    @Query(
-        """
-        SELECT * FROM ownplay_live_channel_memberships
-        WHERE sourceId = :sourceId AND categoryId = :categoryId AND channelId = :channelId
-        LIMIT 1
-        """,
-    )
-    suspend fun getOwnPlayMembership(
+    suspend fun getOwnPlayMembershipsForChannels(
         sourceId: String,
-        categoryId: String,
-        channelId: String,
-    ): OwnPlayLiveChannelMembershipEntity?
+        channelIds: List<String>,
+    ): List<OwnPlayLiveChannelMembershipEntity>
 
     @Query(
         """

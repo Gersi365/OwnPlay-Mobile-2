@@ -58,6 +58,11 @@ data class ManageableLiveChannel(
     val manualOrder: Int?,
 )
 
+data class LiveManagementSource(
+    val sourceId: String? = null,
+    val sourceName: String? = null,
+)
+
 data class LiveManagementCatalog(
     val activeSourceId: String? = null,
     val activeSourceName: String? = null,
@@ -99,7 +104,10 @@ sealed interface LivePlaybackResolution {
 
 interface LiveRepository {
     fun observeCatalog(): Flow<LiveCatalog>
+    fun observeManagementSource(): Flow<LiveManagementSource>
     fun observeManagementCatalog(): Flow<LiveManagementCatalog>
+    fun observeOwnPlayManageableChannels(sourceId: String, categoryId: String): Flow<List<ManageableLiveChannel>>
+    fun searchManageableChannels(sourceId: String, query: String): Flow<List<ManageableLiveChannel>>
     suspend fun loadNowNext(channelId: String): LiveNowNext
     suspend fun resolvePlayback(channelId: String): LivePlaybackResolution
     suspend fun setCategoryHidden(sourceId: String, categoryKey: String, hidden: Boolean)

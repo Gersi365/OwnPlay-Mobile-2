@@ -319,25 +319,29 @@ class LiveOrganizationRepositoryImpl(
         if (requestedChannelIds.isEmpty()) return
         database.withTransaction {
             if (sourceDao.get(sourceId) == null) return@withTransaction
-            val validChannelIds = requestedChannelIds.filter { channelId ->
-                catalogDao.getLiveChannel(channelId)?.let { channel ->
-                    channel.sourceId == sourceId && channel.available
-                } == true
-            }
-            if (validChannelIds.size != requestedChannelIds.size) return@withTransaction
+            val validChannelIds = requestedChannelIds
+                .chunked(QUERY_BATCH_SIZE)
+                .flatMap { batch -> catalogDao.getAvailableLiveChannelIds(sourceId, batch) }
+                .toSet()
+            if (validChannelIds != requestedChannelIds.toSet()) return@withTransaction
 
             val categoryRows = organizationDao.getOwnPlayCategoriesForEdit(sourceId)
-            val membershipRows = organizationDao.getOwnPlayMembershipsForEdit(sourceId)
+            val persistedMembershipRows = requestedChannelIds
+                .chunked(QUERY_BATCH_SIZE)
+                .flatMap { batch -> organizationDao.getOwnPlayMembershipsForChannels(sourceId, batch) }
             val snapshot = LiveOrganizationSnapshot(
                 sourceId = sourceId,
                 activeMode = LiveOrganizationMode.OWNPLAY,
                 categories = categoryRows.map { row -> row.toDomainCategory() },
-                memberships = membershipRows.map { row -> row.toDomainMembership() },
+                memberships = persistedMembershipRows
+                    .filter { row -> row.available }
+                    .map { row -> row.toDomainMembership() },
             )
-            val editPlan = plan(snapshot, validChannelIds) ?: return@withTransaction
+            val editPlan = plan(snapshot, requestedChannelIds) ?: return@withTransaction
             applyOwnPlayManualEditPlan(
                 sourceId = sourceId,
                 categoryRows = categoryRows,
+                persistedMembershipRows = persistedMembershipRows,
                 plan = editPlan,
             )
         }
@@ -346,6 +350,7 @@ class LiveOrganizationRepositoryImpl(
     private suspend fun applyOwnPlayManualEditPlan(
         sourceId: String,
         categoryRows: List<OwnPlayLiveCategoryEntity>,
+        persistedMembershipRows: List<OwnPlayLiveChannelMembershipEntity>,
         plan: LiveOwnPlayManualEditPlan,
     ) {
         val categoryById = categoryRows.associateBy { it.categoryId }
@@ -359,12 +364,9 @@ class LiveOrganizationRepositoryImpl(
         if (protectedRows.isNotEmpty()) organizationDao.upsertOwnPlayCategories(protectedRows)
 
         val generation = database.refreshStateDao().get(sourceId)?.generation ?: 0L
+        val persistedByKey = persistedMembershipRows.associateBy { row -> row.categoryId to row.channelId }
         val rows = plan.membershipChanges.map { change ->
-            val current = organizationDao.getOwnPlayMembership(
-                sourceId = sourceId,
-                categoryId = change.categoryId,
-                channelId = change.channelId,
-            )
+            val current = persistedByKey[change.categoryId to change.channelId]
             (current ?: OwnPlayLiveChannelMembershipEntity(
                 sourceId = sourceId,
                 categoryId = change.categoryId,
@@ -506,5 +508,6 @@ class LiveOrganizationRepositoryImpl(
 
     private companion object {
         const val LIVE_KIND = "LIVE"
+        const val QUERY_BATCH_SIZE = 500
     }
 }

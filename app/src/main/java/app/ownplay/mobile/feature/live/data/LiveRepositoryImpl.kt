@@ -7,6 +7,7 @@ import app.ownplay.mobile.data.db.CategoryPersonalizationEntity
 import app.ownplay.mobile.data.db.ChannelPersonalizationEntity
 import app.ownplay.mobile.data.db.CustomGroupEntity
 import app.ownplay.mobile.data.db.CustomGroupMembershipEntity
+import app.ownplay.mobile.data.db.ManageableLiveChannelView
 import app.ownplay.mobile.data.db.OwnPlayDatabase
 import app.ownplay.mobile.data.db.SourceDao
 import app.ownplay.mobile.data.security.CredentialStore
@@ -15,6 +16,7 @@ import app.ownplay.mobile.feature.live.domain.LiveCustomGroup
 import app.ownplay.mobile.feature.live.domain.LiveCustomGroupPolicy
 import app.ownplay.mobile.feature.live.domain.LiveGuidePolicy
 import app.ownplay.mobile.feature.live.domain.LiveManagementCatalog
+import app.ownplay.mobile.feature.live.domain.LiveManagementSource
 import app.ownplay.mobile.feature.live.domain.LiveNowNext
 import app.ownplay.mobile.feature.live.domain.LiveProgram
 import app.ownplay.mobile.feature.live.domain.LiveCategory
@@ -43,6 +45,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 
 class LiveRepositoryImpl(
     private val database: OwnPlayDatabase,
@@ -59,6 +62,24 @@ class LiveRepositoryImpl(
 
     private val guideCache = ConcurrentHashMap<String, GuideCacheEntry>()
     private val backupDao = database.backupDao()
+
+    private fun ManageableLiveChannelView.toManageableLiveChannel() = ManageableLiveChannel(
+        channelId = channelId,
+        sourceId = sourceId,
+        categoryKey = categoryKey,
+        name = name,
+        logoUrl = logoUrl,
+        providerOrder = providerOrder,
+        favorite = favorite,
+        localName = localName,
+        localLogo = localLogo,
+        hidden = hidden,
+        manualOrder = manualOrder,
+    )
+
+    private fun mapManageableChannels(rows: List<ManageableLiveChannelView>): List<ManageableLiveChannel> = rows
+        .filterNot { row -> ProviderCategoryVisibility.isUtilityLabel(row.name) }
+        .map { row -> row.toManageableLiveChannel() }
 
     private fun mapCustomGroups(
         groups: List<CustomGroupEntity>,
@@ -118,6 +139,33 @@ class LiveRepositoryImpl(
             }
         }
 
+    override fun observeManagementSource(): Flow<LiveManagementSource> =
+        sourceRepository.observeActiveSource().map { source ->
+            LiveManagementSource(
+                sourceId = source?.sourceId,
+                sourceName = source?.displayName,
+            )
+        }
+
+    override fun observeOwnPlayManageableChannels(
+        sourceId: String,
+        categoryId: String,
+    ): Flow<List<ManageableLiveChannel>> {
+        if (sourceId.isBlank() || categoryId.isBlank()) return flowOf(emptyList())
+        return catalogDao.observeOwnPlayManageableLiveChannels(sourceId, categoryId)
+            .map(::mapManageableChannels)
+    }
+
+    override fun searchManageableChannels(
+        sourceId: String,
+        query: String,
+    ): Flow<List<ManageableLiveChannel>> {
+        val normalizedQuery = query.trim()
+        if (sourceId.isBlank() || normalizedQuery.isBlank()) return flowOf(emptyList())
+        return catalogDao.searchManageableLiveChannels(sourceId, normalizedQuery)
+            .map(::mapManageableChannels)
+    }
+
     @OptIn(ExperimentalCoroutinesApi::class)
     override fun observeManagementCatalog(): Flow<LiveManagementCatalog> =
         sourceRepository.observeActiveSource().flatMapLatest { source ->
@@ -145,23 +193,7 @@ class LiveRepositoryImpl(
                                     manualOrder = row.manualOrder,
                                 )
                             },
-                        channels = channelRows
-                            .filterNot { ProviderCategoryVisibility.isUtilityLabel(it.name) }
-                            .map { row ->
-                                ManageableLiveChannel(
-                                    channelId = row.channelId,
-                                    sourceId = row.sourceId,
-                                    categoryKey = row.categoryKey,
-                                    name = row.name,
-                                    logoUrl = row.logoUrl,
-                                    providerOrder = row.providerOrder,
-                                    favorite = row.favorite,
-                                    localName = row.localName,
-                                    localLogo = row.localLogo,
-                                    hidden = row.hidden,
-                                    manualOrder = row.manualOrder,
-                                )
-                            },
+                        channels = mapManageableChannels(channelRows),
                         customGroups = mapCustomGroups(groupRows, membershipRows),
                     )
                 }

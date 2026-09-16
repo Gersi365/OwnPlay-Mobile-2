@@ -15,6 +15,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -37,13 +38,13 @@ import app.ownplay.mobile.feature.live.domain.LiveCategoryScope
 import app.ownplay.mobile.feature.live.domain.LiveChannelMembership
 import app.ownplay.mobile.feature.live.domain.LiveChannelMembershipPersonalizationKey
 import app.ownplay.mobile.feature.live.domain.LiveChannelMembershipScope
-import app.ownplay.mobile.feature.live.domain.LiveManagementCatalog
 import app.ownplay.mobile.feature.live.domain.LiveOrganizationCategory
 import app.ownplay.mobile.feature.live.domain.LiveOrganizationManagementCategory
 import app.ownplay.mobile.feature.live.domain.LiveOrganizationMode
 import app.ownplay.mobile.feature.live.domain.LiveOrganizationPresentationPolicy
 import app.ownplay.mobile.feature.live.domain.LiveOrganizationRepository
 import app.ownplay.mobile.feature.live.domain.LiveOrganizationSnapshot
+import app.ownplay.mobile.feature.live.domain.LiveRepository
 import app.ownplay.mobile.feature.live.domain.LiveOwnPlayChannelTreatment
 import app.ownplay.mobile.feature.live.domain.LiveOwnPlayMembershipEditMode
 import app.ownplay.mobile.feature.live.domain.ManageableLiveChannel
@@ -52,13 +53,14 @@ import kotlinx.coroutines.launch
 
 @Composable
 internal fun LiveOwnPlayManagementScreen(
-    catalog: LiveManagementCatalog,
+    sourceId: String?,
+    sourceName: String?,
+    liveRepository: LiveRepository,
     organization: LiveOrganizationSnapshot,
     organizationRepository: LiveOrganizationRepository,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val sourceId = catalog.activeSourceId
     val categories = remember(organization) {
         LiveOrganizationPresentationPolicy.managementCategories(organization)
     }
@@ -84,7 +86,8 @@ internal fun LiveOwnPlayManagementScreen(
     if (selectedCategory != null) {
         OwnPlayCategoryMembershipScreen(
             sourceId = sourceId,
-            catalog = catalog,
+            sourceName = sourceName,
+            liveRepository = liveRepository,
             organization = organization,
             category = selectedCategory,
             organizationRepository = organizationRepository,
@@ -115,6 +118,19 @@ private fun OwnPlayCategoryManagementList(
     modifier: Modifier,
 ) {
     val scope = rememberCoroutineScope()
+    val siblingIdsByParent = remember(organization.categories) {
+        organization.categories
+            .filter { it.mode == LiveOrganizationMode.OWNPLAY }
+            .groupBy { it.parentCategoryId }
+            .mapValues { (_, siblings) -> siblings.map { it.categoryId } }
+    }
+    val siblingIndexById = remember(siblingIdsByParent) {
+        buildMap {
+            siblingIdsByParent.values.forEach { siblingIds ->
+                siblingIds.forEachIndexed { index, categoryId -> put(categoryId, index) }
+            }
+        }
+    }
     Column(modifier = modifier.fillMaxSize()) {
         OwnPlayManagementHeader(
             title = "OwnPlay Categories",
@@ -136,16 +152,12 @@ private fun OwnPlayCategoryManagementList(
         ) {
             items(categories, key = { it.category.categoryId }) { row ->
                 val category = row.category
-                val siblingIds = organization.categories
-                    .filter { candidate ->
-                        candidate.mode == LiveOrganizationMode.OWNPLAY &&
-                            candidate.parentCategoryId == category.parentCategoryId
-                    }
-                    .map { it.categoryId }
+                val siblingIds = siblingIdsByParent[category.parentCategoryId].orEmpty()
+                val siblingIndex = siblingIndexById[category.categoryId] ?: -1
                 OwnPlayCategoryManagementCard(
                     row = row,
-                    canMoveUp = siblingIds.indexOf(category.categoryId) > 0,
-                    canMoveDown = siblingIds.indexOf(category.categoryId) in 0 until siblingIds.lastIndex,
+                    canMoveUp = siblingIndex > 0,
+                    canMoveDown = siblingIndex in 0 until siblingIds.lastIndex,
                     onOpen = { onOpenCategory(category.categoryId) },
                     onToggleHidden = {
                         scope.launch {
@@ -257,7 +269,8 @@ private fun OwnPlayCategoryManagementCard(
 @Composable
 private fun OwnPlayCategoryMembershipScreen(
     sourceId: String,
-    catalog: LiveManagementCatalog,
+    sourceName: String?,
+    liveRepository: LiveRepository,
     organization: LiveOrganizationSnapshot,
     category: LiveOrganizationCategory,
     organizationRepository: LiveOrganizationRepository,
@@ -267,29 +280,40 @@ private fun OwnPlayCategoryMembershipScreen(
     val scope = rememberCoroutineScope()
     var query by rememberSaveable(sourceId, category.categoryId) { mutableStateOf("") }
     var selectedIds by remember(sourceId, category.categoryId) { mutableStateOf<Set<String>>(emptySet()) }
-    val memberships = organization.memberships.filter { membership ->
-        membership.mode == LiveOrganizationMode.OWNPLAY &&
-            membership.categoryId == category.categoryId &&
-            membership.included
-    }
-    val membershipById = memberships.associateBy { it.channelId }
-    val channelById = catalog.channels.associateBy { it.channelId }
-    val memberChannels = memberships.mapNotNull { membership -> channelById[membership.channelId] }
-    val normalizedQuery = query.trim()
-    val visibleChannels = if (normalizedQuery.isBlank()) {
-        memberChannels
-    } else {
-        catalog.channels.filter { channel ->
-            val displayName = channel.localName ?: channel.name
-            displayName.contains(normalizedQuery, ignoreCase = true)
+    val memberships = remember(organization.memberships, category.categoryId) {
+        organization.memberships.filter { membership ->
+            membership.mode == LiveOrganizationMode.OWNPLAY &&
+                membership.categoryId == category.categoryId &&
+                membership.included
         }
     }
-    val currentMemberIds = memberships.map { it.channelId }
+    val membershipById = remember(memberships) { memberships.associateBy { it.channelId } }
+    val currentMemberIds = remember(memberships) { memberships.map { it.channelId } }
+    val memberIndexById = remember(currentMemberIds) {
+        currentMemberIds.withIndex().associate { indexed -> indexed.value to indexed.index }
+    }
+    val memberChannelFlow = remember(liveRepository, sourceId, category.categoryId) {
+        liveRepository.observeOwnPlayManageableChannels(sourceId, category.categoryId)
+    }
+    val memberChannelRows by memberChannelFlow.collectAsState(initial = emptyList())
+    val channelById = remember(memberChannelRows) { memberChannelRows.associateBy { it.channelId } }
+    val memberChannels = remember(currentMemberIds, channelById) {
+        currentMemberIds.mapNotNull(channelById::get)
+    }
+    val normalizedQuery = query.trim()
+    val searchFlow = remember(liveRepository, sourceId, normalizedQuery) {
+        liveRepository.searchManageableChannels(sourceId, normalizedQuery)
+    }
+    val searchChannels by searchFlow.collectAsState(initial = emptyList())
+    val visibleChannels = if (normalizedQuery.isBlank()) memberChannels else searchChannels
 
     Column(modifier = modifier.fillMaxSize()) {
         OwnPlayManagementHeader(
             title = category.displayName,
-            subtitle = "Scoped OwnPlay memberships · ${memberships.size} channels",
+            subtitle = buildString {
+                if (!sourceName.isNullOrBlank()) append(sourceName).append(" · ")
+                append("Scoped OwnPlay memberships · ").append(memberships.size).append(" channels")
+            },
             onBack = onBack,
         )
         LazyColumn(
@@ -390,8 +414,8 @@ private fun OwnPlayCategoryMembershipScreen(
                     membership = membership,
                     selected = channel.channelId in selectedIds,
                     reorderEnabled = normalizedQuery.isBlank() && membership != null,
-                    canMoveUp = currentMemberIds.indexOf(channel.channelId) > 0,
-                    canMoveDown = currentMemberIds.indexOf(channel.channelId) in 0 until currentMemberIds.lastIndex,
+                    canMoveUp = (memberIndexById[channel.channelId] ?: -1) > 0,
+                    canMoveDown = (memberIndexById[channel.channelId] ?: -1) in 0 until currentMemberIds.lastIndex,
                     onToggleSelected = {
                         selectedIds = selectedIds.toMutableSet().apply {
                             if (!add(channel.channelId)) remove(channel.channelId)

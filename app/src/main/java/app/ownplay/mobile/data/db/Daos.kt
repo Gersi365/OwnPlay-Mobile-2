@@ -228,6 +228,78 @@ interface CatalogDao {
     )
     fun observeManageableLiveChannels(sourceId: String): Flow<List<ManageableLiveChannelView>>
 
+    @Query(
+        """
+        SELECT
+            c.channelId AS channelId,
+            c.sourceId AS sourceId,
+            c.categoryKey AS categoryKey,
+            COALESCE(p.localName, c.name) AS name,
+            COALESCE(p.localLogo, c.logoUrl) AS logoUrl,
+            c.providerOrder AS providerOrder,
+            COALESCE(p.favorite, 0) AS favorite,
+            p.localName AS localName,
+            p.localLogo AS localLogo,
+            COALESCE(p.hidden, 0) AS hidden,
+            p.manualOrder AS manualOrder
+        FROM live_channels AS c
+        INNER JOIN ownplay_live_channel_memberships AS m
+          ON m.sourceId = c.sourceId
+         AND m.channelId = c.channelId
+        LEFT JOIN channel_personalization AS p ON p.channelId = c.channelId
+        WHERE c.sourceId = :sourceId
+          AND c.available = 1
+          AND m.categoryId = :categoryId
+          AND m.included = 1
+          AND m.available = 1
+        ORDER BY c.providerOrder, c.name COLLATE NOCASE, c.channelId
+        """,
+    )
+    fun observeOwnPlayManageableLiveChannels(
+        sourceId: String,
+        categoryId: String,
+    ): Flow<List<ManageableLiveChannelView>>
+
+    @Query(
+        """
+        SELECT
+            c.channelId AS channelId,
+            c.sourceId AS sourceId,
+            c.categoryKey AS categoryKey,
+            COALESCE(p.localName, c.name) AS name,
+            COALESCE(p.localLogo, c.logoUrl) AS logoUrl,
+            c.providerOrder AS providerOrder,
+            COALESCE(p.favorite, 0) AS favorite,
+            p.localName AS localName,
+            p.localLogo AS localLogo,
+            COALESCE(p.hidden, 0) AS hidden,
+            p.manualOrder AS manualOrder
+        FROM live_channels AS c
+        LEFT JOIN channel_personalization AS p ON p.channelId = c.channelId
+        WHERE c.sourceId = :sourceId
+          AND c.available = 1
+          AND COALESCE(p.localName, c.name) LIKE '%' || :query || '%' COLLATE NOCASE
+        ORDER BY c.providerOrder, c.name COLLATE NOCASE, c.channelId
+        """,
+    )
+    fun searchManageableLiveChannels(
+        sourceId: String,
+        query: String,
+    ): Flow<List<ManageableLiveChannelView>>
+
+    @Query(
+        """
+        SELECT channelId FROM live_channels
+        WHERE sourceId = :sourceId
+          AND available = 1
+          AND channelId IN (:channelIds)
+        """,
+    )
+    suspend fun getAvailableLiveChannelIds(
+        sourceId: String,
+        channelIds: List<String>,
+    ): List<String>
+
     @Query("SELECT * FROM live_channels WHERE channelId = :channelId LIMIT 1")
     suspend fun getLiveChannel(channelId: String): LiveChannelEntity?
 
