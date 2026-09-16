@@ -9,6 +9,8 @@ import app.ownplay.mobile.data.db.LiveChannelMembershipPersonalizationEntity
 import app.ownplay.mobile.data.db.LiveOrganizationDao
 import app.ownplay.mobile.data.db.LiveOrganizationPreferenceEntity
 import app.ownplay.mobile.data.db.OwnPlayDatabase
+import app.ownplay.mobile.data.db.OwnPlayLiveCategoryEntity
+import app.ownplay.mobile.data.db.OwnPlayLiveChannelMembershipEntity
 import app.ownplay.mobile.data.db.SourceDao
 import app.ownplay.mobile.feature.live.domain.LiveCategoryPersonalizationKey
 import app.ownplay.mobile.feature.live.domain.LiveCategoryScope
@@ -23,6 +25,10 @@ import app.ownplay.mobile.feature.live.domain.LiveOrganizationOrigin
 import app.ownplay.mobile.feature.live.domain.LiveOrganizationRepository
 import app.ownplay.mobile.feature.live.domain.LiveOrganizationScopePolicy
 import app.ownplay.mobile.feature.live.domain.LiveOrganizationSnapshot
+import app.ownplay.mobile.feature.live.domain.LiveOwnPlayChannelTreatment
+import app.ownplay.mobile.feature.live.domain.LiveOwnPlayManualEditPlan
+import app.ownplay.mobile.feature.live.domain.LiveOwnPlayManualEditPolicy
+import app.ownplay.mobile.feature.live.domain.LiveOwnPlayMembershipEditMode
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 
@@ -127,6 +133,38 @@ class LiveOrganizationRepositoryImpl(
                     sourceId = sourceId,
                     activeMode = mode.name,
                 ),
+            )
+        }
+    }
+
+    override suspend fun editOwnPlayMemberships(
+        sourceId: String,
+        targetCategoryId: String,
+        channelIds: List<String>,
+        mode: LiveOwnPlayMembershipEditMode,
+    ) {
+        editOwnPlay(sourceId, targetCategoryId, channelIds) { snapshot, validChannelIds ->
+            LiveOwnPlayManualEditPolicy.membershipPlan(
+                snapshot = snapshot,
+                targetCategoryId = targetCategoryId,
+                channelIds = validChannelIds,
+                mode = mode,
+            )
+        }
+    }
+
+    override suspend fun setOwnPlayChannelTreatment(
+        sourceId: String,
+        targetCategoryId: String,
+        channelIds: List<String>,
+        treatment: LiveOwnPlayChannelTreatment,
+    ) {
+        editOwnPlay(sourceId, targetCategoryId, channelIds) { snapshot, validChannelIds ->
+            LiveOwnPlayManualEditPolicy.treatmentPlan(
+                snapshot = snapshot,
+                targetCategoryId = targetCategoryId,
+                channelIds = validChannelIds,
+                treatment = treatment,
             )
         }
     }
@@ -269,6 +307,101 @@ class LiveOrganizationRepositoryImpl(
             }
         }
     }
+
+    private suspend fun editOwnPlay(
+        sourceId: String,
+        targetCategoryId: String,
+        channelIds: List<String>,
+        plan: (LiveOrganizationSnapshot, List<String>) -> LiveOwnPlayManualEditPlan?,
+    ) {
+        if (sourceId.isBlank() || targetCategoryId.isBlank()) return
+        val requestedChannelIds = channelIds.filter(String::isNotBlank).distinct()
+        if (requestedChannelIds.isEmpty()) return
+        database.withTransaction {
+            if (sourceDao.get(sourceId) == null) return@withTransaction
+            val validChannelIds = requestedChannelIds.filter { channelId ->
+                catalogDao.getLiveChannel(channelId)?.let { channel ->
+                    channel.sourceId == sourceId && channel.available
+                } == true
+            }
+            if (validChannelIds.size != requestedChannelIds.size) return@withTransaction
+
+            val categoryRows = organizationDao.getOwnPlayCategoriesForEdit(sourceId)
+            val membershipRows = organizationDao.getOwnPlayMembershipsForEdit(sourceId)
+            val snapshot = LiveOrganizationSnapshot(
+                sourceId = sourceId,
+                activeMode = LiveOrganizationMode.OWNPLAY,
+                categories = categoryRows.map { row -> row.toDomainCategory() },
+                memberships = membershipRows.map { row -> row.toDomainMembership() },
+            )
+            val editPlan = plan(snapshot, validChannelIds) ?: return@withTransaction
+            applyOwnPlayManualEditPlan(
+                sourceId = sourceId,
+                categoryRows = categoryRows,
+                plan = editPlan,
+            )
+        }
+    }
+
+    private suspend fun applyOwnPlayManualEditPlan(
+        sourceId: String,
+        categoryRows: List<OwnPlayLiveCategoryEntity>,
+        plan: LiveOwnPlayManualEditPlan,
+    ) {
+        val categoryById = categoryRows.associateBy { it.categoryId }
+        val protectedRows = plan.protectedCategoryIds.mapNotNull { categoryId ->
+            categoryById[categoryId]?.copy(
+                origin = LiveOrganizationOrigin.MANUAL.name,
+                available = true,
+            )
+        }
+        if (protectedRows.size != plan.protectedCategoryIds.size) return
+        if (protectedRows.isNotEmpty()) organizationDao.upsertOwnPlayCategories(protectedRows)
+
+        val generation = database.refreshStateDao().get(sourceId)?.generation ?: 0L
+        val rows = plan.membershipChanges.map { change ->
+            val current = organizationDao.getOwnPlayMembership(
+                sourceId = sourceId,
+                categoryId = change.categoryId,
+                channelId = change.channelId,
+            )
+            (current ?: OwnPlayLiveChannelMembershipEntity(
+                sourceId = sourceId,
+                categoryId = change.categoryId,
+                channelId = change.channelId,
+                origin = LiveOrganizationOrigin.MANUAL.name,
+                lastSeenGeneration = generation,
+            )).copy(
+                included = change.included,
+                origin = LiveOrganizationOrigin.MANUAL.name,
+                confidence = null,
+                evidenceJson = LiveOrganizationEvidencePolicy.encodeJsonArray(change.evidenceKeys),
+                available = true,
+            )
+        }
+        if (rows.isNotEmpty()) organizationDao.upsertOwnPlayMemberships(rows)
+    }
+
+    private fun OwnPlayLiveCategoryEntity.toDomainCategory() = LiveOrganizationCategory(
+        sourceId = sourceId,
+        mode = LiveOrganizationMode.OWNPLAY,
+        categoryId = categoryId,
+        parentCategoryId = parentCategoryId,
+        displayName = displayName,
+        semanticKey = semanticKey,
+        origin = origin.toOwnPlayOrigin(),
+    )
+
+    private fun OwnPlayLiveChannelMembershipEntity.toDomainMembership() = LiveChannelMembership(
+        sourceId = sourceId,
+        mode = LiveOrganizationMode.OWNPLAY,
+        categoryId = categoryId,
+        channelId = channelId,
+        included = included,
+        origin = origin.toOwnPlayOrigin(),
+        confidence = confidence.toClassificationConfidence(),
+        evidenceKeys = LiveOrganizationEvidencePolicy.decodeJsonArray(evidenceJson),
+    )
 
     private suspend fun categoryExists(key: LiveCategoryPersonalizationKey): Boolean = when (key.mode) {
         LiveOrganizationMode.PROVIDER ->

@@ -6,7 +6,12 @@ import app.ownplay.mobile.data.db.LiveOrganizationDao
 import app.ownplay.mobile.data.db.OwnPlayDatabase
 import app.ownplay.mobile.data.db.OwnPlayLiveCategoryEntity
 import app.ownplay.mobile.data.db.OwnPlayLiveChannelMembershipEntity
+import app.ownplay.mobile.feature.live.domain.LiveChannelMembership
+import app.ownplay.mobile.feature.live.domain.LiveOrganizationEvidencePolicy
+import app.ownplay.mobile.feature.live.domain.LiveOrganizationMode
 import app.ownplay.mobile.feature.live.domain.LiveOrganizationOrigin
+import app.ownplay.mobile.feature.live.domain.LiveOrganizationSnapshot
+import app.ownplay.mobile.feature.live.domain.LiveOwnPlayManualEditPolicy
 import app.ownplay.mobile.feature.live.domain.LiveOwnPlayDiscoveryChannel
 import app.ownplay.mobile.feature.live.domain.LiveOwnPlayDiscoveryPolicy
 
@@ -44,7 +49,24 @@ internal class LiveOwnPlayDiscoveryCoordinator(
             }
             .toList()
 
-        val result = LiveOwnPlayDiscoveryPolicy.discover(channels)
+        val manualProfileSnapshot = LiveOrganizationSnapshot(
+            sourceId = sourceId,
+            activeMode = LiveOrganizationMode.OWNPLAY,
+            memberships = organizationDao.getManualOwnPlayMemberships(sourceId).map { row ->
+                LiveChannelMembership(
+                    sourceId = row.sourceId,
+                    mode = LiveOrganizationMode.OWNPLAY,
+                    categoryId = row.categoryId,
+                    channelId = row.channelId,
+                    included = row.included,
+                    origin = LiveOrganizationOrigin.MANUAL,
+                    evidenceKeys = LiveOrganizationEvidencePolicy.decodeJsonArray(row.evidenceJson),
+                )
+            },
+        )
+        val profile = LiveOwnPlayManualEditPolicy.discoveryProfile(manualProfileSnapshot)
+        val refreshConstraints = LiveOwnPlayManualEditPolicy.refreshConstraints(manualProfileSnapshot)
+        val result = LiveOwnPlayDiscoveryPolicy.discover(channels, profile)
         val categories = result.categories.map { category ->
             OwnPlayLiveCategoryEntity(
                 sourceId = sourceId,
@@ -65,7 +87,7 @@ internal class LiveOwnPlayDiscoveryCoordinator(
                 included = true,
                 origin = LiveOrganizationOrigin.AUTO.name,
                 confidence = membership.confidence.name,
-                evidenceJson = evidenceJson(membership.evidenceKeys),
+                evidenceJson = LiveOrganizationEvidencePolicy.encodeJsonArray(membership.evidenceKeys),
                 available = true,
                 lastSeenGeneration = generation,
             )
@@ -78,10 +100,20 @@ internal class LiveOwnPlayDiscoveryCoordinator(
             val manualCategoryIds = organizationDao.getManualOwnPlayCategoryIds(sourceId).toSet()
             val manualMembershipKeys = organizationDao.getManualOwnPlayMembershipKeys(sourceId)
                 .mapTo(hashSetOf()) { row -> row.categoryId to row.channelId }
-            val autoCategories = categories.filterNot { row -> row.categoryId in manualCategoryIds }
-            val autoMemberships = memberships.filterNot { row ->
-                (row.categoryId to row.channelId) in manualMembershipKeys
-            }
+            val autoMemberships = memberships
+                .filter { row ->
+                    LiveOwnPlayManualEditPolicy.allowsAutomaticMembership(
+                        channelId = row.channelId,
+                        categoryId = row.categoryId,
+                        discoveredCategories = result.categories,
+                        constraints = refreshConstraints,
+                    )
+                }
+                .filterNot { row -> (row.categoryId to row.channelId) in manualMembershipKeys }
+            val autoMembershipCategoryIds = autoMemberships.mapTo(hashSetOf()) { row -> row.categoryId }
+            val autoCategories = categories
+                .filterNot { row -> row.categoryId in manualCategoryIds }
+                .filter { row -> row.categoryId in autoMembershipCategoryIds }
 
             if (autoCategories.isNotEmpty()) organizationDao.upsertOwnPlayCategories(autoCategories)
             if (autoMemberships.isNotEmpty()) organizationDao.upsertOwnPlayMemberships(autoMemberships)
@@ -90,11 +122,6 @@ internal class LiveOwnPlayDiscoveryCoordinator(
         }
     }
 
-    private fun evidenceJson(values: Set<String>): String = values
-        .sorted()
-        .joinToString(prefix = "[", postfix = "]") { value ->
-            "\"${value.replace("\\", "\\\\").replace("\"", "\\\"")}\""
-        }
 
     private companion object {
         const val LIVE_KIND = "LIVE"

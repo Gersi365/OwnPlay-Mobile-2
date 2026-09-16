@@ -155,6 +155,20 @@ interface LiveOrganizationRepository {
 
     suspend fun setActiveMode(sourceId: String, mode: LiveOrganizationMode)
 
+    suspend fun editOwnPlayMemberships(
+        sourceId: String,
+        targetCategoryId: String,
+        channelIds: List<String>,
+        mode: LiveOwnPlayMembershipEditMode,
+    )
+
+    suspend fun setOwnPlayChannelTreatment(
+        sourceId: String,
+        targetCategoryId: String,
+        channelIds: List<String>,
+        treatment: LiveOwnPlayChannelTreatment,
+    )
+
     suspend fun setCategoryHidden(key: LiveCategoryPersonalizationKey, hidden: Boolean)
 
     suspend fun setCategoryOrder(scope: LiveCategoryScope, orderedCategoryIds: List<String>)

@@ -338,6 +338,46 @@ interface LiveOrganizationDao {
     )
     fun observeOwnPlayMemberships(sourceId: String): Flow<List<OwnPlayLiveChannelMembershipEntity>>
 
+    @Query(
+        """
+        SELECT * FROM ownplay_live_categories
+        WHERE sourceId = :sourceId AND available = 1
+        ORDER BY parentCategoryId, categoryId
+        """,
+    )
+    suspend fun getOwnPlayCategoriesForEdit(sourceId: String): List<OwnPlayLiveCategoryEntity>
+
+    @Query(
+        """
+        SELECT * FROM ownplay_live_channel_memberships
+        WHERE sourceId = :sourceId AND available = 1
+        ORDER BY categoryId, channelId
+        """,
+    )
+    suspend fun getOwnPlayMembershipsForEdit(sourceId: String): List<OwnPlayLiveChannelMembershipEntity>
+
+    @Query(
+        """
+        SELECT * FROM ownplay_live_channel_memberships
+        WHERE sourceId = :sourceId AND categoryId = :categoryId AND channelId = :channelId
+        LIMIT 1
+        """,
+    )
+    suspend fun getOwnPlayMembership(
+        sourceId: String,
+        categoryId: String,
+        channelId: String,
+    ): OwnPlayLiveChannelMembershipEntity?
+
+    @Query(
+        """
+        SELECT * FROM ownplay_live_channel_memberships
+        WHERE sourceId = :sourceId AND origin = 'MANUAL'
+        ORDER BY categoryId, channelId
+        """,
+    )
+    suspend fun getManualOwnPlayMemberships(sourceId: String): List<OwnPlayLiveChannelMembershipEntity>
+
     @Upsert
     suspend fun upsertOwnPlayCategories(rows: List<OwnPlayLiveCategoryEntity>)
 

@@ -31,6 +31,25 @@ class LiveOrganizationPresentationPolicyTest {
         assertEquals(listOf("dazn-1"), tabs[2].channelIds)
     }
 
+
+    @Test
+    fun managementCategoriesKeepHiddenAndEmptyRowsEditable() {
+        val snapshot = ownPlaySnapshot(
+            categories = listOf(
+                category("country", "Italy"),
+                category("film", "Film", parent = "country", hidden = true),
+            ),
+            memberships = listOf(membership("country", "rai-1")),
+        )
+
+        val rows = LiveOrganizationPresentationPolicy.managementCategories(snapshot)
+
+        assertEquals(listOf("country", "film"), rows.map { it.category.categoryId })
+        assertEquals(listOf(0, 1), rows.map { it.depth })
+        assertEquals(0, rows.single { it.category.categoryId == "film" }.includedChannelCount)
+        assertTrue(rows.single { it.category.categoryId == "film" }.category.hidden)
+    }
+
     @Test
     fun reviewSummarizesHierarchyConfidenceCountsAndEvidence() {
         val snapshot = ownPlaySnapshot(
@@ -88,14 +107,11 @@ class LiveOrganizationPresentationPolicyTest {
 
     @Test
     fun evidenceCodecDecodesCoordinatorJson() {
-        val decoded = LiveOrganizationEvidencePolicy.decodeJsonArray(
-            "[\"provider-country:IT\",\"semantic:FILM\",\"quoted\\\"value\",\"path\\\\value\"]",
-        )
+        val expected = linkedSetOf("provider-country:IT", "semantic:FILM", "quoted\"value", "path\\value")
+        val encoded = LiveOrganizationEvidencePolicy.encodeJsonArray(expected)
+        val decoded = LiveOrganizationEvidencePolicy.decodeJsonArray(encoded)
 
-        assertEquals(
-            linkedSetOf("provider-country:IT", "semantic:FILM", "quoted\"value", "path\\value"),
-            decoded,
-        )
+        assertEquals(expected, decoded)
         assertTrue(LiveOrganizationEvidencePolicy.decodeJsonArray("not-json").isEmpty())
     }
 
@@ -113,6 +129,7 @@ class LiveOrganizationPresentationPolicyTest {
         id: String,
         name: String,
         parent: String? = null,
+        hidden: Boolean = false,
     ) = LiveOrganizationCategory(
         sourceId = SOURCE_ID,
         mode = LiveOrganizationMode.OWNPLAY,
@@ -120,6 +137,7 @@ class LiveOrganizationPresentationPolicyTest {
         parentCategoryId = parent,
         displayName = name,
         origin = LiveOrganizationOrigin.AUTO,
+        hidden = hidden,
     )
 
     private fun membership(

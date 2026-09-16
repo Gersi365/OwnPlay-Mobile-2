@@ -72,10 +72,25 @@ fun LiveOrganizationScreen(
     }
     val scope = rememberCoroutineScope()
     var reviewVisible by rememberSaveable(sourceId) { mutableStateOf(false) }
+    var editorVisible by rememberSaveable(sourceId) { mutableStateOf(false) }
 
-    BackHandler(enabled = reviewVisible) { reviewVisible = false }
+    BackHandler(enabled = reviewVisible || editorVisible) {
+        reviewVisible = false
+        editorVisible = false
+    }
 
     val currentOrganization = organization
+    if (editorVisible && currentOrganization != null) {
+        LiveOwnPlayManagementScreen(
+            catalog = catalog,
+            organization = currentOrganization,
+            organizationRepository = organizationRepository,
+            onBack = { editorVisible = false },
+            modifier = modifier,
+        )
+        return
+    }
+
     if (reviewVisible && review != null && currentOrganization != null) {
         LiveOrganizationReviewScreen(
             sourceName = catalog.activeSourceName,
@@ -104,6 +119,7 @@ fun LiveOrganizationScreen(
             scope.launch { organizationRepository.setActiveMode(id, LiveOrganizationMode.PROVIDER) }
         },
         onReviewOwnPlay = { reviewVisible = true },
+        onEditOwnPlay = { editorVisible = true },
         modifier = modifier,
     )
 }
@@ -116,6 +132,7 @@ private fun LiveOrganizationOverview(
     onBack: () -> Unit,
     onUseProvider: () -> Unit,
     onReviewOwnPlay: () -> Unit,
+    onEditOwnPlay: () -> Unit,
     modifier: Modifier,
 ) {
     Column(modifier = modifier.fillMaxSize()) {
@@ -180,6 +197,13 @@ private fun LiveOrganizationOverview(
                         review = review,
                         activeMode = organization?.activeMode ?: LiveOrganizationMode.PROVIDER,
                         onReview = onReviewOwnPlay,
+                    )
+                }
+                item(key = "edit-ownplay") {
+                    OwnPlaySecondaryButton(
+                        text = "Edit OwnPlay Categories",
+                        onClick = onEditOwnPlay,
+                        modifier = Modifier.fillMaxWidth(),
                     )
                 }
             }

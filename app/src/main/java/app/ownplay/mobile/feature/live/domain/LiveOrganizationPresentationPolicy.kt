@@ -27,8 +27,23 @@ data class LiveOrganizationReviewSnapshot(
     val roots: List<LiveOrganizationReviewCategory>,
 )
 
+data class LiveOrganizationManagementCategory(
+    val category: LiveOrganizationCategory,
+    val depth: Int,
+    val includedChannelCount: Int,
+)
+
 object LiveOrganizationEvidencePolicy {
     private val jsonString = Regex("\\\"((?:\\\\.|[^\\\"\\\\])*)\\\"")
+
+    fun encodeJsonArray(values: Set<String>): String? = values
+        .filter(String::isNotBlank)
+        .distinct()
+        .sorted()
+        .takeIf(List<String>::isNotEmpty)
+        ?.joinToString(prefix = "[", postfix = "]") { value ->
+            "\"${value.replace("\\", "\\\\").replace("\"", "\\\"")}\""
+        }
 
     fun decodeJsonArray(value: String?): Set<String> {
         val input = value?.trim().orEmpty()
@@ -75,6 +90,32 @@ object LiveOrganizationEvidencePolicy {
 }
 
 object LiveOrganizationPresentationPolicy {
+    fun managementCategories(snapshot: LiveOrganizationSnapshot): List<LiveOrganizationManagementCategory> {
+        val categories = snapshot.categories.filter { it.mode == LiveOrganizationMode.OWNPLAY }
+        val includedCounts = snapshot.memberships
+            .asSequence()
+            .filter { it.mode == LiveOrganizationMode.OWNPLAY && it.included }
+            .groupingBy { it.categoryId }
+            .eachCount()
+        val childrenByParent = categories.groupBy { it.parentCategoryId }
+        val result = mutableListOf<LiveOrganizationManagementCategory>()
+        val visited = mutableSetOf<String>()
+
+        fun append(category: LiveOrganizationCategory, depth: Int) {
+            if (!visited.add(category.categoryId)) return
+            result += LiveOrganizationManagementCategory(
+                category = category,
+                depth = depth,
+                includedChannelCount = includedCounts[category.categoryId] ?: 0,
+            )
+            childrenByParent[category.categoryId].orEmpty().forEach { child -> append(child, depth + 1) }
+        }
+
+        childrenByParent[null].orEmpty().forEach { root -> append(root, 0) }
+        categories.filterNot { it.categoryId in visited }.forEach { orphan -> append(orphan, 0) }
+        return result
+    }
+
     fun browseTabs(snapshot: LiveOrganizationSnapshot): List<LiveOrganizationBrowseTab> {
         val browse = LiveOrganizationBrowsePolicy.resolve(snapshot)
         val result = mutableListOf<LiveOrganizationBrowseTab>()
