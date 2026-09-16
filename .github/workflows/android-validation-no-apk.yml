@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: android-source-validation-${{ github.workflow }}-${{ github.ref }}
@@ -21,7 +21,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
-          persist-credentials: false
+          persist-credentials: true
 
       - name: Verify exact source commit
         shell: bash
@@ -58,17 +58,27 @@ jobs:
           validate-wrappers: true
 
       - name: Validate source without APK generation
+        id: validate_source
+        continue-on-error: true
         shell: bash
         run: bash tools/validate-source-no-apk.sh
 
-      - name: Emit generated Room v3 schema on validation failure
-        if: failure()
+      - name: Commit generated Room v3 schema
+        if: steps.validate_source.outcome == 'failure'
         shell: bash
+        env:
+          TARGET_BRANCH: ${{ github.event.pull_request.head.ref || github.ref_name }}
         run: |
           schema="app/schemas/app.ownplay.mobile.data.db.OwnPlayDatabase/3.json"
-          if [[ -f "$schema" ]]; then
-            echo ROOM_SCHEMA_V3_BASE64_BEGIN
-            base64 -w0 "$schema"
-            echo
-            echo ROOM_SCHEMA_V3_BASE64_END
-          fi
+          test -f "$schema"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$schema"
+          git diff --cached --quiet && exit 1
+          git commit -m "Commit generated Room v3 schema"
+          git push origin "HEAD:${TARGET_BRANCH}"
+
+      - name: Preserve validation failure after schema capture
+        if: steps.validate_source.outcome == 'failure'
+        shell: bash
+        run: exit 1
