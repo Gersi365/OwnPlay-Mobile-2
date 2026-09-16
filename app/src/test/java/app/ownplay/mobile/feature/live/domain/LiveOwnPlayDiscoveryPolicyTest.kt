@@ -100,22 +100,144 @@ class LiveOwnPlayDiscoveryPolicyTest {
     }
 
     @Test
-    fun `unknown localized provider category becomes stable local semantic fallback`() {
+    fun `albanian provider vocabulary is translated from iso3 and grammatical variants`() {
         val result = LiveOwnPlayDiscoveryPolicy.discover(
-            listOf(channel("se-local", "Sverige Barn", "Kanal Ett")),
+            listOf(
+                channel("al-music", "ALB | Kanale Muzikore", "Top Muzik One"),
+                channel("al-kids", "ALB | Kanale për Fëmijët", "Junior Shqip"),
+                channel("al-news", "ALB | Kanale Informative", "Info Shqip"),
+                channel("al-current", "ALB | Aktualitete", "Aktualitet Shqip"),
+                channel("al-doc", "ALB | Dokumentarë", "Dok Shqip"),
+                channel("al-ent", "ALB | Argëtuese", "Argetim Shqip"),
+                channel("al-culture", "ALB | Kulturë", "Kultura Shqip"),
+                channel("al-general", "ALB | Gjenerale", "General Shqip"),
+                channel("al-sport", "ALB | Sportive", "Sport Shqip"),
+            ),
         )
 
-        val local = result.categories.single { category ->
-            category.categoryId == "ownplay:country:SE:semantic:LOCAL_BARN"
+        fun has(semanticKey: String) = result.categories.any { category ->
+            category.categoryId == "ownplay:country:AL:semantic:$semanticKey"
         }
-        assertEquals("Barn", local.displayName)
-        assertEquals("ownplay:country:SE", local.parentCategoryId)
+
+        assertTrue(has("MUSIC"))
+        assertTrue(has("KIDS"))
+        assertTrue(has("NEWS"))
+        assertTrue(has("DOCUMENTARY"))
+        assertTrue(has("ENTERTAINMENT"))
+        assertTrue(has("CULTURE"))
+        assertTrue(has("GENERAL"))
+        assertTrue(has("SPORT"))
+        assertEquals(9, result.memberships.count { it.categoryId == "ownplay:country:AL" })
+        assertTrue(result.unclassifiedChannelIds.isEmpty())
+    }
+
+    @Test
+    fun `flag country marker activates the matching local language pack`() {
+        val result = LiveOwnPlayDiscoveryPolicy.discover(
+            listOf(channel("flag-music", "🇦🇱 | Kanale Muzikore", "Top Shqip")),
+        )
+
+        val music = result.categories.single { category ->
+            category.categoryId == "ownplay:country:AL:semantic:MUSIC"
+        }
+        assertEquals("Music", music.displayName)
+        assertTrue(result.unclassifiedChannelIds.isEmpty())
+    }
+
+    @Test
+    fun `localized decorative marker uses the detected country language`() {
+        val result = LiveOwnPlayDiscoveryPolicy.discover(
+            listOf(
+                channel("music-marker", "Shqipëri", "---- MUZIKË ----"),
+                channel("music-channel", "Shqipëri", "Top Channel"),
+            ),
+        )
+
+        assertEquals(setOf("music-marker"), result.automaticMarkerChannelIds)
         assertTrue(
             result.memberships.any { membership ->
-                membership.channelId == "se-local" && membership.categoryId == local.categoryId
+                membership.channelId == "music-channel" &&
+                    membership.categoryId == "ownplay:country:AL:semantic:MUSIC"
             },
         )
+    }
+
+    @Test
+    fun `unknown provider category stays under country root without inventing taxonomy`() {
+        val result = LiveOwnPlayDiscoveryPolicy.discover(
+            listOf(channel("se-unknown", "Sverige Premium X", "Kanal Ett")),
+        )
+
+        assertEquals(listOf("ownplay:country:SE"), result.categories.map { it.categoryId })
+        assertEquals(listOf("se-unknown"), result.unclassifiedChannelIds)
+        assertFalse(result.categories.any { it.categoryId.contains(":semantic:") })
+    }
+
+    @Test
+    fun `country language translation keeps canonical OwnPlay taxonomy in English`() {
+        val result = LiveOwnPlayDiscoveryPolicy.discover(
+            listOf(
+                channel("al-kids", "Shqipëri Fëmijë", "Junior Shqip"),
+                channel("it-kids", "Italia Bambini", "Junior Italia"),
+                channel("se-kids", "Sverige Barn", "Barn Ett"),
+            ),
+        )
+
+        listOf("AL", "IT", "SE").forEach { countryCode ->
+            val category = result.categories.single { item ->
+                item.categoryId == "ownplay:country:$countryCode:semantic:KIDS"
+            }
+            assertEquals("Kids", category.displayName)
+            assertEquals("KIDS", category.semanticKey)
+            assertEquals("ownplay:country:$countryCode", category.parentCategoryId)
+        }
         assertTrue(result.unclassifiedChannelIds.isEmpty())
+    }
+
+    @Test
+    fun `provider semantic translation is scoped to detected country languages plus English`() {
+        val result = LiveOwnPlayDiscoveryPolicy.discover(
+            listOf(
+                channel("it-albanian-word", "Italia Lajme", "Canale Uno"),
+                channel("it-english", "Italia News", "Canale Due"),
+            ),
+        )
+
+        assertFalse(
+            result.memberships.any { membership ->
+                membership.channelId == "it-albanian-word" &&
+                    membership.categoryId == "ownplay:country:IT:semantic:NEWS"
+            },
+        )
+        assertTrue(
+            result.memberships.any { membership ->
+                membership.channelId == "it-english" &&
+                    membership.categoryId == "ownplay:country:IT:semantic:NEWS"
+            },
+        )
+        assertEquals(listOf("it-albanian-word"), result.unclassifiedChannelIds)
+    }
+
+
+    @Test
+    fun `same canonical categories are discovered from different country languages`() {
+        val result = LiveOwnPlayDiscoveryPolicy.discover(
+            listOf(
+                channel("al-music", "ALB Muzikore", "A"),
+                channel("it-music", "Italia Musica", "B"),
+                channel("de-music", "Deutschland Musik", "C"),
+                channel("fr-music", "France Musique", "D"),
+                channel("es-music", "España Música", "E"),
+            ),
+        )
+
+        listOf("AL", "IT", "DE", "FR", "ES").forEach { countryCode ->
+            val music = result.categories.single { category ->
+                category.categoryId == "ownplay:country:$countryCode:semantic:MUSIC"
+            }
+            assertEquals("Music", music.displayName)
+            assertEquals("MUSIC", music.semanticKey)
+        }
     }
 
     @Test
