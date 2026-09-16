@@ -48,6 +48,8 @@ data class LiveOrganizationCategory(
     val displayName: String,
     val semanticKey: String? = null,
     val origin: LiveOrganizationOrigin,
+    val hidden: Boolean = false,
+    val manualOrder: Int? = null,
 ) {
     init {
         require(sourceId.isNotBlank()) { "sourceId must not be blank" }
@@ -82,6 +84,8 @@ data class LiveChannelMembership(
     val origin: LiveOrganizationOrigin,
     val confidence: LiveClassificationConfidence? = null,
     val evidenceKeys: Set<String> = emptySet(),
+    val hidden: Boolean = false,
+    val manualOrder: Int? = null,
 ) {
     init {
         require(sourceId.isNotBlank()) { "sourceId must not be blank" }
