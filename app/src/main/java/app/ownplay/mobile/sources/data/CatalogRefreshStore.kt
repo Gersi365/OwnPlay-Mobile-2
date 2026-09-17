@@ -8,6 +8,7 @@ import app.ownplay.mobile.data.db.ProviderCategoryEntity
 import app.ownplay.mobile.data.db.RefreshStateDao
 import app.ownplay.mobile.data.db.RefreshStateEntity
 import app.ownplay.mobile.data.db.SeriesEntity
+import app.ownplay.mobile.feature.live.data.LiveOrganizationRefreshStore
 import app.ownplay.mobile.sources.domain.SourceId
 import app.ownplay.mobile.sources.domain.SourceType
 
@@ -25,6 +26,7 @@ interface CatalogRefreshStore {
 class RoomCatalogRefreshStore(
     private val database: OwnPlayDatabase,
     private val refreshStateDao: RefreshStateDao,
+    private val liveOrganizationRefreshStore: LiveOrganizationRefreshStore? = null,
 ) : CatalogRefreshStore {
     override suspend fun commitSuccessfulRefresh(
         sourceId: SourceId,
@@ -55,6 +57,13 @@ class RoomCatalogRefreshStore(
                 generation = generation,
             )
             refreshStateDao.markMissingLiveUnavailable(sourceId.value, generation)
+
+            liveOrganizationRefreshStore?.reconcileAutomatic(
+                sourceId = sourceId,
+                generation = generation,
+                providerCategories = plan.categories,
+                liveChannels = plan.liveChannels,
+            )
 
             if (sourceType == SourceType.XTREAM) {
                 refreshStateDao.upsertMovies(plan.movies)
