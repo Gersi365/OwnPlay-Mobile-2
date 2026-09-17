@@ -2,6 +2,8 @@ package app.ownplay.mobile.feature.library.data
 
 import app.ownplay.mobile.data.db.EpisodeEntity
 import app.ownplay.mobile.data.db.LibraryDao
+import app.ownplay.mobile.data.db.LibraryEpisodeProgressRow
+import app.ownplay.mobile.data.db.LibraryMovieProgressRow
 import app.ownplay.mobile.data.db.MediaFavoriteEntity
 import app.ownplay.mobile.data.db.MovieEntity
 import app.ownplay.mobile.data.db.ProviderCategoryEntity
@@ -9,6 +11,7 @@ import app.ownplay.mobile.data.db.SeriesEntity
 import app.ownplay.mobile.feature.library.domain.LibraryCatalogSnapshot
 import app.ownplay.mobile.feature.library.domain.LibraryCategory
 import app.ownplay.mobile.feature.library.domain.LibraryContentKind
+import app.ownplay.mobile.feature.library.domain.LibraryContinueWatchingItem
 import app.ownplay.mobile.feature.library.domain.LibraryDetailRefreshResult
 import app.ownplay.mobile.feature.library.domain.LibraryEpisodeSummary
 import app.ownplay.mobile.feature.library.domain.LibraryMovieSummary
@@ -39,18 +42,27 @@ class RoomLibraryRepository internal constructor(
         ) { movies, series ->
             MediaRows(movies, series)
         }
+        val progress = combine(
+            dao.observeMovieContinueWatching(sourceId.value),
+            dao.observeEpisodeContinueWatching(sourceId.value),
+        ) { movies, episodes ->
+            ProgressRows(movies, episodes)
+        }
 
         return combine(
             categories,
             media,
             dao.observeFavorites(sourceId.value),
-        ) { categoryRows, mediaRows, favorites ->
+            progress,
+        ) { categoryRows, mediaRows, favorites, progressRows ->
             LibraryCatalogMapper.catalog(
                 movieCategories = categoryRows.movies,
                 seriesCategories = categoryRows.series,
                 movies = mediaRows.movies,
                 series = mediaRows.series,
                 favorites = favorites,
+                movieProgressRows = progressRows.movies,
+                episodeProgressRows = progressRows.episodes,
             )
         }
     }
@@ -152,6 +164,11 @@ class RoomLibraryRepository internal constructor(
         val movies: List<MovieEntity>,
         val series: List<SeriesEntity>,
     )
+
+    private data class ProgressRows(
+        val movies: List<LibraryMovieProgressRow>,
+        val episodes: List<LibraryEpisodeProgressRow>,
+    )
 }
 
 internal object LibraryCatalogMapper {
@@ -161,6 +178,8 @@ internal object LibraryCatalogMapper {
         movies: List<MovieEntity>,
         series: List<SeriesEntity>,
         favorites: List<MediaFavoriteEntity>,
+        movieProgressRows: List<LibraryMovieProgressRow> = emptyList(),
+        episodeProgressRows: List<LibraryEpisodeProgressRow> = emptyList(),
     ): LibraryCatalogSnapshot {
         val movieFavorites = favorites.favoriteIds(LibraryContentKind.MOVIE)
         val seriesFavorites = favorites.favoriteIds(LibraryContentKind.SERIES)
@@ -169,6 +188,43 @@ internal object LibraryCatalogMapper {
             seriesCategories = seriesCategories.map(::category),
             movies = movies.map { movie(it, movieFavorites) },
             series = series.map { series(it, seriesFavorites) },
+            continueWatching = continueWatching(movieProgressRows, episodeProgressRows),
+        )
+    }
+
+    fun continueWatching(
+        movieRows: List<LibraryMovieProgressRow>,
+        episodeRows: List<LibraryEpisodeProgressRow>,
+    ): List<LibraryContinueWatchingItem> {
+        val movies = movieRows.map { row ->
+            LibraryContinueWatchingItem(
+                contentKind = LibraryContentKind.MOVIE,
+                contentId = row.contentId,
+                title = row.title,
+                posterUrl = row.posterUrl,
+                positionMs = row.positionMs,
+                durationMs = row.durationMs,
+                updatedAt = row.updatedAt,
+            )
+        }
+        val episodes = episodeRows.map { row ->
+            LibraryContinueWatchingItem(
+                contentKind = LibraryContentKind.EPISODE,
+                contentId = row.contentId,
+                title = row.title,
+                seriesTitle = row.seriesTitle,
+                seasonNumber = row.seasonNumber,
+                episodeNumber = row.episodeNumber,
+                posterUrl = row.posterUrl,
+                positionMs = row.positionMs,
+                durationMs = row.durationMs,
+                updatedAt = row.updatedAt,
+            )
+        }
+        return (movies + episodes).sortedWith(
+            compareByDescending<LibraryContinueWatchingItem> { it.updatedAt }
+                .thenBy { it.contentKind.name }
+                .thenBy { it.contentId },
         )
     }
 

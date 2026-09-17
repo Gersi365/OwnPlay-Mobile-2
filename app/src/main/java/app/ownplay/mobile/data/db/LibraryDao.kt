@@ -6,6 +6,27 @@ import androidx.room.Transaction
 import androidx.room.Upsert
 import kotlinx.coroutines.flow.Flow
 
+data class LibraryMovieProgressRow(
+    val contentId: String,
+    val title: String,
+    val posterUrl: String?,
+    val positionMs: Long,
+    val durationMs: Long,
+    val updatedAt: Long,
+)
+
+data class LibraryEpisodeProgressRow(
+    val contentId: String,
+    val title: String,
+    val seriesTitle: String,
+    val posterUrl: String?,
+    val seasonNumber: Int,
+    val episodeNumber: Int,
+    val positionMs: Long,
+    val durationMs: Long,
+    val updatedAt: Long,
+)
+
 @Dao
 interface LibraryDao {
     @Query(
@@ -58,6 +79,59 @@ interface LibraryDao {
         """,
     )
     fun observeFavorites(sourceId: String): Flow<List<MediaFavoriteEntity>>
+
+    @Query(
+        """
+        SELECT
+            p.contentId AS contentId,
+            m.name AS title,
+            m.posterUrl AS posterUrl,
+            p.positionMs AS positionMs,
+            p.durationMs AS durationMs,
+            p.updatedAt AS updatedAt
+        FROM playback_progress p
+        INNER JOIN movies m
+            ON m.movieId = p.contentId
+           AND m.sourceId = p.sourceId
+        WHERE p.sourceId = :sourceId
+          AND p.mediaKind = 'MOVIE'
+          AND p.completed = 0
+          AND p.positionMs > 0
+          AND p.durationMs > 0
+          AND m.available = 1
+        ORDER BY p.updatedAt DESC, p.contentId ASC
+        """,
+    )
+    fun observeMovieContinueWatching(sourceId: String): Flow<List<LibraryMovieProgressRow>>
+
+    @Query(
+        """
+        SELECT
+            p.contentId AS contentId,
+            e.title AS title,
+            s.name AS seriesTitle,
+            s.posterUrl AS posterUrl,
+            e.seasonNumber AS seasonNumber,
+            e.episodeNumber AS episodeNumber,
+            p.positionMs AS positionMs,
+            p.durationMs AS durationMs,
+            p.updatedAt AS updatedAt
+        FROM playback_progress p
+        INNER JOIN episodes e ON e.episodeId = p.contentId
+        INNER JOIN series s
+            ON s.seriesId = e.seriesId
+           AND s.sourceId = p.sourceId
+        WHERE p.sourceId = :sourceId
+          AND p.mediaKind = 'EPISODE'
+          AND p.completed = 0
+          AND p.positionMs > 0
+          AND p.durationMs > 0
+          AND s.available = 1
+          AND e.available = 1
+        ORDER BY p.updatedAt DESC, p.contentId ASC
+        """,
+    )
+    fun observeEpisodeContinueWatching(sourceId: String): Flow<List<LibraryEpisodeProgressRow>>
 
     @Query(
         """

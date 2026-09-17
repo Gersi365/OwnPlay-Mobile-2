@@ -63,11 +63,34 @@ data class LibrarySeriesDetail(
     val seasons: List<LibrarySeason>,
 )
 
+data class LibraryContinueWatchingItem(
+    val contentKind: LibraryContentKind,
+    val contentId: String,
+    val title: String,
+    val seriesTitle: String? = null,
+    val seasonNumber: Int? = null,
+    val episodeNumber: Int? = null,
+    val posterUrl: String?,
+    val positionMs: Long,
+    val durationMs: Long,
+    val updatedAt: Long,
+) {
+    init {
+        require(contentKind == LibraryContentKind.MOVIE || contentKind == LibraryContentKind.EPISODE) {
+            "Continue Watching supports Movies and Episodes"
+        }
+        require(contentId.isNotBlank()) { "Continue Watching content id must not be blank" }
+        require(positionMs > 0L) { "Continue Watching position must be positive" }
+        require(durationMs > 0L) { "Continue Watching duration must be positive" }
+    }
+}
+
 data class LibraryCatalogSnapshot(
     val movieCategories: List<LibraryCategory>,
     val seriesCategories: List<LibraryCategory>,
     val movies: List<LibraryMovieSummary>,
     val series: List<LibrarySeriesSummary>,
+    val continueWatching: List<LibraryContinueWatchingItem> = emptyList(),
 )
 
 interface LibraryRepository {
