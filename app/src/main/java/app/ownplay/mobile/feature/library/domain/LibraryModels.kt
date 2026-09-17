@@ -33,6 +33,27 @@ data class LibraryMovieSummary(
     val favorite: Boolean,
 )
 
+data class LibraryMovieDetailMetadata(
+    val posterUrl: String?,
+    val backdropUrl: String?,
+    val plot: String?,
+    val releaseDate: String?,
+    val year: String?,
+    val runtimeMs: Long?,
+    val rating: String?,
+) {
+    init {
+        require(runtimeMs == null || runtimeMs > 0L) { "Movie runtime must be positive when present" }
+    }
+}
+
+sealed interface LibraryMovieDetailLoadResult {
+    data class Loaded(val metadata: LibraryMovieDetailMetadata) : LibraryMovieDetailLoadResult
+    data object Unavailable : LibraryMovieDetailLoadResult
+    data object UnsupportedSource : LibraryMovieDetailLoadResult
+    data object Failed : LibraryMovieDetailLoadResult
+}
+
 data class LibrarySeriesSummary(
     val seriesId: String,
     val categoryId: String?,
@@ -121,6 +142,11 @@ interface LibraryRepository {
         sourceId: SourceId,
         movieId: String,
     ): Flow<LibraryMovieSummary?>
+
+    suspend fun loadMovieDetail(
+        sourceId: SourceId,
+        movieId: String,
+    ): LibraryMovieDetailLoadResult
 
     fun observeSeriesDetail(
         sourceId: SourceId,

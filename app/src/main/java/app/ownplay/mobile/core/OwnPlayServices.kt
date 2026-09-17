@@ -10,6 +10,7 @@ import app.ownplay.mobile.feature.library.data.LibraryPlaybackLocator
 import app.ownplay.mobile.feature.library.data.OkHttpLibraryArtworkLoader
 import app.ownplay.mobile.feature.library.data.RoomLibraryPlaybackProgressStore
 import app.ownplay.mobile.feature.library.data.RoomLibraryRepository
+import app.ownplay.mobile.feature.library.data.SourceBackedLibraryMovieDetailLoader
 import app.ownplay.mobile.feature.library.data.SourceBackedLibraryPlaybackLocator
 import app.ownplay.mobile.feature.library.data.SourceBackedLibrarySeriesDetailRefresher
 import app.ownplay.mobile.feature.library.domain.LibraryRepository
@@ -84,9 +85,16 @@ class OwnPlayServices private constructor(
                 credentialStore = credentialStore,
                 xtreamClient = xtreamClient,
             )
+            val libraryMovieDetailLoader = SourceBackedLibraryMovieDetailLoader(
+                sourceDao = sourceDao,
+                libraryDao = libraryDao,
+                credentialStore = credentialStore,
+                xtreamClient = xtreamClient,
+            )
             val libraryRepository = RoomLibraryRepository(
                 dao = libraryDao,
                 detailRefresher = libraryDetailRefresher,
+                movieDetailLoader = libraryMovieDetailLoader,
             )
             val libraryPlaybackLocator = SourceBackedLibraryPlaybackLocator(
                 sourceDao = sourceDao,
