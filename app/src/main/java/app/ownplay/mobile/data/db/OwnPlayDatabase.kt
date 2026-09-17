@@ -37,6 +37,8 @@ abstract class OwnPlayDatabase : RoomDatabase() {
 
     abstract fun refreshStateDao(): RefreshStateDao
 
+    abstract fun liveOrganizationDao(): LiveOrganizationDao
+
     companion object {
         private const val PROVIDER_MODE = "PROVIDER"
         private const val PROVIDER_UNCATEGORIZED_CATEGORY_ID = "__provider_uncategorized__"
