@@ -3,7 +3,9 @@ package app.ownplay.mobile.feature.playback.domain
 import app.ownplay.mobile.sources.domain.SourceId
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PlaybackSessionControllerTest {
@@ -57,17 +59,194 @@ class PlaybackSessionControllerTest {
         controller.activateLiveChannel(second)
         val secondRevision = engine.activeRevision
 
-        engine.emit(PlaybackEngineReadiness.READY, firstRevision)
+        engine.emitReadiness(
+            readiness = PlaybackEngineReadiness.READY,
+            revision = firstRevision,
+        )
         assertEquals(PlaybackReadiness.PREPARING, controller.state.value.readiness)
 
-        engine.emit(PlaybackEngineReadiness.READY, secondRevision)
+        engine.emitReadiness(
+            readiness = PlaybackEngineReadiness.READY,
+            revision = secondRevision,
+        )
         assertEquals(PlaybackReadiness.PREPARED, controller.state.value.readiness)
 
-        engine.emit(PlaybackEngineReadiness.PREPARING, secondRevision)
+        engine.emitReadiness(
+            readiness = PlaybackEngineReadiness.PREPARING,
+            revision = secondRevision,
+        )
         assertEquals(PlaybackReadiness.PREPARING, controller.state.value.readiness)
 
-        engine.emit(PlaybackEngineReadiness.FAILED, secondRevision)
+        engine.emitReadiness(
+            readiness = PlaybackEngineReadiness.FAILED,
+            revision = secondRevision,
+            failureClass = PlaybackEngineFailureClass.OTHER,
+        )
         assertEquals(PlaybackReadiness.UNAVAILABLE, controller.state.value.readiness)
+    }
+
+    @Test
+    fun staleTrackEventsCannotOverwriteCurrentTargetTracks() = runBlocking {
+        val engine = FakeEngine()
+        val controller = PlaybackSessionController(FakeResolver(), FakePreparer(), engine)
+
+        controller.activateLiveChannel(PlaybackTarget(SourceId("source-a"), "channel-a"))
+        val firstRevision = engine.activeRevision
+        controller.activateLiveChannel(PlaybackTarget(SourceId("source-a"), "channel-b"))
+        val secondRevision = engine.activeRevision
+
+        engine.emitTracks(
+            revision = firstRevision,
+            tracks = listOf(audioTrack("old-audio", selected = true)),
+        )
+        assertTrue(controller.state.value.tracks.audioTracks.isEmpty())
+
+        engine.emitTracks(
+            revision = secondRevision,
+            tracks = listOf(audioTrack("current-audio", selected = true)),
+        )
+        assertEquals(
+            listOf("current-audio"),
+            controller.state.value.tracks.audioTracks.map { it.id },
+        )
+        assertEquals(
+            "current-audio",
+            controller.state.value.tracks.selectedAudioTrackId,
+        )
+    }
+
+    @Test
+    fun trackStateIsSecretFreeAndSelectionFailureIsSafe() = runBlocking {
+        val engine = FakeEngine()
+        val controller = PlaybackSessionController(FakeResolver(), FakePreparer(), engine)
+
+        controller.activateLiveChannel(PlaybackTarget(SourceId("source-a"), "channel-a"))
+        engine.emitTracks(
+            tracks = listOf(
+                PlaybackEngineTrack(
+                    id = "audio:0:0",
+                    kind = PlaybackEngineTrackKind.AUDIO,
+                    labelHint = null,
+                    language = "en",
+                    codec = "aac",
+                    channelCount = 2,
+                    role = "Commentary",
+                    supported = true,
+                    selected = true,
+                ),
+                PlaybackEngineTrack(
+                    id = "audio:1:0",
+                    kind = PlaybackEngineTrackKind.AUDIO,
+                    labelHint = "Provider alt",
+                    language = "it",
+                    codec = "ac3",
+                    channelCount = 6,
+                    role = null,
+                    supported = false,
+                    selected = false,
+                ),
+                PlaybackEngineTrack(
+                    id = "subtitle:2:0",
+                    kind = PlaybackEngineTrackKind.SUBTITLE,
+                    labelHint = null,
+                    language = "sq",
+                    codec = "vtt",
+                    channelCount = null,
+                    role = "Subtitle",
+                    supported = true,
+                    selected = false,
+                ),
+            ),
+        )
+
+        val state = controller.state.value
+        assertEquals("EN • AAC • 2ch • Commentary", state.tracks.audioTracks.first().label)
+        assertEquals("audio:0:0", state.tracks.selectedAudioTrackId)
+        assertEquals(1, state.tracks.subtitleTracks.size)
+
+        engine.audioSelectionResult = PlaybackEngineSelectionResult.UNSUPPORTED
+        assertFalse(controller.selectAudioTrack("audio:1:0"))
+        assertEquals(
+            PlaybackTrackSelectionIssue.AUDIO_UNSUPPORTED,
+            controller.state.value.tracks.selectionIssue,
+        )
+
+        engine.subtitleSelectionResult = PlaybackEngineSelectionResult.APPLIED
+        assertTrue(controller.selectSubtitleTrack(null))
+        assertNull(controller.state.value.tracks.selectionIssue)
+    }
+
+    @Test
+    fun decoderFailureUsesExplicitFallbackOnceAndNeverLoops() = runBlocking {
+        val engine = FakeEngine()
+        val controller = PlaybackSessionController(
+            FakeResolver(),
+            FakePreparer(fallbackChannelId = "channel-a"),
+            engine,
+        )
+
+        controller.activateLiveChannel(PlaybackTarget(SourceId("source-a"), "channel-a"))
+        val primaryRevision = engine.activeRevision
+
+        engine.emitReadiness(
+            readiness = PlaybackEngineReadiness.FAILED,
+            revision = primaryRevision,
+            failureClass = PlaybackEngineFailureClass.DECODER_OR_FORMAT,
+        )
+
+        assertEquals(2, engine.replacedMedia.size)
+        assertTrue(controller.state.value.fallback.attempted)
+        assertTrue(controller.state.value.fallback.active)
+        assertEquals(PlaybackReadiness.PREPARING, controller.state.value.readiness)
+
+        val fallbackRevision = engine.activeRevision
+        engine.emitReadiness(
+            readiness = PlaybackEngineReadiness.FAILED,
+            revision = fallbackRevision,
+            failureClass = PlaybackEngineFailureClass.DECODER_OR_FORMAT,
+        )
+
+        assertEquals(2, engine.replacedMedia.size)
+        assertEquals(PlaybackReadiness.UNAVAILABLE, controller.state.value.readiness)
+        assertFalse(controller.state.value.fallback.active)
+    }
+
+    @Test
+    fun failedAudioSelectionMayUseExplicitFallbackButUnsupportedSelectionDoesNot() = runBlocking {
+        val engine = FakeEngine()
+        val controller = PlaybackSessionController(
+            FakeResolver(),
+            FakePreparer(fallbackChannelId = "channel-a"),
+            engine,
+        )
+
+        controller.activateLiveChannel(PlaybackTarget(SourceId("source-a"), "channel-a"))
+
+        engine.audioSelectionResult = PlaybackEngineSelectionResult.UNSUPPORTED
+        assertFalse(controller.selectAudioTrack("audio:9:9"))
+        assertEquals(1, engine.replacedMedia.size)
+
+        engine.audioSelectionResult = PlaybackEngineSelectionResult.FAILED
+        assertFalse(controller.selectAudioTrack("audio:0:0"))
+        assertEquals(2, engine.replacedMedia.size)
+        assertTrue(controller.state.value.fallback.attempted)
+    }
+
+    @Test
+    fun prolongedBufferingFallbackIsBoundedToOneAttempt() = runBlocking {
+        val engine = FakeEngine()
+        val controller = PlaybackSessionController(
+            FakeResolver(),
+            FakePreparer(fallbackChannelId = "channel-a"),
+            engine,
+        )
+
+        controller.activateLiveChannel(PlaybackTarget(SourceId("source-a"), "channel-a"))
+        controller.reportProlongedBuffering()
+        controller.reportProlongedBuffering()
+
+        assertEquals(2, engine.replacedMedia.size)
+        assertTrue(controller.state.value.fallback.attempted)
     }
 
     @Test
@@ -179,13 +358,28 @@ class PlaybackSessionControllerTest {
 
     private class FakePreparer(
         private val unavailableChannelId: String? = null,
+        private val fallbackChannelId: String? = null,
     ) : LivePlaybackMediaPreparer {
         override fun prepare(source: LivePlaybackSource): PreparedPlaybackMedia? {
             val direct = source as LivePlaybackSource.Direct
             if (unavailableChannelId != null && direct.streamLocator.contains(unavailableChannelId)) {
                 return null
             }
-            return PreparedPlaybackMedia(direct.streamLocator)
+            val fallback = if (
+                fallbackChannelId != null &&
+                direct.streamLocator.contains(fallbackChannelId)
+            ) {
+                PreparedPlaybackAlternative(
+                    uri = "${direct.streamLocator}?format=fallback",
+                    mimeType = "application/x-mpegURL",
+                )
+            } else {
+                null
+            }
+            return PreparedPlaybackMedia(
+                uri = direct.streamLocator,
+                fallback = fallback,
+            )
         }
     }
 
@@ -197,6 +391,11 @@ class PlaybackSessionControllerTest {
         var releaseCount: Int = 0
         var activeRevision: Long = 0L
             private set
+        var audioSelectionResult: PlaybackEngineSelectionResult =
+            PlaybackEngineSelectionResult.APPLIED
+        var subtitleSelectionResult: PlaybackEngineSelectionResult =
+            PlaybackEngineSelectionResult.APPLIED
+
         private var nextRevision: Long = 0L
         private var listener: ((PlaybackEngineEvent) -> Unit)? = null
 
@@ -212,6 +411,12 @@ class PlaybackSessionControllerTest {
             return activeRevision
         }
 
+        override fun selectAudioTrack(trackId: String?): PlaybackEngineSelectionResult =
+            audioSelectionResult
+
+        override fun selectSubtitleTrack(trackId: String?): PlaybackEngineSelectionResult =
+            subtitleSelectionResult
+
         override fun clear() {
             clearCount += 1
         }
@@ -221,11 +426,54 @@ class PlaybackSessionControllerTest {
         }
 
         fun emitReady() {
-            emit(PlaybackEngineReadiness.READY, activeRevision)
+            emitReadiness(
+                readiness = PlaybackEngineReadiness.READY,
+                revision = activeRevision,
+            )
         }
 
-        fun emit(readiness: PlaybackEngineReadiness, revision: Long) {
-            listener?.invoke(PlaybackEngineEvent(revision, readiness))
+        fun emitReadiness(
+            readiness: PlaybackEngineReadiness,
+            revision: Long = activeRevision,
+            failureClass: PlaybackEngineFailureClass? = null,
+        ) {
+            listener?.invoke(
+                PlaybackEngineEvent(
+                    mediaRevision = revision,
+                    readiness = readiness,
+                    failureClass = failureClass,
+                ),
+            )
         }
+
+        fun emitTracks(
+            tracks: List<PlaybackEngineTrack>,
+            revision: Long = activeRevision,
+        ) {
+            listener?.invoke(
+                PlaybackEngineEvent(
+                    mediaRevision = revision,
+                    tracks = PlaybackEngineTracks(tracks),
+                ),
+            )
+        }
+    }
+
+    private companion object {
+        fun audioTrack(
+            id: String,
+            selected: Boolean,
+        ): PlaybackEngineTrack =
+            PlaybackEngineTrack(
+                id = id,
+                kind = PlaybackEngineTrackKind.AUDIO,
+                labelHint = null,
+                language = null,
+                codec = null,
+                channelCount = null,
+                role = null,
+                supported = true,
+                selected = selected,
+            )
     }
 }

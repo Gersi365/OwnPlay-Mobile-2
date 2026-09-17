@@ -2,13 +2,23 @@ package app.ownplay.mobile.feature.playback.data
 
 import android.content.Context
 import android.view.SurfaceView
+import androidx.media3.common.C
+import androidx.media3.common.Format
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.TrackGroup
+import androidx.media3.common.TrackSelectionOverride
+import androidx.media3.common.Tracks
 import androidx.media3.exoplayer.ExoPlayer
 import app.ownplay.mobile.feature.playback.domain.PlaybackEngine
 import app.ownplay.mobile.feature.playback.domain.PlaybackEngineEvent
+import app.ownplay.mobile.feature.playback.domain.PlaybackEngineFailureClass
 import app.ownplay.mobile.feature.playback.domain.PlaybackEngineReadiness
+import app.ownplay.mobile.feature.playback.domain.PlaybackEngineSelectionResult
+import app.ownplay.mobile.feature.playback.domain.PlaybackEngineTrack
+import app.ownplay.mobile.feature.playback.domain.PlaybackEngineTrackKind
+import app.ownplay.mobile.feature.playback.domain.PlaybackEngineTracks
 import app.ownplay.mobile.feature.playback.domain.PreparedPlaybackMedia
 
 class Media3PlaybackEngine internal constructor(context: Context) {
@@ -19,20 +29,31 @@ class Media3PlaybackEngine internal constructor(context: Context) {
     private var activeMediaRevision: Long? = null
     private var eventListener: ((PlaybackEngineEvent) -> Unit)? = null
     private var released: Boolean = false
+    private var trackHandles: Map<String, TrackHandle> = emptyMap()
 
     init {
         player.addListener(
             object : Player.Listener {
                 override fun onPlaybackStateChanged(playbackState: Int) {
                     when (playbackState) {
-                        Player.STATE_BUFFERING -> emit(PlaybackEngineReadiness.PREPARING)
-                        Player.STATE_READY -> emit(PlaybackEngineReadiness.READY)
-                        Player.STATE_ENDED -> emit(PlaybackEngineReadiness.FAILED)
+                        Player.STATE_BUFFERING -> emitReadiness(PlaybackEngineReadiness.PREPARING)
+                        Player.STATE_READY -> emitReadiness(PlaybackEngineReadiness.READY)
+                        Player.STATE_ENDED -> emitReadiness(
+                            readiness = PlaybackEngineReadiness.FAILED,
+                            failureClass = PlaybackEngineFailureClass.OTHER,
+                        )
                     }
                 }
 
                 override fun onPlayerError(error: PlaybackException) {
-                    emit(PlaybackEngineReadiness.FAILED)
+                    emitReadiness(
+                        readiness = PlaybackEngineReadiness.FAILED,
+                        failureClass = classifyFailure(error),
+                    )
+                }
+
+                override fun onTracksChanged(tracks: Tracks) {
+                    emitTracks(tracks)
                 }
             },
         )
@@ -47,9 +68,10 @@ class Media3PlaybackEngine internal constructor(context: Context) {
 
         nextMediaRevision += 1L
         val revision = nextMediaRevision
-        activeMediaRevision = revision
+        activeMediaRevision = null
         hasMedia = true
-        emit(PlaybackEngineReadiness.PREPARING)
+        trackHandles = emptyMap()
+        resetTrackSelection()
 
         val mediaItem = MediaItem.Builder()
             .setUri(media.uri)
@@ -59,14 +81,29 @@ class Media3PlaybackEngine internal constructor(context: Context) {
             .build()
 
         player.setMediaItem(mediaItem)
+        activeMediaRevision = revision
+        emitReadiness(PlaybackEngineReadiness.PREPARING)
         player.prepare()
         player.playWhenReady = attachedSurfaceView != null
         return revision
     }
 
+    internal fun selectAudioTrack(trackId: String?): PlaybackEngineSelectionResult =
+        selectTrack(
+            kind = PlaybackEngineTrackKind.AUDIO,
+            trackId = trackId,
+        )
+
+    internal fun selectSubtitleTrack(trackId: String?): PlaybackEngineSelectionResult =
+        selectTrack(
+            kind = PlaybackEngineTrackKind.SUBTITLE,
+            trackId = trackId,
+        )
+
     internal fun clear() {
         if (released) return
         activeMediaRevision = null
+        trackHandles = emptyMap()
         hasMedia = false
         player.playWhenReady = false
         player.stop()
@@ -96,21 +133,182 @@ class Media3PlaybackEngine internal constructor(context: Context) {
         released = true
         activeMediaRevision = null
         eventListener = null
+        trackHandles = emptyMap()
         attachedSurfaceView?.let(player::clearVideoSurfaceView)
         attachedSurfaceView = null
         hasMedia = false
         player.release()
     }
 
-    private fun emit(readiness: PlaybackEngineReadiness) {
+    private fun selectTrack(
+        kind: PlaybackEngineTrackKind,
+        trackId: String?,
+    ): PlaybackEngineSelectionResult {
+        if (released || activeMediaRevision == null) {
+            return PlaybackEngineSelectionResult.FAILED
+        }
+
+        val trackType = kind.media3TrackType
+        return try {
+            val builder = player.trackSelectionParameters
+                .buildUpon()
+                .clearOverridesOfType(trackType)
+
+            if (trackId == null) {
+                builder.setTrackTypeDisabled(
+                    trackType,
+                    kind == PlaybackEngineTrackKind.SUBTITLE,
+                )
+            } else {
+                val handle = trackHandles[trackId]
+                if (handle == null || handle.kind != kind || !handle.supported) {
+                    return PlaybackEngineSelectionResult.UNSUPPORTED
+                }
+                builder
+                    .setTrackTypeDisabled(trackType, false)
+                    .setOverrideForType(
+                        TrackSelectionOverride(
+                            handle.mediaTrackGroup,
+                            handle.trackIndex,
+                        ),
+                    )
+            }
+
+            player.trackSelectionParameters = builder.build()
+            PlaybackEngineSelectionResult.APPLIED
+        } catch (_: Exception) {
+            PlaybackEngineSelectionResult.FAILED
+        }
+    }
+
+    private fun resetTrackSelection() {
+        player.trackSelectionParameters = player.trackSelectionParameters
+            .buildUpon()
+            .clearOverridesOfType(C.TRACK_TYPE_AUDIO)
+            .clearOverridesOfType(C.TRACK_TYPE_TEXT)
+            .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
+            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+            .build()
+    }
+
+    private fun emitReadiness(
+        readiness: PlaybackEngineReadiness,
+        failureClass: PlaybackEngineFailureClass? = null,
+    ) {
         val revision = activeMediaRevision ?: return
         eventListener?.invoke(
             PlaybackEngineEvent(
                 mediaRevision = revision,
                 readiness = readiness,
+                failureClass = failureClass,
             ),
         )
     }
+
+    private fun emitTracks(tracks: Tracks) {
+        val revision = activeMediaRevision ?: return
+        val nextHandles = linkedMapOf<String, TrackHandle>()
+        val descriptors = mutableListOf<PlaybackEngineTrack>()
+
+        tracks.groups.forEachIndexed { groupIndex, group ->
+            val kind = when (group.type) {
+                C.TRACK_TYPE_AUDIO -> PlaybackEngineTrackKind.AUDIO
+                C.TRACK_TYPE_TEXT -> PlaybackEngineTrackKind.SUBTITLE
+                else -> null
+            } ?: return@forEachIndexed
+
+            for (trackIndex in 0 until group.length) {
+                val id = "${kind.idPrefix}:$groupIndex:$trackIndex"
+                val format = group.getTrackFormat(trackIndex)
+                val supported = group.isTrackSupported(trackIndex)
+                nextHandles[id] = TrackHandle(
+                    kind = kind,
+                    mediaTrackGroup = group.mediaTrackGroup,
+                    trackIndex = trackIndex,
+                    supported = supported,
+                )
+                descriptors += PlaybackEngineTrack(
+                    id = id,
+                    kind = kind,
+                    labelHint = format.label,
+                    language = format.language,
+                    codec = format.codecLabel(),
+                    channelCount = format.channelCount.takeIf { it > 0 },
+                    role = roleLabel(format.roleFlags),
+                    supported = supported,
+                    selected = group.isTrackSelected(trackIndex),
+                )
+            }
+        }
+
+        trackHandles = nextHandles
+        eventListener?.invoke(
+            PlaybackEngineEvent(
+                mediaRevision = revision,
+                tracks = PlaybackEngineTracks(descriptors),
+            ),
+        )
+    }
+
+    private fun classifyFailure(error: PlaybackException): PlaybackEngineFailureClass =
+        when (error.errorCode) {
+            PlaybackException.ERROR_CODE_DECODER_INIT_FAILED,
+            PlaybackException.ERROR_CODE_DECODER_QUERY_FAILED,
+            PlaybackException.ERROR_CODE_DECODING_FAILED,
+            PlaybackException.ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES,
+            PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED,
+            PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED,
+            PlaybackException.ERROR_CODE_PARSING_MANIFEST_UNSUPPORTED,
+            -> PlaybackEngineFailureClass.DECODER_OR_FORMAT
+
+            PlaybackException.ERROR_CODE_AUDIO_TRACK_INIT_FAILED,
+            PlaybackException.ERROR_CODE_AUDIO_TRACK_WRITE_FAILED,
+            PlaybackException.ERROR_CODE_AUDIO_TRACK_OFFLOAD_INIT_FAILED,
+            PlaybackException.ERROR_CODE_AUDIO_TRACK_OFFLOAD_WRITE_FAILED,
+            -> PlaybackEngineFailureClass.AUDIO
+
+            else -> PlaybackEngineFailureClass.OTHER
+        }
+
+    private fun Format.codecLabel(): String? =
+        codecs
+            ?.split(',')
+            ?.firstOrNull()
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+            ?: sampleMimeType
+                ?.substringAfter('/')
+                ?.trim()
+                ?.takeIf { it.isNotEmpty() }
+
+    private fun roleLabel(roleFlags: Int): String? = when {
+        roleFlags and C.ROLE_FLAG_COMMENTARY != 0 -> "Commentary"
+        roleFlags and C.ROLE_FLAG_DUB != 0 -> "Dub"
+        roleFlags and C.ROLE_FLAG_DESCRIBES_VIDEO != 0 -> "Audio description"
+        roleFlags and C.ROLE_FLAG_CAPTION != 0 -> "Caption"
+        roleFlags and C.ROLE_FLAG_SUBTITLE != 0 -> "Subtitle"
+        roleFlags and C.ROLE_FLAG_ALTERNATE != 0 -> "Alternate"
+        else -> null
+    }
+
+    private data class TrackHandle(
+        val kind: PlaybackEngineTrackKind,
+        val mediaTrackGroup: TrackGroup,
+        val trackIndex: Int,
+        val supported: Boolean,
+    )
+
+    private val PlaybackEngineTrackKind.media3TrackType: Int
+        get() = when (this) {
+            PlaybackEngineTrackKind.AUDIO -> C.TRACK_TYPE_AUDIO
+            PlaybackEngineTrackKind.SUBTITLE -> C.TRACK_TYPE_TEXT
+        }
+
+    private val PlaybackEngineTrackKind.idPrefix: String
+        get() = when (this) {
+            PlaybackEngineTrackKind.AUDIO -> "audio"
+            PlaybackEngineTrackKind.SUBTITLE -> "subtitle"
+        }
 }
 
 internal class Media3PlaybackEngineAdapter(
@@ -121,6 +319,12 @@ internal class Media3PlaybackEngineAdapter(
     }
 
     override fun replace(media: PreparedPlaybackMedia): Long = engine.replace(media)
+
+    override fun selectAudioTrack(trackId: String?): PlaybackEngineSelectionResult =
+        engine.selectAudioTrack(trackId)
+
+    override fun selectSubtitleTrack(trackId: String?): PlaybackEngineSelectionResult =
+        engine.selectSubtitleTrack(trackId)
 
     override fun clear() {
         engine.clear()

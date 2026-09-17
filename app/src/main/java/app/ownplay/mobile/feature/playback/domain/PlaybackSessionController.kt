@@ -19,6 +19,9 @@ class PlaybackSessionController internal constructor(
     @Volatile
     private var activeMediaRevision: Long? = null
 
+    private var activeFallbackMedia: PreparedPlaybackMedia? = null
+    private var fallbackAttempted: Boolean = false
+
     val state: StateFlow<PlaybackSessionState> = mutableState.asStateFlow()
 
     init {
@@ -34,7 +37,7 @@ class PlaybackSessionController internal constructor(
 
             if (!targetChanged) return
 
-            activeMediaRevision = null
+            resetActiveMedia()
             playbackEngine.clear()
             val media = try {
                 sourceResolver.resolve(target)?.let(mediaPreparer::prepare)
@@ -51,12 +54,19 @@ class PlaybackSessionController internal constructor(
                 return
             }
 
+            activeFallbackMedia = media.fallback?.let {
+                PreparedPlaybackMedia(
+                    uri = it.uri,
+                    mimeType = it.mimeType,
+                )
+            }
+
             try {
-                activeMediaRevision = playbackEngine.replace(media)
+                activeMediaRevision = playbackEngine.replace(media.primaryOnly())
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
-                activeMediaRevision = null
+                resetActiveMedia()
                 playbackEngine.clear()
                 mutableState.value = mutableState.value.copy(readiness = PlaybackReadiness.UNAVAILABLE)
             }
@@ -94,6 +104,20 @@ class PlaybackSessionController internal constructor(
         )
     }
 
+    fun selectAudioTrack(trackId: String?): Boolean =
+        applyTrackSelection(
+            issueWhenUnsupported = PlaybackTrackSelectionIssue.AUDIO_UNSUPPORTED,
+            result = playbackEngine.selectAudioTrack(trackId),
+            fallbackReason = PlaybackFallbackReason.AUDIO_SELECTION,
+        )
+
+    fun selectSubtitleTrack(trackId: String?): Boolean =
+        applyTrackSelection(
+            issueWhenUnsupported = PlaybackTrackSelectionIssue.SUBTITLE_UNSUPPORTED,
+            result = playbackEngine.selectSubtitleTrack(trackId),
+            fallbackReason = null,
+        )
+
     fun reconcileActiveSource(activeSourceId: SourceId?) {
         val target = mutableState.value.target ?: return
         if (activeSourceId != target.sourceId) {
@@ -116,16 +140,57 @@ class PlaybackSessionController internal constructor(
         }
     }
 
+    internal fun reportProlongedBuffering() {
+        maybeAttemptFallback(PlaybackFallbackReason.PROLONGED_BUFFERING)
+    }
+
     fun clear() {
-        activeMediaRevision = null
+        resetActiveMedia()
         playbackEngine.clear()
         mutableState.value = PlaybackSessionState()
     }
 
     internal fun release() {
-        activeMediaRevision = null
+        resetActiveMedia()
         playbackEngine.release()
         mutableState.value = PlaybackSessionState()
+    }
+
+    private fun applyTrackSelection(
+        issueWhenUnsupported: PlaybackTrackSelectionIssue,
+        result: PlaybackEngineSelectionResult,
+        fallbackReason: PlaybackFallbackReason?,
+    ): Boolean {
+        val current = mutableState.value
+        if (current.target == null) return false
+
+        return when (result) {
+            PlaybackEngineSelectionResult.APPLIED -> {
+                mutableState.value = current.copy(
+                    tracks = current.tracks.copy(selectionIssue = null),
+                )
+                true
+            }
+
+            PlaybackEngineSelectionResult.UNSUPPORTED -> {
+                mutableState.value = current.copy(
+                    tracks = current.tracks.copy(selectionIssue = issueWhenUnsupported),
+                )
+                false
+            }
+
+            PlaybackEngineSelectionResult.FAILED -> {
+                mutableState.value = current.copy(
+                    tracks = current.tracks.copy(
+                        selectionIssue = PlaybackTrackSelectionIssue.SELECTION_FAILED,
+                    ),
+                )
+                if (fallbackReason != null) {
+                    maybeAttemptFallback(fallbackReason)
+                }
+                false
+            }
+        }
     }
 
     private fun onPlaybackEngineEvent(event: PlaybackEngineEvent) {
@@ -133,13 +198,149 @@ class PlaybackSessionController internal constructor(
         val current = mutableState.value
         if (current.target == null) return
 
-        mutableState.value = when (event.readiness) {
-            PlaybackEngineReadiness.PREPARING ->
-                current.copy(readiness = PlaybackReadiness.PREPARING)
-            PlaybackEngineReadiness.READY ->
-                current.copy(readiness = PlaybackReadiness.PREPARED)
-            PlaybackEngineReadiness.FAILED ->
-                current.copy(readiness = PlaybackReadiness.UNAVAILABLE)
+        event.tracks?.let { engineTracks ->
+            mutableState.value = mutableState.value.copy(
+                tracks = mapTracks(
+                    engineTracks = engineTracks,
+                    priorIssue = mutableState.value.tracks.selectionIssue,
+                ),
+            )
         }
+
+        when (event.readiness) {
+            null -> Unit
+            PlaybackEngineReadiness.PREPARING -> {
+                mutableState.value = mutableState.value.copy(
+                    readiness = PlaybackReadiness.PREPARING,
+                )
+            }
+
+            PlaybackEngineReadiness.READY -> {
+                mutableState.value = mutableState.value.copy(
+                    readiness = PlaybackReadiness.PREPARED,
+                )
+            }
+
+            PlaybackEngineReadiness.FAILED -> {
+                val fallbackReason = when (event.failureClass) {
+                    PlaybackEngineFailureClass.DECODER_OR_FORMAT ->
+                        PlaybackFallbackReason.DECODER_OR_FORMAT
+                    PlaybackEngineFailureClass.AUDIO ->
+                        PlaybackFallbackReason.AUDIO_SELECTION
+                    PlaybackEngineFailureClass.OTHER,
+                    null,
+                    -> PlaybackFallbackReason.OTHER
+                }
+                if (!maybeAttemptFallback(fallbackReason)) {
+                    mutableState.value = mutableState.value.copy(
+                        readiness = PlaybackReadiness.UNAVAILABLE,
+                        fallback = mutableState.value.fallback.copy(active = false),
+                    )
+                }
+            }
+        }
+    }
+
+    private fun maybeAttemptFallback(reason: PlaybackFallbackReason): Boolean {
+        val fallbackMedia = activeFallbackMedia
+        if (
+            !PlaybackFallbackPolicy.canAttempt(
+                hasFallback = fallbackMedia != null,
+                alreadyAttempted = fallbackAttempted,
+                reason = reason,
+            )
+        ) {
+            return false
+        }
+
+        requireNotNull(fallbackMedia)
+        fallbackAttempted = true
+        activeFallbackMedia = null
+        activeMediaRevision = null
+        mutableState.value = mutableState.value.copy(
+            readiness = PlaybackReadiness.PREPARING,
+            tracks = PlaybackTrackSnapshot(),
+            fallback = PlaybackFallbackState(
+                attempted = true,
+                active = true,
+            ),
+        )
+
+        return try {
+            activeMediaRevision = playbackEngine.replace(fallbackMedia)
+            true
+        } catch (_: Exception) {
+            activeMediaRevision = null
+            playbackEngine.clear()
+            mutableState.value = mutableState.value.copy(
+                readiness = PlaybackReadiness.UNAVAILABLE,
+                fallback = PlaybackFallbackState(
+                    attempted = true,
+                    active = false,
+                ),
+            )
+            true
+        }
+    }
+
+    private fun mapTracks(
+        engineTracks: PlaybackEngineTracks,
+        priorIssue: PlaybackTrackSelectionIssue?,
+    ): PlaybackTrackSnapshot {
+        var audioOrdinal = 0
+        var subtitleOrdinal = 0
+
+        val mapped = engineTracks.tracks.map { track ->
+            val kind = when (track.kind) {
+                PlaybackEngineTrackKind.AUDIO -> {
+                    audioOrdinal += 1
+                    PlaybackTrackKind.AUDIO
+                }
+                PlaybackEngineTrackKind.SUBTITLE -> {
+                    subtitleOrdinal += 1
+                    PlaybackTrackKind.SUBTITLE
+                }
+            }
+            val ordinal = when (kind) {
+                PlaybackTrackKind.AUDIO -> audioOrdinal
+                PlaybackTrackKind.SUBTITLE -> subtitleOrdinal
+            }
+
+            PlaybackTrackOption(
+                id = track.id,
+                kind = kind,
+                label = PlaybackTrackLabelPolicy.label(
+                    kind = kind,
+                    ordinal = ordinal,
+                    labelHint = track.labelHint,
+                    language = track.language,
+                    codec = track.codec,
+                    channelCount = track.channelCount,
+                    role = track.role,
+                ),
+                language = track.language,
+                codec = track.codec,
+                channelCount = track.channelCount,
+                role = track.role,
+                supported = track.supported,
+                selected = track.selected,
+            )
+        }
+
+        val audioTracks = mapped.filter { it.kind == PlaybackTrackKind.AUDIO }
+        val subtitleTracks = mapped.filter { it.kind == PlaybackTrackKind.SUBTITLE }
+        return PlaybackTrackSnapshot(
+            audioTracks = audioTracks,
+            subtitleTracks = subtitleTracks,
+            selectedAudioTrackId = audioTracks.firstOrNull { it.selected }?.id,
+            selectedSubtitleTrackId = subtitleTracks.firstOrNull { it.selected }?.id,
+            selectionIssue = priorIssue,
+        )
+    }
+
+    private fun resetActiveMedia() {
+        activeMediaRevision = null
+        activeFallbackMedia = null
+        fallbackAttempted = false
     }
 }
