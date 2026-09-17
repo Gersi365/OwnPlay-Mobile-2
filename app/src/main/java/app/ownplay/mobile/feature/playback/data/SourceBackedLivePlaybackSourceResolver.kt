@@ -14,7 +14,7 @@ internal class SourceBackedLivePlaybackSourceResolver(
     private val liveOrganizationDao: LiveOrganizationDao,
     private val credentialStore: CredentialStore,
 ) : LivePlaybackSourceResolver {
-    override suspend fun resolve(target: PlaybackTarget): LivePlaybackSource? {
+    override suspend fun resolve(target: PlaybackTarget.LiveChannel): LivePlaybackSource? {
         val source = sourceDao.get(target.sourceId.value) ?: return null
         if (!source.enabled) return null
 

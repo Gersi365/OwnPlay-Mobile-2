@@ -28,7 +28,7 @@ class PlaybackSessionController internal constructor(
         playbackEngine.setEventListener(::onPlaybackEngineEvent)
     }
 
-    suspend fun activateLiveChannel(target: PlaybackTarget) {
+    suspend fun activateLiveChannel(target: PlaybackTarget.LiveChannel) {
         mutex.withLock {
             val current = mutableState.value
             val targetChanged = current.target != target
@@ -126,7 +126,7 @@ class PlaybackSessionController internal constructor(
     }
 
     suspend fun revalidateActiveTarget() {
-        val target = mutableState.value.target ?: return
+        val target = mutableState.value.target as? PlaybackTarget.LiveChannel ?: return
         val stillResolvable = try {
             sourceResolver.resolve(target) != null
         } catch (cancelled: CancellationException) {

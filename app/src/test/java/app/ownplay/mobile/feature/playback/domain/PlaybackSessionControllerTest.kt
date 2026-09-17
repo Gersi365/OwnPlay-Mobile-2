@@ -10,12 +10,27 @@ import org.junit.Test
 
 class PlaybackSessionControllerTest {
     @Test
+    fun typedTargetsKeepLiveMovieAndEpisodeIdentityDistinct() {
+        val sourceId = SourceId("source-a")
+        val targets: List<PlaybackTarget> = listOf(
+            PlaybackTarget.LiveChannel(sourceId, "shared-id"),
+            PlaybackTarget.Movie(sourceId, "shared-id"),
+            PlaybackTarget.Episode(sourceId, "shared-id"),
+        )
+
+        assertEquals(3, targets.toSet().size)
+        assertEquals("shared-id", (targets[0] as PlaybackTarget.LiveChannel).channelId)
+        assertEquals("shared-id", (targets[1] as PlaybackTarget.Movie).movieId)
+        assertEquals("shared-id", (targets[2] as PlaybackTarget.Episode).episodeId)
+    }
+
+    @Test
     fun differentChannelActivationReplacesTheSingleTargetAndMedia() = runBlocking {
         val resolver = FakeResolver()
         val engine = FakeEngine()
         val controller = PlaybackSessionController(resolver, FakePreparer(), engine)
-        val first = PlaybackTarget(SourceId("source-a"), "channel-a")
-        val second = PlaybackTarget(SourceId("source-a"), "channel-b")
+        val first = PlaybackTarget.LiveChannel(SourceId("source-a"), "channel-a")
+        val second = PlaybackTarget.LiveChannel(SourceId("source-a"), "channel-b")
 
         controller.activateLiveChannel(first)
         engine.emitReady()
@@ -36,7 +51,7 @@ class PlaybackSessionControllerTest {
     fun samePreviewedChannelPromotesToFullscreenWithoutReplacingAgain() = runBlocking {
         val engine = FakeEngine()
         val controller = PlaybackSessionController(FakeResolver(), FakePreparer(), engine)
-        val target = PlaybackTarget(SourceId("source-a"), "channel-a")
+        val target = PlaybackTarget.LiveChannel(SourceId("source-a"), "channel-a")
 
         controller.activateLiveChannel(target)
         engine.emitReady()
@@ -51,8 +66,8 @@ class PlaybackSessionControllerTest {
     fun engineEventsDriveReadinessAndIgnoreStaleRevision() = runBlocking {
         val engine = FakeEngine()
         val controller = PlaybackSessionController(FakeResolver(), FakePreparer(), engine)
-        val first = PlaybackTarget(SourceId("source-a"), "channel-a")
-        val second = PlaybackTarget(SourceId("source-a"), "channel-b")
+        val first = PlaybackTarget.LiveChannel(SourceId("source-a"), "channel-a")
+        val second = PlaybackTarget.LiveChannel(SourceId("source-a"), "channel-b")
 
         controller.activateLiveChannel(first)
         val firstRevision = engine.activeRevision
@@ -90,9 +105,9 @@ class PlaybackSessionControllerTest {
         val engine = FakeEngine()
         val controller = PlaybackSessionController(FakeResolver(), FakePreparer(), engine)
 
-        controller.activateLiveChannel(PlaybackTarget(SourceId("source-a"), "channel-a"))
+        controller.activateLiveChannel(PlaybackTarget.LiveChannel(SourceId("source-a"), "channel-a"))
         val firstRevision = engine.activeRevision
-        controller.activateLiveChannel(PlaybackTarget(SourceId("source-a"), "channel-b"))
+        controller.activateLiveChannel(PlaybackTarget.LiveChannel(SourceId("source-a"), "channel-b"))
         val secondRevision = engine.activeRevision
 
         engine.emitTracks(
@@ -120,7 +135,7 @@ class PlaybackSessionControllerTest {
         val engine = FakeEngine()
         val controller = PlaybackSessionController(FakeResolver(), FakePreparer(), engine)
 
-        controller.activateLiveChannel(PlaybackTarget(SourceId("source-a"), "channel-a"))
+        controller.activateLiveChannel(PlaybackTarget.LiveChannel(SourceId("source-a"), "channel-a"))
         engine.emitTracks(
             tracks = listOf(
                 PlaybackEngineTrack(
@@ -185,7 +200,7 @@ class PlaybackSessionControllerTest {
             engine,
         )
 
-        controller.activateLiveChannel(PlaybackTarget(SourceId("source-a"), "channel-a"))
+        controller.activateLiveChannel(PlaybackTarget.LiveChannel(SourceId("source-a"), "channel-a"))
         val primaryRevision = engine.activeRevision
 
         engine.emitReadiness(
@@ -220,7 +235,7 @@ class PlaybackSessionControllerTest {
             engine,
         )
 
-        controller.activateLiveChannel(PlaybackTarget(SourceId("source-a"), "channel-a"))
+        controller.activateLiveChannel(PlaybackTarget.LiveChannel(SourceId("source-a"), "channel-a"))
 
         engine.audioSelectionResult = PlaybackEngineSelectionResult.UNSUPPORTED
         assertFalse(controller.selectAudioTrack("audio:9:9"))
@@ -241,7 +256,7 @@ class PlaybackSessionControllerTest {
             engine,
         )
 
-        controller.activateLiveChannel(PlaybackTarget(SourceId("source-a"), "channel-a"))
+        controller.activateLiveChannel(PlaybackTarget.LiveChannel(SourceId("source-a"), "channel-a"))
         controller.reportProlongedBuffering()
         controller.reportProlongedBuffering()
 
@@ -253,7 +268,7 @@ class PlaybackSessionControllerTest {
     fun pictureInPictureRequiresPreparedFullscreenAndReturnsToPreview() = runBlocking {
         val engine = FakeEngine()
         val controller = PlaybackSessionController(FakeResolver(), FakePreparer(), engine)
-        val target = PlaybackTarget(SourceId("source-a"), "channel-a")
+        val target = PlaybackTarget.LiveChannel(SourceId("source-a"), "channel-a")
 
         controller.activateLiveChannel(target)
         controller.enterFullscreen()
@@ -274,7 +289,7 @@ class PlaybackSessionControllerTest {
     fun activeSourceMismatchClearsOwnedSession() = runBlocking {
         val engine = FakeEngine()
         val controller = PlaybackSessionController(FakeResolver(), FakePreparer(), engine)
-        val target = PlaybackTarget(SourceId("source-a"), "channel-a")
+        val target = PlaybackTarget.LiveChannel(SourceId("source-a"), "channel-a")
 
         controller.activateLiveChannel(target)
         engine.emitReady()
@@ -292,7 +307,7 @@ class PlaybackSessionControllerTest {
         val resolver = FakeResolver()
         val engine = FakeEngine()
         val controller = PlaybackSessionController(resolver, FakePreparer(), engine)
-        val target = PlaybackTarget(SourceId("source-a"), "channel-a")
+        val target = PlaybackTarget.LiveChannel(SourceId("source-a"), "channel-a")
 
         controller.activateLiveChannel(target)
         engine.emitReady()
@@ -313,9 +328,9 @@ class PlaybackSessionControllerTest {
             engine,
         )
 
-        controller.activateLiveChannel(PlaybackTarget(SourceId("source-a"), "channel-a"))
+        controller.activateLiveChannel(PlaybackTarget.LiveChannel(SourceId("source-a"), "channel-a"))
         engine.emitReady()
-        controller.activateLiveChannel(PlaybackTarget(SourceId("source-a"), "channel-b"))
+        controller.activateLiveChannel(PlaybackTarget.LiveChannel(SourceId("source-a"), "channel-b"))
 
         assertEquals(PlaybackReadiness.UNAVAILABLE, controller.state.value.readiness)
         assertEquals(1, engine.replacedMedia.size)
@@ -327,7 +342,7 @@ class PlaybackSessionControllerTest {
         val engine = FakeEngine(failOnReplace = true)
         val controller = PlaybackSessionController(FakeResolver(), FakePreparer(), engine)
 
-        controller.activateLiveChannel(PlaybackTarget(SourceId("source-a"), "channel-a"))
+        controller.activateLiveChannel(PlaybackTarget.LiveChannel(SourceId("source-a"), "channel-a"))
 
         assertEquals(PlaybackReadiness.UNAVAILABLE, controller.state.value.readiness)
         assertEquals(2, engine.clearCount)
@@ -338,7 +353,7 @@ class PlaybackSessionControllerTest {
         val engine = FakeEngine()
         val controller = PlaybackSessionController(FakeResolver(), FakePreparer(), engine)
 
-        controller.activateLiveChannel(PlaybackTarget(SourceId("source-a"), "channel-a"))
+        controller.activateLiveChannel(PlaybackTarget.LiveChannel(SourceId("source-a"), "channel-a"))
         controller.release()
 
         assertNull(controller.state.value.target)
@@ -346,10 +361,10 @@ class PlaybackSessionControllerTest {
     }
 
     private class FakeResolver : LivePlaybackSourceResolver {
-        val resolvedTargets = mutableListOf<PlaybackTarget>()
+        val resolvedTargets = mutableListOf<PlaybackTarget.LiveChannel>()
         var unavailableChannelId: String? = null
 
-        override suspend fun resolve(target: PlaybackTarget): LivePlaybackSource? {
+        override suspend fun resolve(target: PlaybackTarget.LiveChannel): LivePlaybackSource? {
             resolvedTargets += target
             if (target.channelId == unavailableChannelId) return null
             return LivePlaybackSource.Direct("https://provider.example/live/${target.channelId}")

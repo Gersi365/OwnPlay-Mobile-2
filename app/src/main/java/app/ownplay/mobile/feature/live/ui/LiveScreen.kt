@@ -140,7 +140,8 @@ private fun LiveSourceScreen(
         catalog = providerCatalog,
     )
     val channelById = providerCatalog.channels.associateBy(LiveOrganizationChannel::channelId)
-    val playbackTarget = playbackState.target?.takeIf { it.sourceId == sourceId }
+    val playbackTarget = (playbackState.target as? PlaybackTarget.LiveChannel)
+        ?.takeIf { it.sourceId == sourceId }
     val playbackChannelName = playbackTarget?.let { target ->
         channelById[target.channelId]?.name ?: "Live channel"
     }
@@ -275,7 +276,7 @@ private fun LiveSourceScreen(
                         onActivate = {
                             scope.launch {
                                 playbackSessionController.activateLiveChannel(
-                                    PlaybackTarget(
+                                    PlaybackTarget.LiveChannel(
                                         sourceId = sourceId,
                                         channelId = channel.channelId,
                                     ),

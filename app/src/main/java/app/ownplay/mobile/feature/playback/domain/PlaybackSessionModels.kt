@@ -57,12 +57,34 @@ data class PlaybackFallbackState(
     val active: Boolean = false,
 )
 
-data class PlaybackTarget(
-    val sourceId: SourceId,
-    val channelId: String,
-) {
-    init {
-        require(channelId.isNotBlank()) { "Playback channel id must not be blank" }
+sealed interface PlaybackTarget {
+    val sourceId: SourceId
+
+    data class LiveChannel(
+        override val sourceId: SourceId,
+        val channelId: String,
+    ) : PlaybackTarget {
+        init {
+            require(channelId.isNotBlank()) { "Playback channel id must not be blank" }
+        }
+    }
+
+    data class Movie(
+        override val sourceId: SourceId,
+        val movieId: String,
+    ) : PlaybackTarget {
+        init {
+            require(movieId.isNotBlank()) { "Playback movie id must not be blank" }
+        }
+    }
+
+    data class Episode(
+        override val sourceId: SourceId,
+        val episodeId: String,
+    ) : PlaybackTarget {
+        init {
+            require(episodeId.isNotBlank()) { "Playback episode id must not be blank" }
+        }
     }
 }
 
@@ -77,7 +99,7 @@ data class PlaybackSessionState(
 object PlaybackSessionPolicy {
     fun activateLiveChannel(
         current: PlaybackSessionState,
-        target: PlaybackTarget,
+        target: PlaybackTarget.LiveChannel,
     ): PlaybackSessionState {
         if (current.target == target) {
             return if (current.presentation == PlaybackPresentation.PREVIEW) {
@@ -225,7 +247,7 @@ internal data class PreparedPlaybackMedia(
 }
 
 internal interface LivePlaybackSourceResolver {
-    suspend fun resolve(target: PlaybackTarget): LivePlaybackSource?
+    suspend fun resolve(target: PlaybackTarget.LiveChannel): LivePlaybackSource?
 }
 
 internal interface LivePlaybackMediaPreparer {
