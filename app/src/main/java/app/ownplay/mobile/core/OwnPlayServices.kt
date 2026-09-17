@@ -6,6 +6,7 @@ import app.ownplay.mobile.data.prefs.ActiveSourcePreferences
 import app.ownplay.mobile.data.security.CredentialStore
 import app.ownplay.mobile.data.security.KeystoreCredentialStore
 import app.ownplay.mobile.feature.library.data.LibraryPlaybackLocator
+import app.ownplay.mobile.feature.library.data.RoomLibraryPlaybackProgressStore
 import app.ownplay.mobile.feature.library.data.RoomLibraryRepository
 import app.ownplay.mobile.feature.library.data.SourceBackedLibraryPlaybackLocator
 import app.ownplay.mobile.feature.library.data.SourceBackedLibrarySeriesDetailRefresher
@@ -89,17 +90,21 @@ class OwnPlayServices private constructor(
                 libraryDao = libraryDao,
                 credentialStore = credentialStore,
             )
+            val libraryPlaybackProgressStore = RoomLibraryPlaybackProgressStore(libraryDao)
             val playbackSourceResolver = SourceBackedLivePlaybackSourceResolver(
                 sourceDao = sourceDao,
                 liveOrganizationDao = liveOrganizationDao,
                 credentialStore = credentialStore,
             )
             val playbackEngine = Media3PlaybackEngine(applicationContext)
+            val playbackEngineAdapter = Media3PlaybackEngineAdapter(playbackEngine)
             val playbackSessionController = PlaybackSessionController(
                 sourceResolver = playbackSourceResolver,
                 mediaPreparer = DefaultLivePlaybackMediaPreparer(),
-                playbackEngine = Media3PlaybackEngineAdapter(playbackEngine),
+                playbackEngine = playbackEngineAdapter,
                 libraryMediaResolver = libraryPlaybackLocator,
+                playbackProgressEngine = playbackEngineAdapter,
+                libraryProgressStore = libraryPlaybackProgressStore,
             )
 
             return OwnPlayServices(

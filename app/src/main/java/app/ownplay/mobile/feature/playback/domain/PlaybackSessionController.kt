@@ -13,6 +13,8 @@ class PlaybackSessionController internal constructor(
     private val mediaPreparer: LivePlaybackMediaPreparer,
     private val playbackEngine: PlaybackEngine,
     private val libraryMediaResolver: LibraryPlaybackMediaResolver? = null,
+    private val playbackProgressEngine: PlaybackProgressEngine? = null,
+    private val libraryProgressStore: LibraryPlaybackProgressStore? = null,
 ) {
     private val mutex = Mutex()
     private val mutableState = MutableStateFlow(PlaybackSessionState())
@@ -33,6 +35,9 @@ class PlaybackSessionController internal constructor(
         mutex.withLock {
             val current = mutableState.value
             val targetChanged = current.target != target
+            if (targetChanged) {
+                checkpointActiveLibraryProgress()
+            }
             mutableState.value = PlaybackSessionPolicy.activateLiveChannel(current, target)
 
             if (!targetChanged) return
@@ -47,12 +52,18 @@ class PlaybackSessionController internal constructor(
         mutex.withLock {
             val current = mutableState.value
             val targetChanged = current.target != target
+            if (targetChanged) {
+                checkpointActiveLibraryProgress()
+            }
             mutableState.value = PlaybackSessionPolicy.activateLibraryMedia(current, target)
 
             if (!targetChanged) return
 
-            replaceTargetMedia(target) {
+            val replaced = replaceTargetMedia(target) {
                 libraryMediaResolver?.resolve(target)
+            }
+            if (replaced) {
+                restoreLibraryProgress(target)
             }
         }
     }
@@ -138,21 +149,49 @@ class PlaybackSessionController internal constructor(
     }
 
     fun clear() {
+        checkpointActiveLibraryProgress()
         resetActiveMedia()
         playbackEngine.clear()
         mutableState.value = PlaybackSessionState()
     }
 
     internal fun release() {
+        checkpointActiveLibraryProgress()
         resetActiveMedia()
         playbackEngine.release()
         mutableState.value = PlaybackSessionState()
+        libraryProgressStore?.close()
+    }
+
+    private suspend fun restoreLibraryProgress(target: PlaybackTarget.Library) {
+        val progress = try {
+            libraryProgressStore?.load(target)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            null
+        }
+        val resumePosition = LibraryPlaybackProgressPolicy.resumePosition(progress) ?: return
+        if (mutableState.value.target == target) {
+            playbackProgressEngine?.seekTo(resumePosition)
+        }
+    }
+
+    private fun checkpointActiveLibraryProgress() {
+        val target = mutableState.value.target as? PlaybackTarget.Library ?: return
+        val snapshot = try {
+            playbackProgressEngine?.positionSnapshot()
+        } catch (_: Exception) {
+            null
+        }
+        val progress = LibraryPlaybackProgressPolicy.checkpoint(snapshot) ?: return
+        libraryProgressStore?.record(target, progress)
     }
 
     private suspend fun replaceTargetMedia(
         target: PlaybackTarget,
         resolve: suspend () -> PreparedPlaybackMedia?,
-    ) {
+    ): Boolean {
         resetActiveMedia()
         playbackEngine.clear()
         val media = try {
@@ -163,11 +202,11 @@ class PlaybackSessionController internal constructor(
             null
         }
 
-        if (mutableState.value.target != target) return
+        if (mutableState.value.target != target) return false
 
         if (media == null) {
             mutableState.value = mutableState.value.copy(readiness = PlaybackReadiness.UNAVAILABLE)
-            return
+            return false
         }
 
         activeFallbackMedia = media.fallback?.let {
@@ -177,14 +216,16 @@ class PlaybackSessionController internal constructor(
             )
         }
 
-        try {
+        return try {
             activeMediaRevision = playbackEngine.replace(media.primaryOnly())
+            true
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Exception) {
             resetActiveMedia()
             playbackEngine.clear()
             mutableState.value = mutableState.value.copy(readiness = PlaybackReadiness.UNAVAILABLE)
+            false
         }
     }
 
@@ -254,6 +295,18 @@ class PlaybackSessionController internal constructor(
             }
 
             PlaybackEngineReadiness.FAILED -> {
+                val endedLibraryPlayback = current.target is PlaybackTarget.Library &&
+                    runCatching { playbackProgressEngine?.positionSnapshot()?.ended == true }
+                        .getOrDefault(false)
+                if (endedLibraryPlayback) {
+                    checkpointActiveLibraryProgress()
+                    mutableState.value = mutableState.value.copy(
+                        readiness = PlaybackReadiness.PREPARED,
+                        fallback = mutableState.value.fallback.copy(active = false),
+                    )
+                    return
+                }
+
                 val fallbackReason = when (event.failureClass) {
                     PlaybackEngineFailureClass.DECODER_OR_FORMAT ->
                         PlaybackFallbackReason.DECODER_OR_FORMAT

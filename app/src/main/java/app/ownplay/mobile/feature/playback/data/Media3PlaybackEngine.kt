@@ -19,6 +19,8 @@ import app.ownplay.mobile.feature.playback.domain.PlaybackEngineSelectionResult
 import app.ownplay.mobile.feature.playback.domain.PlaybackEngineTrack
 import app.ownplay.mobile.feature.playback.domain.PlaybackEngineTrackKind
 import app.ownplay.mobile.feature.playback.domain.PlaybackEngineTracks
+import app.ownplay.mobile.feature.playback.domain.PlaybackPositionSnapshot
+import app.ownplay.mobile.feature.playback.domain.PlaybackProgressEngine
 import app.ownplay.mobile.feature.playback.domain.PreparedPlaybackMedia
 
 class Media3PlaybackEngine internal constructor(context: Context) {
@@ -99,6 +101,27 @@ class Media3PlaybackEngine internal constructor(context: Context) {
             kind = PlaybackEngineTrackKind.SUBTITLE,
             trackId = trackId,
         )
+
+    internal fun positionSnapshot(): PlaybackPositionSnapshot? {
+        if (released || !hasMedia || activeMediaRevision == null) return null
+        val durationMs = player.duration
+            .takeIf { it != C.TIME_UNSET && it > 0L }
+        return PlaybackPositionSnapshot(
+            positionMs = player.currentPosition.coerceAtLeast(0L),
+            durationMs = durationMs,
+            ended = player.playbackState == Player.STATE_ENDED,
+        )
+    }
+
+    internal fun seekTo(positionMs: Long): Boolean {
+        if (released || !hasMedia || activeMediaRevision == null || positionMs < 0L) return false
+        return try {
+            player.seekTo(positionMs)
+            true
+        } catch (_: Exception) {
+            false
+        }
+    }
 
     internal fun clear() {
         if (released) return
@@ -313,7 +336,7 @@ class Media3PlaybackEngine internal constructor(context: Context) {
 
 internal class Media3PlaybackEngineAdapter(
     private val engine: Media3PlaybackEngine,
-) : PlaybackEngine {
+) : PlaybackEngine, PlaybackProgressEngine {
     override fun setEventListener(listener: (PlaybackEngineEvent) -> Unit) {
         engine.setEventListener(listener)
     }
@@ -325,6 +348,10 @@ internal class Media3PlaybackEngineAdapter(
 
     override fun selectSubtitleTrack(trackId: String?): PlaybackEngineSelectionResult =
         engine.selectSubtitleTrack(trackId)
+
+    override fun positionSnapshot(): PlaybackPositionSnapshot? = engine.positionSnapshot()
+
+    override fun seekTo(positionMs: Long): Boolean = engine.seekTo(positionMs)
 
     override fun clear() {
         engine.clear()

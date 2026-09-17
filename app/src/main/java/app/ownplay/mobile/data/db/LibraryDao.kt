@@ -135,6 +135,24 @@ interface LibraryDao {
 
     @Query(
         """
+        SELECT * FROM playback_progress
+        WHERE sourceId = :sourceId
+          AND mediaKind = :mediaKind
+          AND contentId = :contentId
+        LIMIT 1
+        """,
+    )
+    suspend fun getPlaybackProgress(
+        sourceId: String,
+        mediaKind: String,
+        contentId: String,
+    ): PlaybackProgressEntity?
+
+    @Upsert
+    suspend fun upsertPlaybackProgress(entity: PlaybackProgressEntity)
+
+    @Query(
+        """
         SELECT * FROM movies
         WHERE sourceId = :sourceId
           AND movieId = :movieId
