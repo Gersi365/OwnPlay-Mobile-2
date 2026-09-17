@@ -8,6 +8,8 @@ import app.ownplay.mobile.data.security.KeystoreCredentialStore
 import app.ownplay.mobile.feature.live.data.RoomLiveOrganizationRefreshStore
 import app.ownplay.mobile.feature.live.data.RoomLiveOrganizationRepository
 import app.ownplay.mobile.feature.live.domain.LiveOrganizationRepository
+import app.ownplay.mobile.feature.playback.data.SourceBackedLivePlaybackSourceResolver
+import app.ownplay.mobile.feature.playback.domain.PlaybackSessionController
 import app.ownplay.mobile.sources.data.DefaultSourceCatalogLoader
 import app.ownplay.mobile.sources.data.OkHttpProviderTransport
 import app.ownplay.mobile.sources.data.ProviderTransport
@@ -25,6 +27,7 @@ class OwnPlayServices private constructor(
     val credentialStore: CredentialStore,
     val sourceRepository: SourceRepository,
     val liveOrganizationRepository: LiveOrganizationRepository,
+    val playbackSessionController: PlaybackSessionController,
     val providerTransport: ProviderTransport,
     val m3uClient: M3uClient,
     val xtreamClient: XtreamClient,
@@ -54,6 +57,12 @@ class OwnPlayServices private constructor(
                 database = database,
                 dao = liveOrganizationDao,
             )
+            val playbackSourceResolver = SourceBackedLivePlaybackSourceResolver(
+                sourceDao = database.sourceDao(),
+                liveOrganizationDao = liveOrganizationDao,
+                credentialStore = credentialStore,
+            )
+            val playbackSessionController = PlaybackSessionController(playbackSourceResolver)
 
             return OwnPlayServices(
                 database = database,
@@ -68,6 +77,7 @@ class OwnPlayServices private constructor(
                     catalogRefreshStore = catalogRefreshStore,
                 ),
                 liveOrganizationRepository = liveOrganizationRepository,
+                playbackSessionController = playbackSessionController,
                 providerTransport = transport,
                 m3uClient = m3uClient,
                 xtreamClient = xtreamClient,
