@@ -3,14 +3,28 @@ package app.ownplay.mobile.core
 import android.content.Context
 import app.ownplay.mobile.data.security.CredentialStore
 import app.ownplay.mobile.data.security.KeystoreCredentialStore
+import app.ownplay.mobile.sources.data.OkHttpProviderTransport
+import app.ownplay.mobile.sources.data.ProviderTransport
+import app.ownplay.mobile.sources.data.m3u.M3uClient
+import app.ownplay.mobile.sources.data.m3u.OkHttpM3uClient
+import app.ownplay.mobile.sources.data.xtream.OkHttpXtreamClient
+import app.ownplay.mobile.sources.data.xtream.XtreamClient
 
 class OwnPlayServices private constructor(
     val credentialStore: CredentialStore,
+    val providerTransport: ProviderTransport,
+    val m3uClient: M3uClient,
+    val xtreamClient: XtreamClient,
 ) {
     companion object {
-        fun create(context: Context): OwnPlayServices =
-            OwnPlayServices(
+        fun create(context: Context): OwnPlayServices {
+            val transport = OkHttpProviderTransport()
+            return OwnPlayServices(
                 credentialStore = KeystoreCredentialStore(context.applicationContext),
+                providerTransport = transport,
+                m3uClient = OkHttpM3uClient(transport),
+                xtreamClient = OkHttpXtreamClient(transport),
             )
+        }
     }
 }
