@@ -8,6 +8,7 @@ import app.ownplay.mobile.data.security.KeystoreCredentialStore
 import app.ownplay.mobile.feature.library.data.LibraryPlaybackLocator
 import app.ownplay.mobile.feature.library.data.RoomLibraryRepository
 import app.ownplay.mobile.feature.library.data.SourceBackedLibraryPlaybackLocator
+import app.ownplay.mobile.feature.library.data.SourceBackedLibrarySeriesDetailRefresher
 import app.ownplay.mobile.feature.library.domain.LibraryRepository
 import app.ownplay.mobile.feature.live.data.RoomLiveOrganizationRefreshStore
 import app.ownplay.mobile.feature.live.data.RoomLiveOrganizationRepository
@@ -55,6 +56,7 @@ class OwnPlayServices private constructor(
             val transport = OkHttpProviderTransport()
             val m3uClient = OkHttpM3uClient(transport)
             val xtreamClient = OkHttpXtreamClient(transport)
+            val sourceDao = database.sourceDao()
             val refreshStateDao = database.refreshStateDao()
             val liveOrganizationDao = database.liveOrganizationDao()
             val libraryDao = database.libraryDao()
@@ -72,14 +74,23 @@ class OwnPlayServices private constructor(
                 database = database,
                 dao = liveOrganizationDao,
             )
-            val libraryRepository = RoomLibraryRepository(libraryDao)
+            val libraryDetailRefresher = SourceBackedLibrarySeriesDetailRefresher(
+                sourceDao = sourceDao,
+                libraryDao = libraryDao,
+                credentialStore = credentialStore,
+                xtreamClient = xtreamClient,
+            )
+            val libraryRepository = RoomLibraryRepository(
+                dao = libraryDao,
+                detailRefresher = libraryDetailRefresher,
+            )
             val libraryPlaybackLocator = SourceBackedLibraryPlaybackLocator(
-                sourceDao = database.sourceDao(),
+                sourceDao = sourceDao,
                 libraryDao = libraryDao,
                 credentialStore = credentialStore,
             )
             val playbackSourceResolver = SourceBackedLivePlaybackSourceResolver(
-                sourceDao = database.sourceDao(),
+                sourceDao = sourceDao,
                 liveOrganizationDao = liveOrganizationDao,
                 credentialStore = credentialStore,
             )
@@ -95,7 +106,7 @@ class OwnPlayServices private constructor(
                 activeSourcePreferences = activeSourcePreferences,
                 credentialStore = credentialStore,
                 sourceRepository = SourceRepositoryImpl(
-                    sourceDao = database.sourceDao(),
+                    sourceDao = sourceDao,
                     refreshStateDao = refreshStateDao,
                     activeSourceStore = activeSourcePreferences,
                     credentialStore = credentialStore,

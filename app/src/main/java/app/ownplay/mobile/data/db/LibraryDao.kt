@@ -2,6 +2,7 @@ package app.ownplay.mobile.data.db
 
 import androidx.room.Dao
 import androidx.room.Query
+import androidx.room.Transaction
 import androidx.room.Upsert
 import kotlinx.coroutines.flow.Flow
 
@@ -145,6 +146,35 @@ interface LibraryDao {
         sourceId: String,
         episodeId: String,
     ): EpisodeEntity?
+
+    @Query(
+        """
+        SELECT * FROM episodes
+        WHERE seriesId = :seriesId
+        ORDER BY seasonNumber ASC, episodeNumber ASC, episodeId ASC
+        """,
+    )
+    suspend fun getEpisodesForSeries(seriesId: String): List<EpisodeEntity>
+
+    @Upsert
+    suspend fun upsertEpisodes(rows: List<EpisodeEntity>)
+
+    @Transaction
+    suspend fun reconcileSeriesEpisodes(
+        seriesId: String,
+        currentRows: List<EpisodeEntity>,
+    ) {
+        val currentIds = currentRows.mapTo(mutableSetOf(), EpisodeEntity::episodeId)
+        val staleRows = getEpisodesForSeries(seriesId)
+            .asSequence()
+            .filter { it.episodeId !in currentIds && it.available }
+            .map { it.copy(available = false) }
+            .toList()
+        val rows = currentRows + staleRows
+        if (rows.isNotEmpty()) {
+            upsertEpisodes(rows)
+        }
+    }
 
     @Upsert
     suspend fun upsertFavorite(entity: MediaFavoriteEntity)

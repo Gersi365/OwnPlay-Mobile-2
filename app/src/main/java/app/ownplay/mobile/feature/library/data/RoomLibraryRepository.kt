@@ -9,6 +9,7 @@ import app.ownplay.mobile.data.db.SeriesEntity
 import app.ownplay.mobile.feature.library.domain.LibraryCatalogSnapshot
 import app.ownplay.mobile.feature.library.domain.LibraryCategory
 import app.ownplay.mobile.feature.library.domain.LibraryContentKind
+import app.ownplay.mobile.feature.library.domain.LibraryDetailRefreshResult
 import app.ownplay.mobile.feature.library.domain.LibraryEpisodeSummary
 import app.ownplay.mobile.feature.library.domain.LibraryMovieSummary
 import app.ownplay.mobile.feature.library.domain.LibraryRepository
@@ -22,6 +23,7 @@ import kotlinx.coroutines.flow.combine
 
 class RoomLibraryRepository internal constructor(
     private val dao: LibraryDao,
+    private val detailRefresher: LibrarySeriesDetailRefresher,
     private val nowEpochMs: () -> Long = System::currentTimeMillis,
 ) : LibraryRepository {
     override fun observeCatalog(sourceId: SourceId): Flow<LibraryCatalogSnapshot> {
@@ -86,6 +88,11 @@ class RoomLibraryRepository internal constructor(
                 )
             }
         }
+
+    override suspend fun refreshSeriesDetail(
+        sourceId: SourceId,
+        seriesId: String,
+    ): LibraryDetailRefreshResult = detailRefresher.refresh(sourceId, seriesId)
 
     override suspend fun setFavorite(
         sourceId: SourceId,

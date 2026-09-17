@@ -9,6 +9,13 @@ enum class LibraryContentKind {
     EPISODE,
 }
 
+enum class LibraryDetailRefreshResult {
+    REFRESHED,
+    UNAVAILABLE,
+    UNSUPPORTED_SOURCE,
+    FAILED,
+}
+
 data class LibraryCategory(
     val categoryId: String,
     val displayName: String,
@@ -97,6 +104,11 @@ interface LibraryRepository {
         sourceId: SourceId,
         seriesId: String,
     ): Flow<LibrarySeriesDetail?>
+
+    suspend fun refreshSeriesDetail(
+        sourceId: SourceId,
+        seriesId: String,
+    ): LibraryDetailRefreshResult
 
     suspend fun setFavorite(
         sourceId: SourceId,
