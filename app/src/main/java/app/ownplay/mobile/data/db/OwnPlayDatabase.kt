@@ -33,6 +33,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
     exportSchema = true,
 )
 abstract class OwnPlayDatabase : RoomDatabase() {
+    abstract fun sourceDao(): SourceDao
+
+    abstract fun refreshStateDao(): RefreshStateDao
+
     companion object {
         private const val PROVIDER_MODE = "PROVIDER"
         private const val PROVIDER_UNCATEGORIZED_CATEGORY_ID = "__provider_uncategorized__"
