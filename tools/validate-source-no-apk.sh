@@ -97,24 +97,13 @@ if [[ -n "$existing_artifacts" ]]; then
   exit 2
 fi
 
-# Keep the committed Room schema set aligned with the current @Database version.
+# The rebuild preserves historical Room schemas as migration evidence even during
+# foundation stages where the new active database source has not been introduced yet.
 database_source="app/src/main/java/app/ownplay/mobile/data/db/OwnPlayDatabase.kt"
 schema_dir="app/schemas/app.ownplay.mobile.data.db.OwnPlayDatabase"
-database_version="$(
-  sed -nE 's/^[[:space:]]*version[[:space:]]*=[[:space:]]*([0-9]+),[[:space:]]*$/\1/p' "$database_source" \
-    | head -n 1
-)"
-if [[ -z "$database_version" ]]; then
-  echo "ERROR: Could not determine OwnPlayDatabase version from $database_source." >&2
-  exit 5
-fi
-schema_file="$schema_dir/$database_version.json"
+historical_schema_versions=(1 2 3)
 
-verify_room_schema_tree() {
-  if [[ ! -f "$schema_file" ]] || ! git cat-file -e "HEAD:$schema_file"; then
-    echo "ERROR: Room schema v$database_version must exist and be committed in HEAD: $schema_file" >&2
-    exit 5
-  fi
+verify_schema_tree_clean() {
   local schema_status
   schema_status="$(git status --porcelain=v1 --untracked-files=all --ignored -- app/schemas)"
   if [[ -n "$schema_status" ]]; then
@@ -123,7 +112,48 @@ verify_room_schema_tree() {
     exit 5
   fi
 }
-verify_room_schema_tree
+
+verify_historical_room_schemas() {
+  local version schema_file
+  for version in "${historical_schema_versions[@]}"; do
+    schema_file="$schema_dir/$version.json"
+    if [[ ! -f "$schema_file" ]] || ! git cat-file -e "HEAD:$schema_file"; then
+      echo "ERROR: Historical Room schema v$version must remain committed during rebuild: $schema_file" >&2
+      exit 5
+    fi
+  done
+  verify_schema_tree_clean
+}
+
+verify_active_room_schema_if_present() {
+  verify_historical_room_schemas
+
+  if [[ ! -f "$database_source" ]] || ! git cat-file -e "HEAD:$database_source"; then
+    echo "PASS: Rebuild foundation has no active Room database yet; historical schemas v1-v3 remain committed and clean."
+    return
+  fi
+
+  local database_version schema_file
+  database_version="$(
+    sed -nE 's/^[[:space:]]*version[[:space:]]*=[[:space:]]*([0-9]+),[[:space:]]*$/\1/p' "$database_source" \
+      | head -n 1
+  )"
+  if [[ -z "$database_version" ]]; then
+    echo "ERROR: Could not determine OwnPlayDatabase version from $database_source." >&2
+    exit 5
+  fi
+
+  schema_file="$schema_dir/$database_version.json"
+  if [[ ! -f "$schema_file" ]] || ! git cat-file -e "HEAD:$schema_file"; then
+    echo "ERROR: Room schema v$database_version must exist and be committed in HEAD: $schema_file" >&2
+    exit 5
+  fi
+
+  verify_schema_tree_clean
+  echo "PASS: Room schema v$database_version matches committed HEAD; schema tree is clean."
+}
+
+verify_active_room_schema_if_present
 
 if [[ -x "./gradlew" ]]; then
   GRADLE_CMD=("./gradlew")
@@ -151,9 +181,7 @@ echo "Validated Gradle version: $gradle_version"
   --no-build-cache \
   --stacktrace
 
-verify_room_schema_tree
-
-echo "PASS: Room schema v$database_version matches committed HEAD; schema tree is clean."
+verify_active_room_schema_if_present
 
 created_artifacts="$(find_packaged_artifacts)"
 if [[ -n "$created_artifacts" ]]; then
