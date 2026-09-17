@@ -70,28 +70,6 @@ data class LibraryCatalogSnapshot(
     val series: List<LibrarySeriesSummary>,
 )
 
-sealed interface LibraryPlaybackTarget {
-    val sourceId: SourceId
-
-    data class Movie(
-        override val sourceId: SourceId,
-        val movieId: String,
-    ) : LibraryPlaybackTarget {
-        init {
-            require(movieId.isNotBlank()) { "Movie id must not be blank" }
-        }
-    }
-
-    data class Episode(
-        override val sourceId: SourceId,
-        val episodeId: String,
-    ) : LibraryPlaybackTarget {
-        init {
-            require(episodeId.isNotBlank()) { "Episode id must not be blank" }
-        }
-    }
-}
-
 interface LibraryRepository {
     fun observeCatalog(sourceId: SourceId): Flow<LibraryCatalogSnapshot>
 

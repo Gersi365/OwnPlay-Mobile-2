@@ -12,6 +12,7 @@ class PlaybackSessionController internal constructor(
     private val sourceResolver: LivePlaybackSourceResolver,
     private val mediaPreparer: LivePlaybackMediaPreparer,
     private val playbackEngine: PlaybackEngine,
+    private val libraryMediaResolver: LibraryPlaybackMediaResolver? = null,
 ) {
     private val mutex = Mutex()
     private val mutableState = MutableStateFlow(PlaybackSessionState())
@@ -32,43 +33,26 @@ class PlaybackSessionController internal constructor(
         mutex.withLock {
             val current = mutableState.value
             val targetChanged = current.target != target
-            val next = PlaybackSessionPolicy.activateLiveChannel(current, target)
-            mutableState.value = next
+            mutableState.value = PlaybackSessionPolicy.activateLiveChannel(current, target)
 
             if (!targetChanged) return
 
-            resetActiveMedia()
-            playbackEngine.clear()
-            val media = try {
+            replaceTargetMedia(target) {
                 sourceResolver.resolve(target)?.let(mediaPreparer::prepare)
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (_: Exception) {
-                null
             }
+        }
+    }
 
-            if (mutableState.value.target != target) return
+    suspend fun activateLibraryMedia(target: PlaybackTarget.Library) {
+        mutex.withLock {
+            val current = mutableState.value
+            val targetChanged = current.target != target
+            mutableState.value = PlaybackSessionPolicy.activateLibraryMedia(current, target)
 
-            if (media == null) {
-                mutableState.value = mutableState.value.copy(readiness = PlaybackReadiness.UNAVAILABLE)
-                return
-            }
+            if (!targetChanged) return
 
-            activeFallbackMedia = media.fallback?.let {
-                PreparedPlaybackMedia(
-                    uri = it.uri,
-                    mimeType = it.mimeType,
-                )
-            }
-
-            try {
-                activeMediaRevision = playbackEngine.replace(media.primaryOnly())
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (_: Exception) {
-                resetActiveMedia()
-                playbackEngine.clear()
-                mutableState.value = mutableState.value.copy(readiness = PlaybackReadiness.UNAVAILABLE)
+            replaceTargetMedia(target) {
+                libraryMediaResolver?.resolve(target)
             }
         }
     }
@@ -93,13 +77,19 @@ class PlaybackSessionController internal constructor(
         if (isInPictureInPictureMode) {
             enterPictureInPicture()
         } else if (mutableState.value.presentation == PlaybackPresentation.PICTURE_IN_PICTURE) {
-            returnToPreview()
+            when (mutableState.value.target) {
+                is PlaybackTarget.LiveChannel -> returnToPreview()
+                is PlaybackTarget.Library -> enterFullscreen()
+                null -> Unit
+            }
         }
     }
 
     fun returnToPreview() {
+        val current = mutableState.value
+        if (current.target !is PlaybackTarget.LiveChannel) return
         mutableState.value = PlaybackSessionPolicy.present(
-            current = mutableState.value,
+            current = current,
             presentation = PlaybackPresentation.PREVIEW,
         )
     }
@@ -126,9 +116,12 @@ class PlaybackSessionController internal constructor(
     }
 
     suspend fun revalidateActiveTarget() {
-        val target = mutableState.value.target as? PlaybackTarget.LiveChannel ?: return
+        val target = mutableState.value.target ?: return
         val stillResolvable = try {
-            sourceResolver.resolve(target) != null
+            when (target) {
+                is PlaybackTarget.LiveChannel -> sourceResolver.resolve(target) != null
+                is PlaybackTarget.Library -> libraryMediaResolver?.resolve(target) != null
+            }
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Exception) {
@@ -154,6 +147,45 @@ class PlaybackSessionController internal constructor(
         resetActiveMedia()
         playbackEngine.release()
         mutableState.value = PlaybackSessionState()
+    }
+
+    private suspend fun replaceTargetMedia(
+        target: PlaybackTarget,
+        resolve: suspend () -> PreparedPlaybackMedia?,
+    ) {
+        resetActiveMedia()
+        playbackEngine.clear()
+        val media = try {
+            resolve()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            null
+        }
+
+        if (mutableState.value.target != target) return
+
+        if (media == null) {
+            mutableState.value = mutableState.value.copy(readiness = PlaybackReadiness.UNAVAILABLE)
+            return
+        }
+
+        activeFallbackMedia = media.fallback?.let {
+            PreparedPlaybackMedia(
+                uri = it.uri,
+                mimeType = it.mimeType,
+            )
+        }
+
+        try {
+            activeMediaRevision = playbackEngine.replace(media.primaryOnly())
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            resetActiveMedia()
+            playbackEngine.clear()
+            mutableState.value = mutableState.value.copy(readiness = PlaybackReadiness.UNAVAILABLE)
+        }
     }
 
     private fun applyTrackSelection(

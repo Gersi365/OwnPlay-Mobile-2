@@ -4,22 +4,21 @@ import app.ownplay.mobile.data.db.LibraryDao
 import app.ownplay.mobile.data.db.SourceDao
 import app.ownplay.mobile.data.security.CredentialStore
 import app.ownplay.mobile.data.security.SourceSecret
-import app.ownplay.mobile.feature.library.domain.LibraryPlaybackTarget
+import app.ownplay.mobile.feature.playback.domain.LibraryPlaybackMediaResolver
+import app.ownplay.mobile.feature.playback.domain.PlaybackTarget
 import app.ownplay.mobile.feature.playback.domain.PreparedPlaybackMedia
 import app.ownplay.mobile.sources.data.xtream.XtreamUrlBuilder
 import app.ownplay.mobile.sources.domain.SourceType
 import kotlinx.coroutines.CancellationException
 
-internal interface LibraryPlaybackLocator {
-    suspend fun resolve(target: LibraryPlaybackTarget): PreparedPlaybackMedia?
-}
+internal interface LibraryPlaybackLocator : LibraryPlaybackMediaResolver
 
 internal class SourceBackedLibraryPlaybackLocator(
     private val sourceDao: SourceDao,
     private val libraryDao: LibraryDao,
     private val credentialStore: CredentialStore,
 ) : LibraryPlaybackLocator {
-    override suspend fun resolve(target: LibraryPlaybackTarget): PreparedPlaybackMedia? {
+    override suspend fun resolve(target: PlaybackTarget.Library): PreparedPlaybackMedia? {
         val source = sourceDao.get(target.sourceId.value) ?: return null
         if (!source.enabled) return null
 
@@ -30,7 +29,7 @@ internal class SourceBackedLibraryPlaybackLocator(
 
         return try {
             when (target) {
-                is LibraryPlaybackTarget.Movie -> {
+                is PlaybackTarget.Movie -> {
                     val movie = libraryDao.getAvailableMovie(
                         sourceId = target.sourceId.value,
                         movieId = target.movieId,
@@ -45,7 +44,7 @@ internal class SourceBackedLibraryPlaybackLocator(
                     )
                 }
 
-                is LibraryPlaybackTarget.Episode -> {
+                is PlaybackTarget.Episode -> {
                     val episode = libraryDao.getAvailableEpisode(
                         sourceId = target.sourceId.value,
                         episodeId = target.episodeId,

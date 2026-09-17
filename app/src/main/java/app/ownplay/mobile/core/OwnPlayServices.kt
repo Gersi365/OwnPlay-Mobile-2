@@ -99,6 +99,7 @@ class OwnPlayServices private constructor(
                 sourceResolver = playbackSourceResolver,
                 mediaPreparer = DefaultLivePlaybackMediaPreparer(),
                 playbackEngine = Media3PlaybackEngineAdapter(playbackEngine),
+                libraryMediaResolver = libraryPlaybackLocator,
             )
 
             return OwnPlayServices(

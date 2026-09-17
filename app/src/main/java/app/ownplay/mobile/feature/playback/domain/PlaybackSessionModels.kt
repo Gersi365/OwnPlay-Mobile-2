@@ -60,6 +60,8 @@ data class PlaybackFallbackState(
 sealed interface PlaybackTarget {
     val sourceId: SourceId
 
+    sealed interface Library : PlaybackTarget
+
     data class LiveChannel(
         override val sourceId: SourceId,
         val channelId: String,
@@ -72,7 +74,7 @@ sealed interface PlaybackTarget {
     data class Movie(
         override val sourceId: SourceId,
         val movieId: String,
-    ) : PlaybackTarget {
+    ) : Library {
         init {
             require(movieId.isNotBlank()) { "Playback movie id must not be blank" }
         }
@@ -81,7 +83,7 @@ sealed interface PlaybackTarget {
     data class Episode(
         override val sourceId: SourceId,
         val episodeId: String,
-    ) : PlaybackTarget {
+    ) : Library {
         init {
             require(episodeId.isNotBlank()) { "Playback episode id must not be blank" }
         }
@@ -112,6 +114,21 @@ object PlaybackSessionPolicy {
         return PlaybackSessionState(
             target = target,
             presentation = PlaybackPresentation.PREVIEW,
+            readiness = PlaybackReadiness.PREPARING,
+        )
+    }
+
+    fun activateLibraryMedia(
+        current: PlaybackSessionState,
+        target: PlaybackTarget.Library,
+    ): PlaybackSessionState {
+        if (current.target == target) {
+            return current.copy(presentation = PlaybackPresentation.FULLSCREEN)
+        }
+
+        return PlaybackSessionState(
+            target = target,
+            presentation = PlaybackPresentation.FULLSCREEN,
             readiness = PlaybackReadiness.PREPARING,
         )
     }
@@ -252,6 +269,10 @@ internal interface LivePlaybackSourceResolver {
 
 internal interface LivePlaybackMediaPreparer {
     fun prepare(source: LivePlaybackSource): PreparedPlaybackMedia?
+}
+
+internal interface LibraryPlaybackMediaResolver {
+    suspend fun resolve(target: PlaybackTarget.Library): PreparedPlaybackMedia?
 }
 
 internal enum class PlaybackEngineReadiness {
