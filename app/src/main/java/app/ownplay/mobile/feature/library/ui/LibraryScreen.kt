@@ -30,6 +30,7 @@ import androidx.compose.ui.window.DialogProperties
 import app.ownplay.mobile.OwnPlayApplication
 import app.ownplay.mobile.design.OwnPlayColors
 import app.ownplay.mobile.design.OwnPlayFeaturePlaceholder
+import app.ownplay.mobile.feature.library.data.LibraryArtworkLoader
 import app.ownplay.mobile.feature.library.domain.LibraryCatalogSnapshot
 import app.ownplay.mobile.feature.library.domain.LibraryContentKind
 import app.ownplay.mobile.feature.library.domain.LibraryContinueWatchingItem
@@ -75,6 +76,7 @@ fun LibraryScreen(
     LibrarySourceScreen(
         source = source,
         repository = services.libraryRepository,
+        artworkLoader = services.libraryArtworkLoader,
         playbackSessionController = services.playbackSessionController,
         modifier = modifier,
     )
@@ -98,6 +100,7 @@ fun LibraryScreen(
 private fun LibrarySourceScreen(
     source: SourceSummary,
     repository: LibraryRepository,
+    artworkLoader: LibraryArtworkLoader,
     playbackSessionController: PlaybackSessionController,
     modifier: Modifier,
 ) {
@@ -108,6 +111,7 @@ private fun LibrarySourceScreen(
             source = source,
             seriesId = openSeriesId,
             repository = repository,
+            artworkLoader = artworkLoader,
             playbackSessionController = playbackSessionController,
             onBack = { selectedSeriesId = null },
             modifier = modifier,
@@ -212,6 +216,7 @@ private fun LibrarySourceScreen(
                 LibraryMovieRow(
                     movie = movie,
                     categoryName = movie.categoryId?.let(movieCategoryNames::get),
+                    artworkLoader = artworkLoader,
                     onPlay = {
                         activate(
                             PlaybackTarget.Movie(
@@ -242,6 +247,7 @@ private fun LibrarySourceScreen(
                 LibrarySeriesRow(
                     series = series,
                     categoryName = series.categoryId?.let(seriesCategoryNames::get),
+                    artworkLoader = artworkLoader,
                     onOpen = { selectedSeriesId = series.seriesId },
                     onFavorite = {
                         scope.launch {
@@ -337,6 +343,7 @@ private fun LibrarySeriesDetailScreen(
     source: SourceSummary,
     seriesId: String,
     repository: LibraryRepository,
+    artworkLoader: LibraryArtworkLoader,
     playbackSessionController: PlaybackSessionController,
     onBack: () -> Unit,
     modifier: Modifier,
@@ -422,6 +429,7 @@ private fun LibrarySeriesDetailScreen(
         item {
             LibrarySeriesMetadata(
                 detail = currentDetail,
+                artworkLoader = artworkLoader,
                 onFavorite = {
                     scope.launch {
                         repository.setFavorite(
@@ -549,29 +557,39 @@ private fun LibrarySeriesDetailScreen(
 @Composable
 private fun LibrarySeriesMetadata(
     detail: LibrarySeriesDetail,
+    artworkLoader: LibraryArtworkLoader,
     onFavorite: () -> Unit,
 ) {
     Surface(
         color = OwnPlayColors.Surface,
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Column(
+        Row(
             modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text(
-                text = detail.series.title,
-                color = OwnPlayColors.TextPrimary,
-                fontWeight = FontWeight.Bold,
+            LibraryArtwork(
+                url = detail.series.posterUrl,
+                loader = artworkLoader,
             )
-            detail.series.rating?.takeIf(String::isNotBlank)?.let {
-                Text(text = "Rating: $it", color = OwnPlayColors.TextSecondary)
-            }
-            detail.series.description?.takeIf(String::isNotBlank)?.let {
-                Text(text = it, color = OwnPlayColors.TextSecondary)
-            }
-            TextButton(onClick = onFavorite) {
-                Text(if (detail.series.favorite) "Unfavorite" else "Favorite")
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text(
+                    text = detail.series.title,
+                    color = OwnPlayColors.TextPrimary,
+                    fontWeight = FontWeight.Bold,
+                )
+                detail.series.rating?.takeIf(String::isNotBlank)?.let {
+                    Text(text = "Rating: $it", color = OwnPlayColors.TextSecondary)
+                }
+                detail.series.description?.takeIf(String::isNotBlank)?.let {
+                    Text(text = it, color = OwnPlayColors.TextSecondary)
+                }
+                TextButton(onClick = onFavorite) {
+                    Text(if (detail.series.favorite) "Unfavorite" else "Favorite")
+                }
             }
         }
     }
@@ -581,14 +599,17 @@ private fun LibrarySeriesMetadata(
 private fun LibraryMovieRow(
     movie: LibraryMovieSummary,
     categoryName: String?,
+    artworkLoader: LibraryArtworkLoader,
     onPlay: () -> Unit,
     onFavorite: () -> Unit,
 ) {
     LibraryMediaRow(
         title = movie.title,
+        posterUrl = movie.posterUrl,
         categoryName = categoryName,
         rating = movie.rating,
         favorite = movie.favorite,
+        artworkLoader = artworkLoader,
         primaryActionLabel = "Play",
         onPrimaryAction = onPlay,
         onFavorite = onFavorite,
@@ -599,14 +620,17 @@ private fun LibraryMovieRow(
 private fun LibrarySeriesRow(
     series: LibrarySeriesSummary,
     categoryName: String?,
+    artworkLoader: LibraryArtworkLoader,
     onOpen: () -> Unit,
     onFavorite: () -> Unit,
 ) {
     LibraryMediaRow(
         title = series.title,
+        posterUrl = series.posterUrl,
         categoryName = categoryName,
         rating = series.rating,
         favorite = series.favorite,
+        artworkLoader = artworkLoader,
         primaryActionLabel = "Open details",
         onPrimaryAction = onOpen,
         onFavorite = onFavorite,
@@ -616,9 +640,11 @@ private fun LibrarySeriesRow(
 @Composable
 private fun LibraryMediaRow(
     title: String,
+    posterUrl: String?,
     categoryName: String?,
     rating: String?,
     favorite: Boolean,
+    artworkLoader: LibraryArtworkLoader,
     primaryActionLabel: String,
     onPrimaryAction: () -> Unit,
     onFavorite: () -> Unit,
@@ -629,8 +655,12 @@ private fun LibraryMediaRow(
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            LibraryArtwork(
+                url = posterUrl,
+                loader = artworkLoader,
+            )
             Column(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(3.dp),
