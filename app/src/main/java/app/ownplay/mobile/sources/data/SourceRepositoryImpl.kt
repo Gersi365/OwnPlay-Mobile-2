@@ -46,7 +46,7 @@ class SourceRepositoryImpl(
     ) { sources, selectedSourceId ->
         sources.firstOrNull { source ->
             source.enabled && source.sourceId.value == selectedSourceId
-        } ?: sources.firstOrNull(SourceSummary::enabled)
+        } ?: sources.firstOrNull { source -> source.enabled }
     }
 
     override suspend fun addSource(input: SourceInput): SourceMutationResult {
@@ -195,18 +195,8 @@ class SourceRepositoryImpl(
                 activeSelectionChanged = true
             }
             credentialStore.delete(sourceId)
-            try {
-                check(sourceDao.delete(sourceId.value) == 1) {
-                    "Source row was not deleted"
-                }
-            } catch (exception: Exception) {
-                priorSecret?.let { secret ->
-                    runCatching { credentialStore.put(sourceId, secret) }
-                }
-                if (activeSelectionChanged) {
-                    runCatching { activeSourceStore.setSelectedSourceId(priorSelectedSourceId) }
-                }
-                throw exception
+            check(sourceDao.delete(sourceId.value) == 1) {
+                "Source row was not deleted"
             }
             true
         } catch (_: Exception) {
@@ -220,50 +210,52 @@ class SourceRepositoryImpl(
         }
     }
 
-    private fun prepare(input: SourceInput): PreparedSource? = when (input) {
-        is SourceInput.Xtream -> {
-            if (
-                !CredentialInputPolicy.isValidCredential(input.username) ||
-                !CredentialInputPolicy.isValidCredential(input.password)
-            ) {
-                null
-            } else {
-                val normalizedBaseUrl = SourceConnectionSecurityPolicy
-                    .normalizeXtreamBaseUrl(input.serverUrl)
+    private fun prepare(input: SourceInput): PreparedSource? {
+        return when (input) {
+            is SourceInput.Xtream -> {
+                if (
+                    !CredentialInputPolicy.isValidCredential(input.username) ||
+                    !CredentialInputPolicy.isValidCredential(input.password)
+                ) {
+                    null
+                } else {
+                    val normalizedBaseUrl = SourceConnectionSecurityPolicy
+                        .normalizeXtreamBaseUrl(input.serverUrl)
+                        .normalizedUrlOrNull()
+                        ?: return null
+                    PreparedSource(
+                        type = SourceType.XTREAM,
+                        safeLocator = normalizedBaseUrl,
+                        secret = SourceSecret.Xtream(
+                            username = input.username,
+                            password = input.password,
+                        ),
+                    )
+                }
+            }
+
+            is SourceInput.M3u -> {
+                val playlistUrl = SourceConnectionSecurityPolicy
+                    .normalizeRemoteMediaUrl(input.playlistUrl)
                     .normalizedUrlOrNull()
                     ?: return null
+                val epgUrl = input.epgUrl
+                    ?.takeIf(String::isNotBlank)
+                    ?.let { raw ->
+                        SourceConnectionSecurityPolicy
+                            .normalizeRemoteMediaUrl(raw)
+                            .normalizedUrlOrNull()
+                            ?: return null
+                    }
                 PreparedSource(
-                    type = SourceType.XTREAM,
-                    safeLocator = normalizedBaseUrl,
-                    secret = SourceSecret.Xtream(
-                        username = input.username,
-                        password = input.password,
+                    type = SourceType.M3U,
+                    safeLocator = SourceLocatorPolicy.redact(playlistUrl),
+                    secret = SourceSecret.M3uRemote(
+                        playlistUrl = playlistUrl,
+                        epgUrl = epgUrl,
                     ),
                 )
             }
-        }
-
-        is SourceInput.M3u -> {
-            val playlistUrl = SourceConnectionSecurityPolicy
-                .normalizeRemoteMediaUrl(input.playlistUrl)
-                .normalizedUrlOrNull()
-                ?: return null
-            val epgUrl = input.epgUrl
-                ?.takeIf(String::isNotBlank)
-                ?.let { raw ->
-                    SourceConnectionSecurityPolicy
-                        .normalizeRemoteMediaUrl(raw)
-                        .normalizedUrlOrNull()
-                        ?: return null
-                }
-            PreparedSource(
-                type = SourceType.M3U,
-                safeLocator = SourceLocatorPolicy.redact(playlistUrl),
-                secret = SourceSecret.M3uRemote(
-                    playlistUrl = playlistUrl,
-                    epgUrl = epgUrl,
-                ),
-            )
         }
     }
 
