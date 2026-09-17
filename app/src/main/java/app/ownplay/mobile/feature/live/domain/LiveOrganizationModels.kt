@@ -1,5 +1,8 @@
 package app.ownplay.mobile.feature.live.domain
 
+import app.ownplay.mobile.sources.domain.SourceId
+import kotlinx.coroutines.flow.Flow
+
 enum class LiveOrganizationMode {
     PROVIDER,
     OWNPLAY,
@@ -51,3 +54,32 @@ data class AutomaticLiveOrganization(
     val countries: List<OwnPlayCountryScope>,
     val placementByChannelId: Map<String, OwnPlayLivePlacement>,
 )
+
+data class ProviderLiveCatalogSnapshot(
+    val categories: List<ProviderLiveCategory>,
+    val channels: List<LiveOrganizationChannel>,
+)
+
+data class OwnPlayLiveCatalogSnapshot(
+    val countries: List<OwnPlayCountryScope>,
+    val semanticCategories: List<OwnPlayLiveSemanticCategory>,
+    val channelIdsByPlacement: Map<OwnPlayLivePlacement, List<String>>,
+)
+
+interface LiveOrganizationRepository {
+    fun observeMode(sourceId: SourceId): Flow<LiveOrganizationMode>
+
+    fun observeProviderCatalog(sourceId: SourceId): Flow<ProviderLiveCatalogSnapshot>
+
+    fun observeOwnPlayCatalog(sourceId: SourceId): Flow<OwnPlayLiveCatalogSnapshot>
+
+    suspend fun setMode(sourceId: SourceId, mode: LiveOrganizationMode): Boolean
+
+    suspend fun moveChannel(
+        sourceId: SourceId,
+        channelId: String,
+        placement: OwnPlayLivePlacement,
+    ): Boolean
+
+    suspend fun resetChannelToAutomatic(sourceId: SourceId, channelId: String): Boolean
+}
