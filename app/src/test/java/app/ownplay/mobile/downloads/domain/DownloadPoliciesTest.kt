@@ -10,6 +10,7 @@ class DownloadPoliciesTest {
     @Test
     fun validWorkerLifecycleTransitionsAreAccepted() {
         assertTrue(DownloadStateTransitionPolicy.canTransition(DownloadStatus.QUEUED, DownloadStatus.DOWNLOADING))
+        assertTrue(DownloadStateTransitionPolicy.canTransition(DownloadStatus.QUEUED, DownloadStatus.PAUSED))
         assertTrue(DownloadStateTransitionPolicy.canTransition(DownloadStatus.DOWNLOADING, DownloadStatus.PAUSED))
         assertTrue(DownloadStateTransitionPolicy.canTransition(DownloadStatus.PAUSED, DownloadStatus.QUEUED))
         assertTrue(DownloadStateTransitionPolicy.canTransition(DownloadStatus.DOWNLOADING, DownloadStatus.COMPLETED))

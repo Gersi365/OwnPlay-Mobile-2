@@ -5,7 +5,13 @@ import app.ownplay.mobile.data.db.OwnPlayDatabase
 import app.ownplay.mobile.data.prefs.ActiveSourcePreferences
 import app.ownplay.mobile.data.security.CredentialStore
 import app.ownplay.mobile.data.security.KeystoreCredentialStore
+import app.ownplay.mobile.downloads.data.AndroidDownloadStorage
+import app.ownplay.mobile.downloads.data.DownloadExecutor
+import app.ownplay.mobile.downloads.data.OkHttpDownloadTransferClient
 import app.ownplay.mobile.downloads.data.RoomDownloadRepository
+import app.ownplay.mobile.downloads.data.SourceBackedDownloadMediaResolver
+import app.ownplay.mobile.downloads.data.WorkManagedDownloadRepository
+import app.ownplay.mobile.downloads.data.WorkManagerDownloadScheduler
 import app.ownplay.mobile.downloads.domain.DownloadRepository
 import app.ownplay.mobile.feature.library.data.LibraryArtworkLoader
 import app.ownplay.mobile.feature.library.data.LibraryPlaybackLocator
@@ -43,6 +49,7 @@ class OwnPlayServices private constructor(
     val liveOrganizationRepository: LiveOrganizationRepository,
     val libraryRepository: LibraryRepository,
     val downloadRepository: DownloadRepository,
+    internal val downloadExecutor: DownloadExecutor,
     internal val libraryPlaybackLocator: LibraryPlaybackLocator,
     internal val libraryArtworkLoader: LibraryArtworkLoader,
     val playbackSessionController: PlaybackSessionController,
@@ -99,11 +106,25 @@ class OwnPlayServices private constructor(
                 detailRefresher = libraryDetailRefresher,
                 movieDetailLoader = libraryMovieDetailLoader,
             )
-            val downloadRepository = RoomDownloadRepository(database.downloadDao())
             val libraryPlaybackLocator = SourceBackedLibraryPlaybackLocator(
                 sourceDao = sourceDao,
                 libraryDao = libraryDao,
                 credentialStore = credentialStore,
+            )
+            val downloadStorage = AndroidDownloadStorage(applicationContext)
+            val downloadRepository = WorkManagedDownloadRepository(
+                delegate = RoomDownloadRepository(database.downloadDao()),
+                scheduler = WorkManagerDownloadScheduler(applicationContext),
+                storage = downloadStorage,
+            )
+            val downloadExecutor = DownloadExecutor(
+                repository = downloadRepository,
+                mediaResolver = SourceBackedDownloadMediaResolver(
+                    libraryDao = libraryDao,
+                    libraryPlaybackLocator = libraryPlaybackLocator,
+                ),
+                storage = downloadStorage,
+                transferClient = OkHttpDownloadTransferClient(),
             )
             val libraryArtworkLoader = OkHttpLibraryArtworkLoader()
             val libraryPlaybackProgressStore = RoomLibraryPlaybackProgressStore(libraryDao)
@@ -138,6 +159,7 @@ class OwnPlayServices private constructor(
                 liveOrganizationRepository = liveOrganizationRepository,
                 libraryRepository = libraryRepository,
                 downloadRepository = downloadRepository,
+                downloadExecutor = downloadExecutor,
                 libraryPlaybackLocator = libraryPlaybackLocator,
                 libraryArtworkLoader = libraryArtworkLoader,
                 playbackSessionController = playbackSessionController,

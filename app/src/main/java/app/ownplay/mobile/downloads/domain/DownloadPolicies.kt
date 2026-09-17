@@ -9,6 +9,7 @@ object DownloadStateTransitionPolicy {
         return when (current) {
             DownloadStatus.QUEUED -> target in setOf(
                 DownloadStatus.DOWNLOADING,
+                DownloadStatus.PAUSED,
                 DownloadStatus.FAILED,
                 DownloadStatus.CANCELED,
             )
