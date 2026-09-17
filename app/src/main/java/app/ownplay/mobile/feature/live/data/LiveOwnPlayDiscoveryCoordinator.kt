@@ -13,6 +13,7 @@ import app.ownplay.mobile.feature.live.domain.LiveOrganizationOrigin
 import app.ownplay.mobile.feature.live.domain.LiveOrganizationSnapshot
 import app.ownplay.mobile.feature.live.domain.LiveOwnPlayManualEditPolicy
 import app.ownplay.mobile.feature.live.domain.LiveOwnPlayDiscoveryChannel
+import app.ownplay.mobile.feature.live.domain.LiveOwnPlayDiscoveryProviderCategory
 import app.ownplay.mobile.feature.live.domain.LiveOwnPlayDiscoveryPolicy
 
 internal class LiveOwnPlayDiscoveryCoordinator(
@@ -41,6 +42,7 @@ internal class LiveOwnPlayDiscoveryCoordinator(
                 LiveOwnPlayDiscoveryChannel(
                     channelId = channel.channelId,
                     providerCategoryName = channel.categoryKey?.let(categoryById::get)?.name,
+                    providerCategoryId = channel.categoryKey,
                     name = channel.name,
                     tvgName = channel.tvgName,
                     tvgId = channel.tvgId,
@@ -66,7 +68,17 @@ internal class LiveOwnPlayDiscoveryCoordinator(
         )
         val profile = LiveOwnPlayManualEditPolicy.discoveryProfile(manualProfileSnapshot)
         val refreshConstraints = LiveOwnPlayManualEditPolicy.refreshConstraints(manualProfileSnapshot)
-        val result = LiveOwnPlayDiscoveryPolicy.discover(channels, profile)
+        val result = LiveOwnPlayDiscoveryPolicy.discover(
+            channels = channels,
+            profile = profile,
+            providerCategoryCatalog = categoryRows.map { category ->
+                LiveOwnPlayDiscoveryProviderCategory(
+                    categoryId = category.categoryKey,
+                    name = category.name,
+                    providerOrder = category.providerOrder,
+                )
+            },
+        )
         val categories = result.categories.map { category ->
             OwnPlayLiveCategoryEntity(
                 sourceId = sourceId,

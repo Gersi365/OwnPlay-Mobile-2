@@ -6,6 +6,7 @@ import java.util.Locale
 data class LiveOwnPlayDiscoveryChannel(
     val channelId: String,
     val providerCategoryName: String?,
+    val providerCategoryId: String? = null,
     val name: String,
     val tvgName: String? = null,
     val tvgId: String? = null,
@@ -16,6 +17,12 @@ data class LiveOwnPlayDiscoveryChannel(
 data class LiveOwnPlayDiscoveryProfile(
     val forcedMarkers: Map<String, String> = emptyMap(),
     val forcedNormalChannels: Set<String> = emptySet(),
+)
+
+data class LiveOwnPlayDiscoveryProviderCategory(
+    val categoryId: String,
+    val name: String,
+    val providerOrder: Int,
 )
 
 data class LiveOwnPlayDiscoveryCategory(
@@ -78,7 +85,29 @@ object LiveOwnPlayDiscoveryPolicy {
 
     private data class ProviderCategoryContext(
         val country: CountryDefinition,
+        val countryEvidence: Set<String>,
         val semanticEvidence: List<Triple<SemanticDefinition, LiveClassificationConfidence, Set<String>>>,
+    )
+
+    private data class ProviderCategoryCountryResolution(
+        val country: CountryDefinition,
+        val evidence: Set<String>,
+    )
+
+    private data class ProviderCategoryDescriptor(
+        val id: String,
+        val name: String,
+    )
+
+    private data class ChannelSemanticSignal(
+        val semanticKey: String,
+        val score: Int,
+        val evidence: Set<String>,
+    )
+
+    private data class BrandHint(
+        val semanticKey: String,
+        val phrases: Set<String>,
     )
 
     private val technicalTokens = setOf(
@@ -175,6 +204,16 @@ object LiveOwnPlayDiscoveryPolicy {
 
     private val semanticByKey = semanticDefinitions.associateBy { it.key }
 
+    private val brandHints = listOf(
+        BrandHint("MUSIC", setOf("MTV", "VH1", "TRACE", "VEVO", "MUSIC BOX", "DELUXE MUSIC", "4MUSIC")),
+        BrandHint("KIDS", setOf("CARTOON NETWORK", "NICKELODEON", "NICK JR", "DISNEY JUNIOR", "DISNEY CHANNEL", "BABY TV", "BOOMERANG", "MINIMAX", "DUCK TV", "JUNIOR")),
+        BrandHint("NEWS", setOf("CNN", "BBC NEWS", "EURONEWS", "BLOOMBERG", "AL JAZEERA", "FRANCE 24", "DW NEWS", "SKY NEWS", "CNBC")),
+        BrandHint("DOCUMENTARY", setOf("DISCOVERY", "NATIONAL GEOGRAPHIC", "NAT GEO", "HISTORY", "ANIMAL PLANET", "BBC EARTH", "VIASAT NATURE", "VIASAT HISTORY", "DOCUBOX")),
+        BrandHint("SPORT", setOf("EUROSPORT", "ESPN", "DAZN", "BEIN SPORTS", "SKY SPORT", "SUPERSPORT", "ARENA SPORT", "SPORT TV", "ELEVEN SPORTS")),
+        BrandHint("FILM", setOf("HBO", "CINEMAX", "FILMBOX", "SKY CINEMA", "AMC", "MOVIE CHANNEL")),
+        BrandHint("CULTURE", setOf("ARTE", "MEZZO")),
+    )
+
     private val explicitCountryAliases = mapOf(
         "SHQIP" to "AL",
         "SHQIPERI" to "AL",
@@ -232,6 +271,7 @@ object LiveOwnPlayDiscoveryPolicy {
     fun discover(
         channels: List<LiveOwnPlayDiscoveryChannel>,
         profile: LiveOwnPlayDiscoveryProfile = LiveOwnPlayDiscoveryProfile(),
+        providerCategoryCatalog: List<LiveOwnPlayDiscoveryProviderCategory> = emptyList(),
     ): LiveOwnPlayDiscoveryResult {
         if (channels.isEmpty()) {
             return LiveOwnPlayDiscoveryResult(
@@ -259,25 +299,64 @@ object LiveOwnPlayDiscoveryPolicy {
             }
         }
 
-        val providerCategoryContexts = channels
-            .asSequence()
-            .map { channel -> channel.providerCategoryName.orEmpty() }
-            .distinct()
-            .associateWith { providerCategoryName ->
-                countryForProviderCategory(providerCategoryName)?.let { country ->
-                    ProviderCategoryContext(
-                        country = country,
-                        semanticEvidence = providerCategorySemanticEvidence(country, providerCategoryName),
+        val reviewMarkerChannelIds = reviewMarkers.mapTo(hashSetOf()) { marker -> marker.channelId }
+        val markerCandidateChannelIds = automaticMarkers.keys + reviewMarkerChannelIds
+        val contentSignalCache = hashMapOf<String, List<ChannelSemanticSignal>>()
+        fun contentSignals(country: CountryDefinition, channel: LiveOwnPlayDiscoveryChannel): List<ChannelSemanticSignal> =
+            contentSignalCache.getOrPut(channel.channelId) { channelSemanticSignals(country, channel) }
+        val providerCategories = mutableListOf<ProviderCategoryDescriptor>()
+        val channelsByProviderCategory = linkedMapOf<String, MutableList<LiveOwnPlayDiscoveryChannel>>()
+        val seenProviderCategoryIds = hashSetOf<String>()
+        providerCategoryCatalog
+            .sortedWith(compareBy(LiveOwnPlayDiscoveryProviderCategory::providerOrder, LiveOwnPlayDiscoveryProviderCategory::categoryId))
+            .forEach { category ->
+                val categoryId = category.categoryId.trim().takeIf(String::isNotEmpty) ?: return@forEach
+                if (seenProviderCategoryIds.add(categoryId)) {
+                    providerCategories += ProviderCategoryDescriptor(
+                        id = categoryId,
+                        name = category.name,
                     )
                 }
             }
+        for (channel in channels) {
+            val categoryId = providerCategoryIdentity(channel)
+            channelsByProviderCategory.getOrPut(categoryId) { mutableListOf() }.add(channel)
+            if (seenProviderCategoryIds.add(categoryId)) {
+                providerCategories += ProviderCategoryDescriptor(
+                    id = categoryId,
+                    name = channel.providerCategoryName.orEmpty(),
+                )
+            }
+        }
+        val countryResolutions = resolveProviderCategoryCountries(providerCategories)
+        val providerCategoryContexts = linkedMapOf<String, ProviderCategoryContext>()
+        for (providerCategory in providerCategories) {
+            val resolution = countryResolutions[providerCategory.id] ?: continue
+            val country = resolution.country
+            val translated = providerCategorySemanticEvidence(country, providerCategory.name)
+            val semanticEvidence = if (translated.isNotEmpty()) {
+                translated
+            } else {
+                inferProviderCategorySemanticEvidence(
+                    channels = channelsByProviderCategory[providerCategory.id]
+                        .orEmpty()
+                        .filterNot { channel -> channel.channelId in markerCandidateChannelIds },
+                    signalProvider = { channel -> contentSignals(country, channel) },
+                )
+            }
+            providerCategoryContexts[providerCategory.id] = ProviderCategoryContext(
+                country = country,
+                countryEvidence = resolution.evidence,
+                semanticEvidence = semanticEvidence,
+            )
+        }
 
         val drafts = mutableListOf<MembershipDraft>()
         var activeProviderCategory: String? = null
         var activeMarker: MarkerDecision? = null
 
         channels.forEach { channel ->
-            val providerCategory = channel.providerCategoryName.orEmpty()
+            val providerCategory = providerCategoryIdentity(channel)
             if (providerCategory != activeProviderCategory) {
                 activeProviderCategory = providerCategory
                 activeMarker = null
@@ -295,7 +374,7 @@ object LiveOwnPlayDiscoveryPolicy {
                 categoryId = countryCategoryId(country.code),
                 channelId = channel.channelId,
                 confidence = LiveClassificationConfidence.HIGH,
-                evidence = setOf("provider-country:${country.code}"),
+                evidence = categoryContext.countryEvidence,
             )
 
             activeMarker?.let { marker ->
@@ -320,16 +399,40 @@ object LiveOwnPlayDiscoveryPolicy {
                 }
             }
 
-            directSemanticEvidence(channel).forEach { (semantic, confidence, evidence) ->
-                semanticPath(semantic).forEach { pathSemantic ->
-                    drafts += MembershipDraft(
-                        categoryId = semanticCategoryId(country.code, pathSemantic.key),
-                        channelId = channel.channelId,
-                        confidence = confidence,
-                        evidence = evidence,
-                    )
+            if (channel.channelId !in reviewMarkerChannelIds) {
+                directSemanticEvidence(contentSignals(country, channel)).forEach { (semantic, confidence, evidence) ->
+                    semanticPath(semantic).forEach { pathSemantic ->
+                        drafts += MembershipDraft(
+                            categoryId = semanticCategoryId(country.code, pathSemantic.key),
+                            channelId = channel.channelId,
+                            confidence = confidence,
+                            evidence = evidence,
+                        )
+                    }
                 }
             }
+        }
+
+        val semanticallyResolvedChannelIds = drafts
+            .asSequence()
+            .filter { draft -> draft.categoryId.contains(SEMANTIC_CATEGORY_MARKER) }
+            .map { draft -> draft.channelId }
+            .toSet()
+        val fallbackGeneralChannelIds = linkedSetOf<String>()
+        channels.forEach { channel ->
+            if (
+                channel.channelId in automaticMarkers ||
+                channel.channelId in reviewMarkerChannelIds ||
+                channel.channelId in semanticallyResolvedChannelIds
+            ) return@forEach
+            val categoryContext = providerCategoryContexts[providerCategoryIdentity(channel)] ?: return@forEach
+            drafts += MembershipDraft(
+                categoryId = semanticCategoryId(categoryContext.country.code, "GENERAL"),
+                channelId = channel.channelId,
+                confidence = LiveClassificationConfidence.LOW,
+                evidence = setOf("fallback-general:unresolved-semantic"),
+            )
+            fallbackGeneralChannelIds += channel.channelId
         }
 
         val memberships = mergeMemberships(drafts)
@@ -346,7 +449,10 @@ object LiveOwnPlayDiscoveryPolicy {
         val unclassified = channels
             .asSequence()
             .filterNot { it.channelId in automaticMarkers }
-            .filterNot { it.channelId in semanticMembershipChannelIds }
+            .filter { channel ->
+                channel.channelId in fallbackGeneralChannelIds ||
+                    channel.channelId !in semanticMembershipChannelIds
+            }
             .map { it.channelId }
             .toList()
 
@@ -442,52 +548,170 @@ object LiveOwnPlayDiscoveryPolicy {
         }
     }
 
-    private fun directSemanticEvidence(
-        channel: LiveOwnPlayDiscoveryChannel,
+    private fun inferProviderCategorySemanticEvidence(
+        channels: List<LiveOwnPlayDiscoveryChannel>,
+        signalProvider: (LiveOwnPlayDiscoveryChannel) -> List<ChannelSemanticSignal>,
     ): List<Triple<SemanticDefinition, LiveClassificationConfidence, Set<String>>> {
+        if (channels.isEmpty()) return emptyList()
+        val bySemantic = linkedMapOf<String, MutableList<ChannelSemanticSignal>>()
+        channels.forEach { channel ->
+            signalProvider(channel)
+                .filterNot { signal -> signal.semanticKey == "GENERAL" }
+                .forEach { signal -> bySemantic.getOrPut(signal.semanticKey, ::mutableListOf) += signal }
+        }
+        if (bySemantic.isEmpty()) return emptyList()
+
+        data class Aggregate(
+            val semanticKey: String,
+            val support: Int,
+            val score: Int,
+            val evidence: Set<String>,
+        )
+
+        val ranked = bySemantic.map { (semanticKey, signals) ->
+            Aggregate(
+                semanticKey = semanticKey,
+                support = signals.size,
+                score = signals.sumOf(ChannelSemanticSignal::score),
+                evidence = signals.flatMapTo(linkedSetOf()) { signal -> signal.evidence },
+            )
+        }.sortedWith(
+            compareByDescending<Aggregate> { aggregate -> aggregate.support }
+                .thenByDescending { aggregate -> aggregate.score }
+                .thenByDescending { aggregate -> semanticDepth(aggregate.semanticKey) },
+        )
+
+        val winner = ranked.first()
+        val minimumSupport = when (channels.size) {
+            1 -> 1
+            2 -> 2
+            else -> maxOf(2, kotlin.math.ceil(channels.size * CONTENT_INFERENCE_MIN_RATIO).toInt())
+        }
+        if (winner.support < minimumSupport) return emptyList()
+        if (channels.size == 1 && winner.score < STRONG_CONTENT_SIGNAL_SCORE) return emptyList()
+
+        val runnerUp = ranked.getOrNull(1)
+        if (runnerUp != null &&
+            winner.support == runnerUp.support &&
+            winner.score < runnerUp.score + CONTENT_INFERENCE_MIN_SCORE_MARGIN
+        ) {
+            return emptyList()
+        }
+
+        val semantic = semanticByKey[winner.semanticKey] ?: return emptyList()
+        val supportRatio = winner.support.toDouble() / channels.size.toDouble()
+        val confidence = if (
+            supportRatio >= CONTENT_INFERENCE_HIGH_RATIO ||
+            winner.score >= winner.support * STRONG_CONTENT_SIGNAL_SCORE
+        ) {
+            LiveClassificationConfidence.HIGH
+        } else {
+            LiveClassificationConfidence.MEDIUM
+        }
+        return listOf(
+            Triple(
+                semantic,
+                confidence,
+                winner.evidence + setOf(
+                    "provider-category-content-inference:${semantic.key.lowercase(Locale.ROOT)}",
+                    "provider-category-content-support:${winner.support}/${channels.size}",
+                ),
+            ),
+        )
+    }
+
+    private fun directSemanticEvidence(
+        signals: List<ChannelSemanticSignal>,
+    ): List<Triple<SemanticDefinition, LiveClassificationConfidence, Set<String>>> {
+        return signals.mapNotNull { signal ->
+            val semantic = semanticByKey[signal.semanticKey] ?: return@mapNotNull null
+            val confidence = if (signal.score >= STRONG_CONTENT_SIGNAL_SCORE) {
+                LiveClassificationConfidence.HIGH
+            } else {
+                LiveClassificationConfidence.MEDIUM
+            }
+            Triple(semantic, confidence, signal.evidence)
+        }
+    }
+
+    private fun channelSemanticSignals(
+        country: CountryDefinition,
+        channel: LiveOwnPlayDiscoveryChannel,
+    ): List<ChannelSemanticSignal> {
+        val results = linkedMapOf<String, ChannelSemanticSignal>()
+
+        fun add(semanticKey: String, score: Int, evidence: String) {
+            if (semanticKey !in semanticByKey) return
+            val previous = results[semanticKey]
+            if (previous == null || score > previous.score) {
+                results[semanticKey] = ChannelSemanticSignal(semanticKey, score, setOf(evidence))
+            } else {
+                results[semanticKey] = previous.copy(evidence = previous.evidence + evidence)
+            }
+        }
+
         val identity = normalizedIdentity(
-            listOfNotNull(channel.name, channel.tvgName)
+            listOfNotNull(channel.name, channel.tvgName, channel.tvgId)
                 .joinToString(" "),
         )
-        val epg = normalizeText(channel.currentEpgTitle.orEmpty())
-        val results = linkedMapOf<String, Triple<SemanticDefinition, LiveClassificationConfidence, Set<String>>>()
+        LiveCategorySemanticTranslator.translate(country.code, identity)
+            .filterNot { translation -> translation.semanticKey == "GENERAL" }
+            .forEach { translation ->
+                add(
+                    translation.semanticKey,
+                    STRONG_CONTENT_SIGNAL_SCORE,
+                    "channel-translation:${translation.languageCode}:${translation.strategy}:${translation.matchedText}",
+                )
+            }
 
-        fun add(key: String, confidence: LiveClassificationConfidence, evidence: String) {
-            val semantic = semanticByKey.getValue(key)
-            val previous = results[key]
-            if (previous == null || confidence.rank > previous.second.rank) {
-                results[key] = Triple(semantic, confidence, setOf(evidence))
-            } else if (confidence == previous.second) {
-                results[key] = Triple(semantic, confidence, previous.third + evidence)
+        val epg = normalizeText(channel.currentEpgTitle.orEmpty())
+        LiveCategorySemanticTranslator.translate(country.code, epg).forEach { translation ->
+            add(
+                translation.semanticKey,
+                EPG_CONTENT_SIGNAL_SCORE,
+                "epg-translation:${translation.languageCode}:${translation.matchedText}",
+            )
+        }
+
+        brandHints.forEach { hint ->
+            hint.phrases.firstOrNull { phrase -> containsPhrase(identity, normalizeText(phrase)) }?.let { phrase ->
+                add(hint.semanticKey, BRAND_CONTENT_SIGNAL_SCORE, "channel-brand:${normalizeText(phrase)}")
             }
         }
 
         if (containsPhrase(identity, "DAZN")) {
-            add("DAZN", LiveClassificationConfidence.HIGH, "channel-name:dazn")
-        }
-        if (containsPhrase(identity, "EUROSPORT") || containsPhrase(identity, "SKY SPORT")) {
-            add("SPORT", LiveClassificationConfidence.HIGH, "channel-name:sport-brand")
+            add("DAZN", STRONG_CONTENT_SIGNAL_SCORE + 1, "channel-name:dazn")
         }
         if (containsPhrase(identity, "SERIE A")) {
-            add("SERIE_A", LiveClassificationConfidence.HIGH, "channel-name:serie-a")
+            add("SERIE_A", STRONG_CONTENT_SIGNAL_SCORE + 1, "channel-name:serie-a")
         }
         if (containsPhrase(identity, "SERIE B")) {
-            add("SERIE_B", LiveClassificationConfidence.HIGH, "channel-name:serie-b")
+            add("SERIE_B", STRONG_CONTENT_SIGNAL_SCORE + 1, "channel-name:serie-b")
         }
         if (containsPhrase(epg, "SERIE A")) {
-            add("SERIE_A", LiveClassificationConfidence.HIGH, "epg:serie-a")
+            add("SERIE_A", STRONG_CONTENT_SIGNAL_SCORE + 1, "epg:serie-a")
         }
         if (containsPhrase(epg, "SERIE B")) {
-            add("SERIE_B", LiveClassificationConfidence.HIGH, "epg:serie-b")
+            add("SERIE_B", STRONG_CONTENT_SIGNAL_SCORE + 1, "epg:serie-b")
         }
         if (containsPhrase(epg, "CHAMPIONS LEAGUE") || containsPhrase(epg, "EUROPA LEAGUE")) {
-            add("FOOTBALL", LiveClassificationConfidence.HIGH, "epg:football-competition")
+            add("FOOTBALL", STRONG_CONTENT_SIGNAL_SCORE + 1, "epg:football-competition")
         }
-        if (containsPhrase(identity, "CINEMA") || identity.split(' ').any { it.startsWith("CINE") }) {
-            add("FILM", LiveClassificationConfidence.MEDIUM, "channel-name:cinema")
+        if (containsPhrase(identity, "CINEMA") || identity.split(' ').any { token -> token.startsWith("CINE") }) {
+            add("FILM", BRAND_CONTENT_SIGNAL_SCORE, "channel-name:cinema")
         }
 
         return results.values.toList()
+    }
+
+    private fun semanticDepth(semanticKey: String): Int {
+        var depth = 0
+        var current = semanticByKey[semanticKey]
+        while (current?.parentKey != null) {
+            depth += 1
+            current = semanticByKey[current.parentKey]
+        }
+        return depth
     }
 
     private fun semanticPath(semantic: SemanticDefinition): List<SemanticDefinition> {
@@ -543,6 +767,112 @@ object LiveOwnPlayDiscoveryPolicy {
             evidenceKeys = members.flatMapTo(linkedSetOf()) { it.evidenceKeys },
         )
     }
+
+    private fun resolveProviderCategoryCountries(
+        providerCategories: List<ProviderCategoryDescriptor>,
+    ): Map<String, ProviderCategoryCountryResolution> {
+        if (providerCategories.isEmpty()) return emptyMap()
+
+        val explicit = ArrayList<CountryDefinition?>(providerCategories.size)
+        val knownByCode = linkedMapOf<String, CountryDefinition>()
+        for (category in providerCategories) {
+            val country = countryForProviderCategory(category.name)
+            explicit += country
+            if (country != null) knownByCode.putIfAbsent(country.code, country)
+        }
+        if (knownByCode.isEmpty()) return emptyMap()
+        val knownCountries = knownByCode.values.toList()
+        val result = linkedMapOf<String, ProviderCategoryCountryResolution>()
+
+        for (index in providerCategories.indices) {
+            val category = providerCategories[index]
+            val explicitCountry = explicit[index]
+            if (explicitCountry != null) {
+                result[category.id] = ProviderCategoryCountryResolution(
+                    country = explicitCountry,
+                    evidence = setOf(
+                        "provider-country:${explicitCountry.code}",
+                        "provider-country-resolution:explicit",
+                    ),
+                )
+                continue
+            }
+
+            val normalizedName = normalizedIdentity(category.name)
+            var localMatch: CountryDefinition? = null
+            var localMatchCount = 0
+            if (normalizedName.isNotBlank()) {
+                for (country in knownCountries) {
+                    val translations = LiveCategorySemanticTranslator.translate(country.code, normalizedName)
+                    var hasLocalLanguageMatch = false
+                    for (translation in translations) {
+                        if (translation.languageCode != "en") {
+                            hasLocalLanguageMatch = true
+                            break
+                        }
+                    }
+                    if (hasLocalLanguageMatch) {
+                        localMatch = country
+                        localMatchCount += 1
+                    }
+                }
+            }
+            if (localMatchCount == 1 && localMatch != null) {
+                result[category.id] = ProviderCategoryCountryResolution(
+                    country = localMatch,
+                    evidence = setOf(
+                        "provider-country:${localMatch.code}",
+                        "provider-country-resolution:local-language",
+                    ),
+                )
+                continue
+            }
+
+            var previous: CountryDefinition? = null
+            var previousIndex = index - 1
+            while (previousIndex >= 0) {
+                val candidate = explicit[previousIndex]
+                if (candidate != null) {
+                    previous = candidate
+                    break
+                }
+                previousIndex -= 1
+            }
+            var next: CountryDefinition? = null
+            var nextIndex = index + 1
+            while (nextIndex < explicit.size) {
+                val candidate = explicit[nextIndex]
+                if (candidate != null) {
+                    next = candidate
+                    break
+                }
+                nextIndex += 1
+            }
+
+            val contextual = when {
+                knownCountries.size == 1 -> knownCountries[0]
+                previous != null -> previous
+                next != null -> next
+                else -> null
+            }
+            if (contextual != null) {
+                result[category.id] = ProviderCategoryCountryResolution(
+                    country = contextual,
+                    evidence = setOf(
+                        "provider-country:${contextual.code}",
+                        "provider-country-resolution:provider-order-context",
+                    ),
+                )
+            }
+        }
+        return result
+    }
+
+    private fun providerCategoryIdentity(channel: LiveOwnPlayDiscoveryChannel): String =
+        channel.providerCategoryId
+            ?.trim()
+            ?.takeIf(String::isNotEmpty)
+            ?: "name:${channel.providerCategoryName.orEmpty()}"
 
     private fun countryForProviderCategory(providerCategoryName: String?): CountryDefinition? {
         providerCategoryName?.let(::countryCodeFromFlag)?.let(countryByCode::get)?.let { return it }
@@ -608,6 +938,12 @@ object LiveOwnPlayDiscoveryPolicy {
     private const val REGIONAL_INDICATOR_Z = 0x1F1FF
     private const val MIN_DECORATIVE_MARKER_CHARACTERS = 4
     private const val MAX_COUNTRY_ALIAS_WORDS = 6
+    private const val BRAND_CONTENT_SIGNAL_SCORE = 3
+    private const val STRONG_CONTENT_SIGNAL_SCORE = 4
+    private const val EPG_CONTENT_SIGNAL_SCORE = 2
+    private const val CONTENT_INFERENCE_MIN_RATIO = 0.40
+    private const val CONTENT_INFERENCE_HIGH_RATIO = 0.60
+    private const val CONTENT_INFERENCE_MIN_SCORE_MARGIN = 3
     private const val COUNTRY_CATEGORY_PREFIX = "ownplay:country:"
     private const val SEMANTIC_CATEGORY_MARKER = ":semantic:"
     private const val COUNTRY_SEMANTIC_KEY = "COUNTRY"

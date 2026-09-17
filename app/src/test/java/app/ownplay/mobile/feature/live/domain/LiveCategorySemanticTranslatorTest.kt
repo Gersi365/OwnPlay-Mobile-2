@@ -20,6 +20,13 @@ class LiveCategorySemanticTranslatorTest {
     }
 
     @Test
+    fun `minor provider spelling variants use conservative fuzzy matching`() {
+        assertTrue(LiveCategorySemanticTranslator.translate("AL", "Kanale Muzikorr").has("MUSIC"))
+        assertTrue(LiveCategorySemanticTranslator.translate("IT", "Canali Bambina").has("KIDS"))
+        assertFalse(LiveCategorySemanticTranslator.translate("AL", "Premium Random").has("MUSIC"))
+    }
+
+    @Test
     fun `country language selection exposes only available packs`() {
         val albania = LiveCategorySemanticTranslator.languageCodesForCountry("AL")
         assertTrue("en" in albania)

@@ -401,12 +401,15 @@ internal object LiveCategorySemanticTranslator {
     }
 
     private fun match(terms: SearchTerms, normalized: String, tokens: List<String>): Pair<String, String>? {
-        terms.phrases
+        val normalizedPhrases = terms.phrases
             .asSequence()
             .map(::normalize)
             .filter(String::isNotBlank)
             .distinct()
             .sortedByDescending(String::length)
+            .toList()
+
+        normalizedPhrases
             .firstOrNull { candidate -> containsPhrase(normalized, candidate) }
             ?.let { phrase -> return phrase to "phrase" }
 
@@ -417,7 +420,60 @@ internal object LiveCategorySemanticTranslator {
             .sortedByDescending(String::length)
             .firstOrNull { candidate -> tokens.any { token -> token.startsWith(candidate) } }
             ?.let { prefix -> return prefix to "token-prefix" }
+
+        normalizedPhrases
+            .asSequence()
+            .filter { candidate -> ' ' !in candidate && candidate.length >= MIN_AUTO_STEM_LENGTH }
+            .firstOrNull { candidate ->
+                tokens.any { token ->
+                    token.length >= MIN_AUTO_STEM_LENGTH &&
+                        (token.startsWith(candidate) || candidate.startsWith(token))
+                }
+            }
+            ?.let { stem -> return stem to "auto-stem" }
+
+        normalizedPhrases
+            .asSequence()
+            .filter { candidate -> ' ' !in candidate && candidate.length >= MIN_FUZZY_TOKEN_LENGTH }
+            .firstNotNullOfOrNull { candidate ->
+                tokens.firstOrNull { token -> fuzzyTokenMatch(candidate, token) }
+                    ?.let { token -> candidate to token }
+            }
+            ?.let { (candidate, _) -> return candidate to "fuzzy-token" }
         return null
+    }
+
+    private fun fuzzyTokenMatch(candidate: String, token: String): Boolean {
+        if (token.length < MIN_FUZZY_TOKEN_LENGTH) return false
+        val lengthDelta = kotlin.math.abs(candidate.length - token.length)
+        val maxDistance = if (minOf(candidate.length, token.length) >= LONG_FUZZY_TOKEN_LENGTH) 2 else 1
+        if (lengthDelta > maxDistance) return false
+        return levenshteinDistance(candidate, token, maxDistance) <= maxDistance
+    }
+
+    private fun levenshteinDistance(left: String, right: String, cutoff: Int): Int {
+        if (left == right) return 0
+        if (kotlin.math.abs(left.length - right.length) > cutoff) return cutoff + 1
+        var previous = IntArray(right.length + 1) { it }
+        var current = IntArray(right.length + 1)
+        left.forEachIndexed { leftIndex, leftChar ->
+            current[0] = leftIndex + 1
+            var rowMinimum = current[0]
+            right.forEachIndexed { rightIndex, rightChar ->
+                val substitutionCost = if (leftChar == rightChar) 0 else 1
+                current[rightIndex + 1] = minOf(
+                    current[rightIndex] + 1,
+                    previous[rightIndex + 1] + 1,
+                    previous[rightIndex] + substitutionCost,
+                )
+                rowMinimum = minOf(rowMinimum, current[rightIndex + 1])
+            }
+            if (rowMinimum > cutoff) return cutoff + 1
+            val swap = previous
+            previous = current
+            current = swap
+        }
+        return previous[right.length]
     }
 
     private fun pack(languageCode: String, vararg entries: Pair<String, SearchTerms>) =
@@ -448,4 +504,7 @@ internal object LiveCategorySemanticTranslator {
     }
 
     private const val MIN_PREFIX_LENGTH = 4
+    private const val MIN_AUTO_STEM_LENGTH = 6
+    private const val MIN_FUZZY_TOKEN_LENGTH = 5
+    private const val LONG_FUZZY_TOKEN_LENGTH = 8
 }
