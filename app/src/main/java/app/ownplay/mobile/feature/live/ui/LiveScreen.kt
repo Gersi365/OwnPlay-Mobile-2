@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -46,10 +47,12 @@ import app.ownplay.mobile.feature.live.domain.OwnPlayLiveCatalogSnapshot
 import app.ownplay.mobile.feature.live.domain.OwnPlayLivePlacement
 import app.ownplay.mobile.feature.live.domain.OwnPlayLiveSemanticCategory
 import app.ownplay.mobile.feature.live.domain.ProviderLiveCatalogSnapshot
+import app.ownplay.mobile.feature.playback.data.Media3PlaybackEngine
 import app.ownplay.mobile.feature.playback.domain.PlaybackPresentation
 import app.ownplay.mobile.feature.playback.domain.PlaybackReadiness
 import app.ownplay.mobile.feature.playback.domain.PlaybackSessionController
 import app.ownplay.mobile.feature.playback.domain.PlaybackTarget
+import app.ownplay.mobile.feature.playback.ui.PlaybackVideoSurface
 import app.ownplay.mobile.sources.domain.SourceSummary
 import kotlinx.coroutines.launch
 
@@ -78,6 +81,7 @@ fun LiveScreen(
         source = source,
         repository = services.liveOrganizationRepository,
         playbackSessionController = services.playbackSessionController,
+        playbackEngine = services.playbackEngine,
         modifier = modifier,
     )
 }
@@ -88,6 +92,7 @@ private fun LiveSourceScreen(
     source: SourceSummary,
     repository: LiveOrganizationRepository,
     playbackSessionController: PlaybackSessionController,
+    playbackEngine: Media3PlaybackEngine,
     modifier: Modifier,
 ) {
     val sourceId = source.sourceId
@@ -241,6 +246,7 @@ private fun LiveSourceScreen(
             PlaybackPreviewCard(
                 channelName = playbackChannelName,
                 readiness = playbackState.readiness,
+                playbackEngine = playbackEngine,
             )
         }
 
@@ -352,6 +358,7 @@ private fun LiveSourceScreen(
         PlaybackFullscreenPresentation(
             channelName = playbackChannelName,
             readiness = playbackState.readiness,
+            playbackEngine = playbackEngine,
             onDismiss = playbackSessionController::returnToPreview,
         )
     }
@@ -400,26 +407,35 @@ private fun LiveChannelRow(
 private fun PlaybackPreviewCard(
     channelName: String,
     readiness: PlaybackReadiness,
+    playbackEngine: Media3PlaybackEngine,
 ) {
     Surface(
         color = OwnPlayColors.Surface,
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            Text(
-                text = "Preview",
-                color = OwnPlayColors.TextSecondary,
-                fontWeight = FontWeight.SemiBold,
+        Column {
+            PlaybackVideoSurface(
+                playbackEngine = playbackEngine,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(180.dp),
             )
-            Text(
-                text = channelName,
-                color = OwnPlayColors.TextPrimary,
-                fontWeight = FontWeight.Bold,
-            )
-            PlaybackReadinessMessage(readiness)
+            Column(
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(
+                    text = "Preview",
+                    color = OwnPlayColors.TextSecondary,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = channelName,
+                    color = OwnPlayColors.TextPrimary,
+                    fontWeight = FontWeight.Bold,
+                )
+                PlaybackReadinessMessage(readiness)
+            }
         }
     }
 }
@@ -428,6 +444,7 @@ private fun PlaybackPreviewCard(
 private fun PlaybackFullscreenPresentation(
     channelName: String,
     readiness: PlaybackReadiness,
+    playbackEngine: Media3PlaybackEngine,
     onDismiss: () -> Unit,
 ) {
     Dialog(
@@ -438,18 +455,24 @@ private fun PlaybackFullscreenPresentation(
             color = OwnPlayColors.Background,
             modifier = Modifier.fillMaxSize(),
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(24.dp),
-                verticalArrangement = Arrangement.Center,
-            ) {
-                Text(
-                    text = channelName,
-                    color = OwnPlayColors.TextPrimary,
-                    fontWeight = FontWeight.Bold,
+            Column(modifier = Modifier.fillMaxSize()) {
+                PlaybackVideoSurface(
+                    playbackEngine = playbackEngine,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
                 )
-                PlaybackReadinessMessage(readiness)
+                Column(
+                    modifier = Modifier.padding(24.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Text(
+                        text = channelName,
+                        color = OwnPlayColors.TextPrimary,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    PlaybackReadinessMessage(readiness)
+                }
             }
         }
     }
