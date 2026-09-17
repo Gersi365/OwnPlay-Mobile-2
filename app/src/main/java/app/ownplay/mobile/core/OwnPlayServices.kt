@@ -5,7 +5,9 @@ import app.ownplay.mobile.data.db.OwnPlayDatabase
 import app.ownplay.mobile.data.prefs.ActiveSourcePreferences
 import app.ownplay.mobile.data.security.CredentialStore
 import app.ownplay.mobile.data.security.KeystoreCredentialStore
+import app.ownplay.mobile.feature.library.data.LibraryArtworkLoader
 import app.ownplay.mobile.feature.library.data.LibraryPlaybackLocator
+import app.ownplay.mobile.feature.library.data.OkHttpLibraryArtworkLoader
 import app.ownplay.mobile.feature.library.data.RoomLibraryPlaybackProgressStore
 import app.ownplay.mobile.feature.library.data.RoomLibraryRepository
 import app.ownplay.mobile.feature.library.data.SourceBackedLibraryPlaybackLocator
@@ -38,6 +40,7 @@ class OwnPlayServices private constructor(
     val liveOrganizationRepository: LiveOrganizationRepository,
     val libraryRepository: LibraryRepository,
     internal val libraryPlaybackLocator: LibraryPlaybackLocator,
+    internal val libraryArtworkLoader: LibraryArtworkLoader,
     val playbackSessionController: PlaybackSessionController,
     val playbackEngine: Media3PlaybackEngine,
     val providerTransport: ProviderTransport,
@@ -90,6 +93,7 @@ class OwnPlayServices private constructor(
                 libraryDao = libraryDao,
                 credentialStore = credentialStore,
             )
+            val libraryArtworkLoader = OkHttpLibraryArtworkLoader()
             val libraryPlaybackProgressStore = RoomLibraryPlaybackProgressStore(libraryDao)
             val playbackSourceResolver = SourceBackedLivePlaybackSourceResolver(
                 sourceDao = sourceDao,
@@ -122,6 +126,7 @@ class OwnPlayServices private constructor(
                 liveOrganizationRepository = liveOrganizationRepository,
                 libraryRepository = libraryRepository,
                 libraryPlaybackLocator = libraryPlaybackLocator,
+                libraryArtworkLoader = libraryArtworkLoader,
                 playbackSessionController = playbackSessionController,
                 playbackEngine = playbackEngine,
                 providerTransport = transport,
