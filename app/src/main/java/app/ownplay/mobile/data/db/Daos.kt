@@ -109,3 +109,43 @@ interface RefreshStateDao {
     )
     suspend fun markMissingSeriesUnavailable(sourceId: String, generation: Long)
 }
+
+@Dao
+interface DownloadDao {
+    @Query(
+        """
+        SELECT * FROM downloads
+        WHERE sourceId = :sourceId
+        ORDER BY updatedAt DESC, createdAt ASC, downloadId ASC
+        """,
+    )
+    fun observeForSource(sourceId: String): Flow<List<DownloadEntity>>
+
+    @Query("SELECT * FROM downloads WHERE downloadId = :downloadId LIMIT 1")
+    fun observe(downloadId: String): Flow<DownloadEntity?>
+
+    @Query("SELECT * FROM downloads WHERE downloadId = :downloadId LIMIT 1")
+    suspend fun get(downloadId: String): DownloadEntity?
+
+    @Query(
+        """
+        SELECT * FROM downloads
+        WHERE sourceId = :sourceId
+          AND mediaKind = :mediaKind
+          AND contentId = :contentId
+        ORDER BY updatedAt DESC, downloadId ASC
+        LIMIT 1
+        """,
+    )
+    suspend fun getForContent(
+        sourceId: String,
+        mediaKind: String,
+        contentId: String,
+    ): DownloadEntity?
+
+    @Upsert
+    suspend fun upsert(entity: DownloadEntity)
+
+    @Query("DELETE FROM downloads WHERE downloadId = :downloadId")
+    suspend fun delete(downloadId: String): Int
+}
