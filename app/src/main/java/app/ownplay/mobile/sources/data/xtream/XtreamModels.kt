@@ -1,0 +1,46 @@
+package app.ownplay.mobile.sources.data.xtream
+
+data class XtreamConnection(
+    val baseUrl: String,
+    val username: String,
+    val password: String,
+) {
+    override fun toString(): String =
+        "XtreamConnection(baseUrl=<redacted>, username=<redacted>, password=<redacted>)"
+}
+
+data class XtreamCategory(
+    val providerCategoryId: String,
+    val name: String,
+    val providerOrder: Int,
+)
+
+data class XtreamLiveStream(
+    val streamId: String,
+    val categoryId: String?,
+    val name: String,
+    val tvgId: String?,
+    val logoUrl: String?,
+    val containerExtension: String?,
+    val providerOrder: Int,
+)
+
+data class XtreamMovie(
+    val streamId: String,
+    val categoryId: String?,
+    val name: String,
+    val posterUrl: String?,
+    val containerExtension: String?,
+    val rating: String?,
+    val providerOrder: Int,
+)
+
+data class XtreamSeries(
+    val seriesId: String,
+    val categoryId: String?,
+    val name: String,
+    val posterUrl: String?,
+    val description: String?,
+    val rating: String?,
+    val providerOrder: Int,
+)
