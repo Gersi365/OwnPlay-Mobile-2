@@ -12,16 +12,24 @@ private val Context.rebuildSourcePreferencesDataStore by preferencesDataStore(
     name = "ownplay_rebuild_source_preferences",
 )
 
+interface ActiveSourceSelectionStore {
+    val selectedSourceId: Flow<String?>
+
+    suspend fun currentSelectedSourceId(): String?
+
+    suspend fun setSelectedSourceId(sourceId: String?)
+}
+
 class ActiveSourcePreferences(
     private val context: Context,
-) {
-    val selectedSourceId: Flow<String?> = context.rebuildSourcePreferencesDataStore.data
+) : ActiveSourceSelectionStore {
+    override val selectedSourceId: Flow<String?> = context.rebuildSourcePreferencesDataStore.data
         .map { preferences -> preferences[ACTIVE_SOURCE_ID] }
 
-    suspend fun currentSelectedSourceId(): String? =
+    override suspend fun currentSelectedSourceId(): String? =
         context.rebuildSourcePreferencesDataStore.data.first()[ACTIVE_SOURCE_ID]
 
-    suspend fun setSelectedSourceId(sourceId: String?) {
+    override suspend fun setSelectedSourceId(sourceId: String?) {
         context.rebuildSourcePreferencesDataStore.edit { preferences ->
             if (sourceId == null) {
                 preferences.remove(ACTIVE_SOURCE_ID)
