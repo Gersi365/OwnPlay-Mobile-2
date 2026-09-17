@@ -58,7 +58,7 @@ class PlaybackSessionControllerTest {
     }
 
     @Test
-    fun sameChannelIdFromAnotherSourceIsA differentTarget() = runBlocking {
+    fun sameChannelIdFromAnotherSourceIsADifferentTarget() = runBlocking {
         val resolver = FakeResolver()
         val controller = PlaybackSessionController(resolver)
         val first = PlaybackTarget(SourceId("source-a"), "channel-a")
