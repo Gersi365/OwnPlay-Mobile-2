@@ -562,6 +562,40 @@ class LiveOwnPlayDiscoveryPolicyTest {
     }
 
     @Test
+    fun `stable provider category ids do not become country block ordering when provider order ties`() {
+        val result = LiveOwnPlayDiscoveryPolicy.discover(
+            channels = listOf(
+                channel("al-premium", "Premium", "MTV Live", providerCategoryId = "100"),
+                channel("it-premium", "Premium", "Cartoon Network", providerCategoryId = "300"),
+            ),
+            providerCategoryCatalog = listOf(
+                LiveOwnPlayDiscoveryProviderCategory("200", "Albania", 0),
+                LiveOwnPlayDiscoveryProviderCategory("100", "Premium", 0),
+                LiveOwnPlayDiscoveryProviderCategory("400", "Italia", 0),
+                LiveOwnPlayDiscoveryProviderCategory("300", "Premium", 0),
+            ),
+        )
+
+        assertTrue(
+            result.memberships.any { membership ->
+                membership.channelId == "al-premium" &&
+                    membership.categoryId == "ownplay:country:AL:semantic:MUSIC"
+            },
+        )
+        assertTrue(
+            result.memberships.any { membership ->
+                membership.channelId == "it-premium" &&
+                    membership.categoryId == "ownplay:country:IT:semantic:KIDS"
+            },
+        )
+        assertFalse(
+            result.memberships.any { membership ->
+                membership.channelId == "it-premium" && membership.categoryId.startsWith("ownplay:country:AL")
+            },
+        )
+    }
+
+    @Test
     fun `large country catalog stays deterministic without speculative categories`() {
         val channels = (1..5_000).map { index ->
             channel(

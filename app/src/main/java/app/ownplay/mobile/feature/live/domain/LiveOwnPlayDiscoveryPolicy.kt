@@ -308,7 +308,7 @@ object LiveOwnPlayDiscoveryPolicy {
         val channelsByProviderCategory = linkedMapOf<String, MutableList<LiveOwnPlayDiscoveryChannel>>()
         val seenProviderCategoryIds = hashSetOf<String>()
         providerCategoryCatalog
-            .sortedWith(compareBy(LiveOwnPlayDiscoveryProviderCategory::providerOrder, LiveOwnPlayDiscoveryProviderCategory::categoryId))
+            .sortedBy(LiveOwnPlayDiscoveryProviderCategory::providerOrder)
             .forEach { category ->
                 val categoryId = category.categoryId.trim().takeIf(String::isNotEmpty) ?: return@forEach
                 if (seenProviderCategoryIds.add(categoryId)) {
