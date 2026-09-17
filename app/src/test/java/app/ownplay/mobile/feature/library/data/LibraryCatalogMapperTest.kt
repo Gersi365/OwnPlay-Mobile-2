@@ -1,10 +1,12 @@
 package app.ownplay.mobile.feature.library.data
 
+import app.ownplay.mobile.data.db.DownloadEntity
 import app.ownplay.mobile.data.db.EpisodeEntity
 import app.ownplay.mobile.data.db.MediaFavoriteEntity
 import app.ownplay.mobile.data.db.MovieEntity
 import app.ownplay.mobile.data.db.ProviderCategoryEntity
 import app.ownplay.mobile.data.db.SeriesEntity
+import app.ownplay.mobile.feature.library.domain.LibraryContentKind
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -46,6 +48,59 @@ class LibraryCatalogMapperTest {
         assertTrue(detail.series.favorite)
         assertEquals(listOf(1, 2), detail.seasons.map { it.seasonNumber })
         assertEquals(listOf("e-1", "e-2"), detail.seasons.first().episodes.map { it.episodeId })
+    }
+
+    @Test
+    fun downloadedMediaKeepsLatestCompletedLocalMovieOrEpisodePerContent() {
+        val rows = listOf(
+            download(
+                downloadId = "older-movie",
+                mediaKind = "MOVIE",
+                contentId = "movie-1",
+                updatedAt = 10L,
+            ),
+            download(
+                downloadId = "episode-1",
+                mediaKind = "EPISODE",
+                contentId = "episode-1",
+                updatedAt = 20L,
+            ),
+            download(
+                downloadId = "newer-movie",
+                mediaKind = "MOVIE",
+                contentId = "movie-1",
+                updatedAt = 30L,
+            ),
+            download(
+                downloadId = "series-unsupported",
+                mediaKind = "SERIES",
+                contentId = "series-1",
+                updatedAt = 40L,
+            ),
+            download(
+                downloadId = "incomplete",
+                mediaKind = "MOVIE",
+                contentId = "movie-2",
+                updatedAt = 50L,
+                state = "DOWNLOADING",
+            ),
+        )
+
+        val items = LibraryCatalogMapper.downloadedMedia(rows)
+
+        assertEquals(listOf("newer-movie", "episode-1"), items.map { it.downloadId })
+        assertEquals(listOf(LibraryContentKind.MOVIE, LibraryContentKind.EPISODE), items.map { it.contentKind })
+    }
+
+    @Test
+    fun downloadedMediaRejectsMissingLocalReferenceZeroBytesAndBlankMetadata() {
+        val rows = listOf(
+            download("missing-local", "MOVIE", "movie-a", 3L, localReference = null),
+            download("zero-bytes", "MOVIE", "movie-b", 2L, bytesDownloaded = 0L),
+            download("blank-title", "MOVIE", "movie-c", 1L, title = ""),
+        )
+
+        assertTrue(LibraryCatalogMapper.downloadedMedia(rows).isEmpty())
     }
 
     private fun category(
@@ -110,5 +165,31 @@ class LibraryCatalogMapperTest {
         extension = "mp4",
         available = true,
         lastSeenGeneration = 1L,
+    )
+
+    private fun download(
+        downloadId: String,
+        mediaKind: String,
+        contentId: String,
+        updatedAt: Long,
+        state: String = "COMPLETED",
+        localReference: String? = "local://$downloadId",
+        bytesDownloaded: Long = 100L,
+        title: String = downloadId,
+    ) = DownloadEntity(
+        downloadId = downloadId,
+        sourceId = "source-a",
+        mediaKind = mediaKind,
+        contentId = contentId,
+        title = title,
+        streamIdentity = "opaque://$contentId",
+        state = state,
+        bytesDownloaded = bytesDownloaded,
+        totalBytes = 100L,
+        localReference = localReference,
+        integrityMetadata = null,
+        failureReason = null,
+        createdAt = 1L,
+        updatedAt = updatedAt,
     )
 }

@@ -82,6 +82,19 @@ interface LibraryDao {
 
     @Query(
         """
+        SELECT * FROM downloads
+        WHERE sourceId = :sourceId
+          AND state = 'COMPLETED'
+          AND localReference IS NOT NULL
+          AND bytesDownloaded > 0
+          AND mediaKind IN ('MOVIE', 'EPISODE')
+        ORDER BY updatedAt DESC, downloadId ASC
+        """,
+    )
+    fun observeCompletedDownloads(sourceId: String): Flow<List<DownloadEntity>>
+
+    @Query(
+        """
         SELECT
             p.contentId AS contentId,
             m.name AS title,

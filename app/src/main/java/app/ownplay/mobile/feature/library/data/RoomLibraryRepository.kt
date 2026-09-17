@@ -1,5 +1,6 @@
 package app.ownplay.mobile.feature.library.data
 
+import app.ownplay.mobile.data.db.DownloadEntity
 import app.ownplay.mobile.data.db.EpisodeEntity
 import app.ownplay.mobile.data.db.LibraryDao
 import app.ownplay.mobile.data.db.LibraryEpisodeProgressRow
@@ -13,6 +14,7 @@ import app.ownplay.mobile.feature.library.domain.LibraryCategory
 import app.ownplay.mobile.feature.library.domain.LibraryContentKind
 import app.ownplay.mobile.feature.library.domain.LibraryContinueWatchingItem
 import app.ownplay.mobile.feature.library.domain.LibraryDetailRefreshResult
+import app.ownplay.mobile.feature.library.domain.LibraryDownloadedMediaItem
 import app.ownplay.mobile.feature.library.domain.LibraryEpisodeSummary
 import app.ownplay.mobile.feature.library.domain.LibraryMovieSummary
 import app.ownplay.mobile.feature.library.domain.LibraryRepository
@@ -54,7 +56,8 @@ class RoomLibraryRepository internal constructor(
             media,
             dao.observeFavorites(sourceId.value),
             progress,
-        ) { categoryRows, mediaRows, favorites, progressRows ->
+            dao.observeCompletedDownloads(sourceId.value),
+        ) { categoryRows, mediaRows, favorites, progressRows, downloads ->
             LibraryCatalogMapper.catalog(
                 movieCategories = categoryRows.movies,
                 seriesCategories = categoryRows.series,
@@ -63,6 +66,7 @@ class RoomLibraryRepository internal constructor(
                 favorites = favorites,
                 movieProgressRows = progressRows.movies,
                 episodeProgressRows = progressRows.episodes,
+                completedDownloads = downloads,
             )
         }
     }
@@ -180,6 +184,7 @@ internal object LibraryCatalogMapper {
         favorites: List<MediaFavoriteEntity>,
         movieProgressRows: List<LibraryMovieProgressRow> = emptyList(),
         episodeProgressRows: List<LibraryEpisodeProgressRow> = emptyList(),
+        completedDownloads: List<DownloadEntity> = emptyList(),
     ): LibraryCatalogSnapshot {
         val movieFavorites = favorites.favoriteIds(LibraryContentKind.MOVIE)
         val seriesFavorites = favorites.favoriteIds(LibraryContentKind.SERIES)
@@ -189,6 +194,7 @@ internal object LibraryCatalogMapper {
             movies = movies.map { movie(it, movieFavorites) },
             series = series.map { series(it, seriesFavorites) },
             continueWatching = continueWatching(movieProgressRows, episodeProgressRows),
+            downloadedMedia = downloadedMedia(completedDownloads),
         )
     }
 
@@ -226,6 +232,42 @@ internal object LibraryCatalogMapper {
                 .thenBy { it.contentKind.name }
                 .thenBy { it.contentId },
         )
+    }
+
+    fun downloadedMedia(rows: List<DownloadEntity>): List<LibraryDownloadedMediaItem> {
+        val seenContent = mutableSetOf<Pair<LibraryContentKind, String>>()
+        return rows
+            .asSequence()
+            .sortedWith(
+                compareByDescending<DownloadEntity> { it.updatedAt }
+                    .thenBy { it.downloadId },
+            )
+            .mapNotNull { row ->
+                val kind = runCatching { LibraryContentKind.valueOf(row.mediaKind) }.getOrNull()
+                    ?.takeIf { it == LibraryContentKind.MOVIE || it == LibraryContentKind.EPISODE }
+                    ?: return@mapNotNull null
+                if (
+                    row.state != COMPLETED_DOWNLOAD_STATE ||
+                    row.localReference.isNullOrBlank() ||
+                    row.bytesDownloaded <= 0L ||
+                    row.contentId.isBlank() ||
+                    row.title.isBlank()
+                ) {
+                    return@mapNotNull null
+                }
+                if (!seenContent.add(kind to row.contentId)) return@mapNotNull null
+
+                LibraryDownloadedMediaItem(
+                    downloadId = row.downloadId,
+                    contentKind = kind,
+                    contentId = row.contentId,
+                    title = row.title,
+                    bytesDownloaded = row.bytesDownloaded,
+                    totalBytes = row.totalBytes,
+                    updatedAt = row.updatedAt,
+                )
+            }
+            .toList()
     }
 
     fun movie(
@@ -295,6 +337,8 @@ internal object LibraryCatalogMapper {
         displayName = entity.name,
         providerOrder = entity.providerOrder,
     )
+
+    private const val COMPLETED_DOWNLOAD_STATE = "COMPLETED"
 }
 
 private fun List<MediaFavoriteEntity>.favoriteIds(kind: LibraryContentKind): Set<String> =

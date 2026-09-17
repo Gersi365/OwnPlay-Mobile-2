@@ -85,12 +85,33 @@ data class LibraryContinueWatchingItem(
     }
 }
 
+data class LibraryDownloadedMediaItem(
+    val downloadId: String,
+    val contentKind: LibraryContentKind,
+    val contentId: String,
+    val title: String,
+    val bytesDownloaded: Long,
+    val totalBytes: Long?,
+    val updatedAt: Long,
+) {
+    init {
+        require(downloadId.isNotBlank()) { "Downloaded media id must not be blank" }
+        require(contentKind == LibraryContentKind.MOVIE || contentKind == LibraryContentKind.EPISODE) {
+            "Downloaded media supports Movies and Episodes"
+        }
+        require(contentId.isNotBlank()) { "Downloaded media content id must not be blank" }
+        require(title.isNotBlank()) { "Downloaded media title must not be blank" }
+        require(bytesDownloaded > 0L) { "Downloaded media must contain downloaded bytes" }
+    }
+}
+
 data class LibraryCatalogSnapshot(
     val movieCategories: List<LibraryCategory>,
     val seriesCategories: List<LibraryCategory>,
     val movies: List<LibraryMovieSummary>,
     val series: List<LibrarySeriesSummary>,
     val continueWatching: List<LibraryContinueWatchingItem> = emptyList(),
+    val downloadedMedia: List<LibraryDownloadedMediaItem> = emptyList(),
 )
 
 interface LibraryRepository {
