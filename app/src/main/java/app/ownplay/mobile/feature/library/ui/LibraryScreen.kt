@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -36,6 +37,7 @@ import app.ownplay.mobile.feature.library.domain.LibraryDetailRefreshResult
 import app.ownplay.mobile.feature.library.domain.LibraryDetailStartPolicy
 import app.ownplay.mobile.feature.library.domain.LibraryMovieSummary
 import app.ownplay.mobile.feature.library.domain.LibraryRepository
+import app.ownplay.mobile.feature.library.domain.LibrarySearchPolicy
 import app.ownplay.mobile.feature.library.domain.LibrarySeriesDetail
 import app.ownplay.mobile.feature.library.domain.LibrarySeriesSummary
 import app.ownplay.mobile.feature.playback.data.Media3PlaybackEngine
@@ -124,6 +126,10 @@ private fun LibrarySourceScreen(
             series = emptyList(),
         ),
     )
+    var searchQuery by remember(source.sourceId) { mutableStateOf("") }
+    val visibleCatalog = remember(catalog, searchQuery) {
+        LibrarySearchPolicy.filterCatalog(catalog, searchQuery)
+    }
     val scope = rememberCoroutineScope()
     val movieCategoryNames = catalog.movieCategories.associate { it.categoryId to it.displayName }
     val seriesCategoryNames = catalog.seriesCategories.associate { it.categoryId to it.displayName }
@@ -149,7 +155,17 @@ private fun LibrarySourceScreen(
             }
         }
 
-        if (catalog.movies.isEmpty() && catalog.series.isEmpty()) {
+        item {
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                label = { Text("Search Movies and Series") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+
+        if (searchQuery.isBlank() && catalog.movies.isEmpty() && catalog.series.isEmpty()) {
             item {
                 Text(
                     text = "No Movies or Series are available from this source.",
@@ -157,14 +173,26 @@ private fun LibrarySourceScreen(
                     modifier = Modifier.padding(top = 12.dp),
                 )
             }
+        } else if (
+            searchQuery.isNotBlank() &&
+            visibleCatalog.movies.isEmpty() &&
+            visibleCatalog.series.isEmpty()
+        ) {
+            item {
+                Text(
+                    text = "No Movies or Series match your search.",
+                    color = OwnPlayColors.TextMuted,
+                    modifier = Modifier.padding(top = 12.dp),
+                )
+            }
         }
 
-        if (catalog.continueWatching.isNotEmpty()) {
+        if (visibleCatalog.continueWatching.isNotEmpty()) {
             item {
                 LibrarySectionTitle("Continue Watching")
             }
             items(
-                items = catalog.continueWatching,
+                items = visibleCatalog.continueWatching,
                 key = { item -> "continue:${item.contentKind}:${item.contentId}" },
             ) { item ->
                 LibraryContinueWatchingRow(
@@ -176,11 +204,11 @@ private fun LibrarySourceScreen(
             }
         }
 
-        if (catalog.movies.isNotEmpty()) {
+        if (visibleCatalog.movies.isNotEmpty()) {
             item {
                 LibrarySectionTitle("Movies")
             }
-            items(catalog.movies, key = { "movie:${it.movieId}" }) { movie ->
+            items(visibleCatalog.movies, key = { "movie:${it.movieId}" }) { movie ->
                 LibraryMovieRow(
                     movie = movie,
                     categoryName = movie.categoryId?.let(movieCategoryNames::get),
@@ -206,11 +234,11 @@ private fun LibrarySourceScreen(
             }
         }
 
-        if (catalog.series.isNotEmpty()) {
+        if (visibleCatalog.series.isNotEmpty()) {
             item {
                 LibrarySectionTitle("Series")
             }
-            items(catalog.series, key = { "series:${it.seriesId}" }) { series ->
+            items(visibleCatalog.series, key = { "series:${it.seriesId}" }) { series ->
                 LibrarySeriesRow(
                     series = series,
                     categoryName = series.categoryId?.let(seriesCategoryNames::get),
@@ -310,6 +338,7 @@ private fun LibrarySeriesDetailScreen(
         mutableStateOf<LibraryDetailRefreshResult?>(null)
     }
     var selectedEpisodeId by remember(source.sourceId, seriesId) { mutableStateOf<String?>(null) }
+    var episodeSearchQuery by remember(source.sourceId, seriesId) { mutableStateOf("") }
     val scope = rememberCoroutineScope()
 
     LaunchedEffect(repository, source.sourceId, seriesId) {
@@ -318,15 +347,16 @@ private fun LibrarySeriesDetailScreen(
         refreshing = false
     }
 
-    LaunchedEffect(detail) {
+    LaunchedEffect(detail, episodeSearchQuery) {
         val current = detail ?: return@LaunchedEffect
-        val selectedStillAvailable = selectedEpisodeId?.let { selectedId ->
-            current.seasons.any { season ->
+        val visible = LibrarySearchPolicy.filterSeriesDetail(current, episodeSearchQuery)
+        val selectedStillVisible = selectedEpisodeId?.let { selectedId ->
+            visible.seasons.any { season ->
                 season.episodes.any { episode -> episode.episodeId == selectedId }
             }
         } ?: false
-        if (!selectedStillAvailable) {
-            selectedEpisodeId = LibraryDetailStartPolicy.firstAvailableEpisode(current)?.episodeId
+        if (!selectedStillVisible) {
+            selectedEpisodeId = LibraryDetailStartPolicy.firstAvailableEpisode(visible)?.episodeId
         }
     }
 
@@ -393,8 +423,22 @@ private fun LibrarySeriesDetailScreen(
             )
         }
 
-        val selectedEpisode = LibraryDetailStartPolicy.selectedOrFirstAvailable(
+        item {
+            OutlinedTextField(
+                value = episodeSearchQuery,
+                onValueChange = { episodeSearchQuery = it },
+                label = { Text("Search episodes") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+
+        val visibleDetail = LibrarySearchPolicy.filterSeriesDetail(
             detail = currentDetail,
+            query = episodeSearchQuery,
+        )
+        val selectedEpisode = LibraryDetailStartPolicy.selectedOrFirstAvailable(
+            detail = visibleDetail,
             selectedEpisodeId = selectedEpisodeId,
         )
         item {
@@ -433,20 +477,20 @@ private fun LibrarySeriesDetailScreen(
             else -> Unit
         }
 
-        if (currentDetail.seasons.isEmpty()) {
+        if (visibleDetail.seasons.isEmpty()) {
             item {
                 Text(
-                    text = if (refreshing) {
-                        "Refreshing episode details…"
-                    } else {
-                        "No episodes are available for this Series."
+                    text = when {
+                        episodeSearchQuery.isNotBlank() -> "No episodes match your search."
+                        refreshing -> "Refreshing episode details…"
+                        else -> "No episodes are available for this Series."
                     },
                     color = OwnPlayColors.TextMuted,
                 )
             }
         }
 
-        currentDetail.seasons.forEach { season ->
+        visibleDetail.seasons.forEach { season ->
             item(key = "season:${season.seasonNumber}") {
                 Text(
                     text = "Season ${season.seasonNumber}",
