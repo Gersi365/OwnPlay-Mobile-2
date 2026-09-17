@@ -104,7 +104,23 @@ private fun LibrarySourceScreen(
     playbackSessionController: PlaybackSessionController,
     modifier: Modifier,
 ) {
+    var selectedMovieId by remember(source.sourceId) { mutableStateOf<String?>(null) }
     var selectedSeriesId by remember(source.sourceId) { mutableStateOf<String?>(null) }
+
+    val openMovieId = selectedMovieId
+    if (openMovieId != null) {
+        LibraryMovieDetailScreen(
+            source = source,
+            movieId = openMovieId,
+            repository = repository,
+            artworkLoader = artworkLoader,
+            playbackSessionController = playbackSessionController,
+            onBack = { selectedMovieId = null },
+            modifier = modifier,
+        )
+        return
+    }
+
     val openSeriesId = selectedSeriesId
     if (openSeriesId != null) {
         LibrarySeriesDetailScreen(
@@ -225,6 +241,7 @@ private fun LibrarySourceScreen(
                             ),
                         )
                     },
+                    onDetails = { selectedMovieId = movie.movieId },
                     onFavorite = {
                         scope.launch {
                             repository.setFavorite(
@@ -601,6 +618,7 @@ private fun LibraryMovieRow(
     categoryName: String?,
     artworkLoader: LibraryArtworkLoader,
     onPlay: () -> Unit,
+    onDetails: () -> Unit,
     onFavorite: () -> Unit,
 ) {
     LibraryMediaRow(
@@ -613,6 +631,8 @@ private fun LibraryMovieRow(
         primaryActionLabel = "Play",
         onPrimaryAction = onPlay,
         onFavorite = onFavorite,
+        secondaryActionLabel = "Details",
+        onSecondaryAction = onDetails,
     )
 }
 
@@ -648,6 +668,8 @@ private fun LibraryMediaRow(
     primaryActionLabel: String,
     onPrimaryAction: () -> Unit,
     onFavorite: () -> Unit,
+    secondaryActionLabel: String? = null,
+    onSecondaryAction: (() -> Unit)? = null,
 ) {
     Surface(
         color = OwnPlayColors.Surface,
@@ -678,6 +700,11 @@ private fun LibraryMediaRow(
                 }
                 TextButton(onClick = onPrimaryAction) {
                     Text(primaryActionLabel)
+                }
+                if (secondaryActionLabel != null && onSecondaryAction != null) {
+                    TextButton(onClick = onSecondaryAction) {
+                        Text(secondaryActionLabel)
+                    }
                 }
             }
             TextButton(onClick = onFavorite) {
