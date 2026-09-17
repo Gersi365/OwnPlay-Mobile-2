@@ -56,16 +56,16 @@ class OkHttpXtreamClient(
         return parse(
             connection = connection,
             action = "get_series_info",
-            extraParameters = mapOf("series_id" to seriesId),
             parser = XtreamPayloadParser::seriesInfo,
+            extraParameters = mapOf("series_id" to seriesId),
         )
     }
 
     private suspend fun <T> parse(
         connection: XtreamConnection,
         action: String,
-        extraParameters: Map<String, String> = emptyMap(),
         parser: (String) -> T,
+        extraParameters: Map<String, String> = emptyMap(),
     ): T {
         val response = transport.get(
             XtreamUrlBuilder.playerApi(
