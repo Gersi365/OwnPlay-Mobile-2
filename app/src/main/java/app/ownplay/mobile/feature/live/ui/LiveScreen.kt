@@ -1,5 +1,6 @@
 package app.ownplay.mobile.feature.live.ui
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -32,6 +33,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import app.ownplay.mobile.OwnPlayApplication
 import app.ownplay.mobile.design.OwnPlayColors
 import app.ownplay.mobile.design.OwnPlayFeaturePlaceholder
@@ -43,6 +46,10 @@ import app.ownplay.mobile.feature.live.domain.OwnPlayLiveCatalogSnapshot
 import app.ownplay.mobile.feature.live.domain.OwnPlayLivePlacement
 import app.ownplay.mobile.feature.live.domain.OwnPlayLiveSemanticCategory
 import app.ownplay.mobile.feature.live.domain.ProviderLiveCatalogSnapshot
+import app.ownplay.mobile.feature.playback.domain.PlaybackPresentation
+import app.ownplay.mobile.feature.playback.domain.PlaybackReadiness
+import app.ownplay.mobile.feature.playback.domain.PlaybackSessionController
+import app.ownplay.mobile.feature.playback.domain.PlaybackTarget
 import app.ownplay.mobile.sources.domain.SourceSummary
 import kotlinx.coroutines.launch
 
@@ -70,6 +77,7 @@ fun LiveScreen(
     LiveSourceScreen(
         source = source,
         repository = services.liveOrganizationRepository,
+        playbackSessionController = services.playbackSessionController,
         modifier = modifier,
     )
 }
@@ -79,6 +87,7 @@ fun LiveScreen(
 private fun LiveSourceScreen(
     source: SourceSummary,
     repository: LiveOrganizationRepository,
+    playbackSessionController: PlaybackSessionController,
     modifier: Modifier,
 ) {
     val sourceId = source.sourceId
@@ -99,6 +108,7 @@ private fun LiveSourceScreen(
         ),
     )
     val favoriteChannelIds by favoritesFlow.collectAsState(initial = emptySet())
+    val playbackState by playbackSessionController.state.collectAsState()
     val scope = rememberCoroutineScope()
 
     var requestedCountryId by rememberSaveable(sourceId.value) { mutableStateOf<String?>(null) }
@@ -125,6 +135,10 @@ private fun LiveSourceScreen(
         catalog = providerCatalog,
     )
     val channelById = providerCatalog.channels.associateBy(LiveOrganizationChannel::channelId)
+    val playbackTarget = playbackState.target?.takeIf { it.sourceId == sourceId }
+    val playbackChannelName = playbackTarget?.let { target ->
+        channelById[target.channelId]?.name ?: "Live channel"
+    }
     val visibleChannelIds = if (mode == LiveOrganizationMode.OWNPLAY) {
         LiveBrowseStatePolicy.visibleOwnPlayChannelIds(
             catalog = ownPlayCatalog,
@@ -219,6 +233,17 @@ private fun LiveSourceScreen(
             }
         }
 
+        if (
+            playbackTarget != null &&
+            playbackChannelName != null &&
+            playbackState.presentation == PlaybackPresentation.PREVIEW
+        ) {
+            PlaybackPreviewCard(
+                channelName = playbackChannelName,
+                readiness = playbackState.readiness,
+            )
+        }
+
         operationMessage?.let { message ->
             Text(text = message, color = OwnPlayColors.Error)
         }
@@ -241,6 +266,16 @@ private fun LiveSourceScreen(
                         channel = channel,
                         ownPlayMode = mode == LiveOrganizationMode.OWNPLAY,
                         hasManualPlacement = channel.channelId in ownPlayCatalog.manualPlacementChannelIds,
+                        onActivate = {
+                            scope.launch {
+                                playbackSessionController.activateLiveChannel(
+                                    PlaybackTarget(
+                                        sourceId = sourceId,
+                                        channelId = channel.channelId,
+                                    ),
+                                )
+                            }
+                        },
                         onMove = {
                             movingChannelId = channel.channelId
                             moveCountryId = selectedCountryId
@@ -308,6 +343,18 @@ private fun LiveSourceScreen(
             onDismiss = { movingChannelId = null },
         )
     }
+
+    if (
+        playbackTarget != null &&
+        playbackChannelName != null &&
+        playbackState.presentation == PlaybackPresentation.FULLSCREEN
+    ) {
+        PlaybackFullscreenPresentation(
+            channelName = playbackChannelName,
+            readiness = playbackState.readiness,
+            onDismiss = playbackSessionController::returnToPreview,
+        )
+    }
 }
 
 @Composable
@@ -315,12 +362,15 @@ private fun LiveChannelRow(
     channel: LiveOrganizationChannel,
     ownPlayMode: Boolean,
     hasManualPlacement: Boolean,
+    onActivate: () -> Unit,
     onMove: () -> Unit,
     onReset: () -> Unit,
 ) {
     Surface(
         color = OwnPlayColors.Surface,
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onActivate),
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
@@ -343,6 +393,78 @@ private fun LiveChannelRow(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun PlaybackPreviewCard(
+    channelName: String,
+    readiness: PlaybackReadiness,
+) {
+    Surface(
+        color = OwnPlayColors.Surface,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(
+                text = "Preview",
+                color = OwnPlayColors.TextSecondary,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                text = channelName,
+                color = OwnPlayColors.TextPrimary,
+                fontWeight = FontWeight.Bold,
+            )
+            PlaybackReadinessMessage(readiness)
+        }
+    }
+}
+
+@Composable
+private fun PlaybackFullscreenPresentation(
+    channelName: String,
+    readiness: PlaybackReadiness,
+    onDismiss: () -> Unit,
+) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Surface(
+            color = OwnPlayColors.Background,
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(24.dp),
+                verticalArrangement = Arrangement.Center,
+            ) {
+                Text(
+                    text = channelName,
+                    color = OwnPlayColors.TextPrimary,
+                    fontWeight = FontWeight.Bold,
+                )
+                PlaybackReadinessMessage(readiness)
+            }
+        }
+    }
+}
+
+@Composable
+private fun PlaybackReadinessMessage(readiness: PlaybackReadiness) {
+    val message = when (readiness) {
+        PlaybackReadiness.IDLE -> null
+        PlaybackReadiness.PREPARING -> "Preparing playback…"
+        PlaybackReadiness.PREPARED -> null
+        PlaybackReadiness.UNAVAILABLE -> "Playback is unavailable for this channel."
+    }
+    if (message != null) {
+        Text(text = message, color = OwnPlayColors.TextMuted)
     }
 }
 
