@@ -5,6 +5,9 @@ import app.ownplay.mobile.data.db.OwnPlayDatabase
 import app.ownplay.mobile.data.prefs.ActiveSourcePreferences
 import app.ownplay.mobile.data.security.CredentialStore
 import app.ownplay.mobile.data.security.KeystoreCredentialStore
+import app.ownplay.mobile.feature.live.data.RoomLiveOrganizationRefreshStore
+import app.ownplay.mobile.feature.live.data.RoomLiveOrganizationRepository
+import app.ownplay.mobile.feature.live.domain.LiveOrganizationRepository
 import app.ownplay.mobile.sources.data.DefaultSourceCatalogLoader
 import app.ownplay.mobile.sources.data.OkHttpProviderTransport
 import app.ownplay.mobile.sources.data.ProviderTransport
@@ -21,6 +24,7 @@ class OwnPlayServices private constructor(
     val activeSourcePreferences: ActiveSourcePreferences,
     val credentialStore: CredentialStore,
     val sourceRepository: SourceRepository,
+    val liveOrganizationRepository: LiveOrganizationRepository,
     val providerTransport: ProviderTransport,
     val m3uClient: M3uClient,
     val xtreamClient: XtreamClient,
@@ -35,13 +39,20 @@ class OwnPlayServices private constructor(
             val m3uClient = OkHttpM3uClient(transport)
             val xtreamClient = OkHttpXtreamClient(transport)
             val refreshStateDao = database.refreshStateDao()
+            val liveOrganizationDao = database.liveOrganizationDao()
             val catalogLoader = DefaultSourceCatalogLoader(
                 xtreamClient = xtreamClient,
                 m3uClient = m3uClient,
             )
+            val liveOrganizationRefreshStore = RoomLiveOrganizationRefreshStore(liveOrganizationDao)
             val catalogRefreshStore = RoomCatalogRefreshStore(
                 database = database,
                 refreshStateDao = refreshStateDao,
+                liveOrganizationRefreshStore = liveOrganizationRefreshStore,
+            )
+            val liveOrganizationRepository = RoomLiveOrganizationRepository(
+                database = database,
+                dao = liveOrganizationDao,
             )
 
             return OwnPlayServices(
@@ -56,6 +67,7 @@ class OwnPlayServices private constructor(
                     catalogLoader = catalogLoader,
                     catalogRefreshStore = catalogRefreshStore,
                 ),
+                liveOrganizationRepository = liveOrganizationRepository,
                 providerTransport = transport,
                 m3uClient = m3uClient,
                 xtreamClient = xtreamClient,
