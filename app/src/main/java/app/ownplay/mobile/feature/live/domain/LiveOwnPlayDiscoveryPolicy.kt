@@ -920,11 +920,11 @@ object LiveOwnPlayDiscoveryPolicy {
     private fun normalizeText(value: String): String {
         val decomposed = Normalizer.normalize(value, Normalizer.Form.NFD)
         return decomposed
-            .replace(Regex("\\p{M}+"), "")
+            .replace(combiningMarkRegex, "")
             .uppercase(Locale.ROOT)
-            .replace(Regex("[^\\p{L}\\p{N}]+"), " ")
+            .replace(nonLetterOrDigitRegex, " ")
             .trim()
-            .replace(Regex("\\s+"), " ")
+            .replace(repeatedWhitespaceRegex, " ")
     }
 
     private val LiveClassificationConfidence.rank: Int
@@ -933,6 +933,10 @@ object LiveOwnPlayDiscoveryPolicy {
             LiveClassificationConfidence.MEDIUM -> 1
             LiveClassificationConfidence.HIGH -> 2
         }
+
+    private val combiningMarkRegex = Regex("\\p{M}+")
+    private val nonLetterOrDigitRegex = Regex("[^\\p{L}\\p{N}]+")
+    private val repeatedWhitespaceRegex = Regex("\\s+")
 
     private const val REGIONAL_INDICATOR_A = 0x1F1E6
     private const val REGIONAL_INDICATOR_Z = 0x1F1FF
