@@ -35,6 +35,17 @@ data class XtreamMovie(
     val providerOrder: Int,
 )
 
+data class XtreamMovieDetail(
+    val name: String?,
+    val posterUrl: String?,
+    val backdropUrl: String?,
+    val plot: String?,
+    val releaseDate: String?,
+    val year: String?,
+    val runtimeMs: Long?,
+    val rating: String?,
+)
+
 data class XtreamSeries(
     val seriesId: String,
     val categoryId: String?,

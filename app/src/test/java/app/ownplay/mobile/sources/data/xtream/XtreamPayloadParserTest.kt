@@ -48,6 +48,59 @@ class XtreamPayloadParserTest {
     }
 
     @Test
+    fun `movie info parses provider metadata without inventing fields`() {
+        val detail = XtreamPayloadParser.movieInfo(
+            """
+            {
+              "info": {
+                "name": "Provider Movie",
+                "movie_image": "https://img.example/poster.jpg",
+                "backdrop_path": ["https://img.example/backdrop.jpg"],
+                "plot": "Provider plot",
+                "releasedate": "2024-05-06",
+                "duration_secs": 3723,
+                "rating": "8.2"
+              },
+              "movie_data": {
+                "name": "Fallback Movie"
+              }
+            }
+            """.trimIndent(),
+        )
+
+        assertEquals("Provider Movie", detail.name)
+        assertEquals("https://img.example/poster.jpg", detail.posterUrl)
+        assertEquals("https://img.example/backdrop.jpg", detail.backdropUrl)
+        assertEquals("Provider plot", detail.plot)
+        assertEquals("2024-05-06", detail.releaseDate)
+        assertEquals("2024", detail.year)
+        assertEquals(3_723_000L, detail.runtimeMs)
+        assertEquals("8.2", detail.rating)
+    }
+
+    @Test
+    fun `movie info uses safe clock duration fallback and leaves absent metadata null`() {
+        val detail = XtreamPayloadParser.movieInfo(
+            """
+            {
+              "info": {
+                "duration": "01:02:03"
+              },
+              "movie_data": {
+                "name": "Movie"
+              }
+            }
+            """.trimIndent(),
+        )
+
+        assertEquals("Movie", detail.name)
+        assertEquals(3_723_000L, detail.runtimeMs)
+        assertNull(detail.plot)
+        assertNull(detail.year)
+        assertNull(detail.rating)
+    }
+
+    @Test
     fun `series info uses provider episode ids and season keys`() {
         val detail = XtreamPayloadParser.seriesInfo(
             """

@@ -58,6 +58,35 @@ object XtreamPayloadParser {
             )
         }
 
+    fun movieInfo(body: String): XtreamMovieDetail {
+        val root = json.parseToJsonElement(body) as? JsonObject
+            ?: return XtreamMovieDetail(null, null, null, null, null, null, null, null)
+        val info = root["info"] as? JsonObject
+        val movieData = root["movie_data"] as? JsonObject
+        val releaseDate = info?.text("releasedate") ?: info?.text("release_date")
+        val year = info?.text("year") ?: releaseDate
+            ?.take(4)
+            ?.takeIf { candidate -> candidate.length == 4 && candidate.all(Char::isDigit) }
+        val durationSeconds = info?.long("duration_secs")
+        val runtimeMs = durationSeconds
+            ?.takeIf { it > 0L && it <= Long.MAX_VALUE / 1_000L }
+            ?.times(1_000L)
+            ?: parseClockDurationMs(info?.text("duration"))
+
+        return XtreamMovieDetail(
+            name = info?.text("name") ?: movieData?.text("name"),
+            posterUrl = info?.text("movie_image")
+                ?: info?.text("cover_big")
+                ?: movieData?.text("stream_icon"),
+            backdropUrl = info?.firstText("backdrop_path"),
+            plot = info?.text("plot") ?: info?.text("description"),
+            releaseDate = releaseDate,
+            year = year,
+            runtimeMs = runtimeMs,
+            rating = info?.text("rating") ?: movieData?.text("rating"),
+        )
+    }
+
     fun series(body: String): List<XtreamSeries> =
         parseArray(body).mapIndexedNotNull { index, element ->
             val objectValue = element as? JsonObject ?: return@mapIndexedNotNull null
@@ -137,11 +166,58 @@ object XtreamPayloadParser {
     private fun parseArray(body: String): JsonArray =
         json.parseToJsonElement(body).jsonArray
 
+    private fun parseClockDurationMs(value: String?): Long? {
+        val parts = value
+            ?.trim()
+            ?.split(':')
+            ?.map { it.toLongOrNull() ?: return null }
+            ?: return null
+        if (parts.size !in 2..3 || parts.any { it < 0L }) return null
+
+        val seconds = try {
+            when (parts.size) {
+                2 -> {
+                    val (minutes, secs) = parts
+                    if (secs > 59L) return null
+                    Math.addExact(Math.multiplyExact(minutes, 60L), secs)
+                }
+                3 -> {
+                    val (hours, minutes, secs) = parts
+                    if (minutes > 59L || secs > 59L) return null
+                    Math.addExact(
+                        Math.addExact(
+                            Math.multiplyExact(hours, 3_600L),
+                            Math.multiplyExact(minutes, 60L),
+                        ),
+                        secs,
+                    )
+                }
+                else -> return null
+            }
+        } catch (_: ArithmeticException) {
+            return null
+        }
+        return seconds
+            .takeIf { it > 0L && it <= Long.MAX_VALUE / 1_000L }
+            ?.times(1_000L)
+    }
+
     private fun JsonObject.text(key: String): String? =
         (this[key] as? JsonPrimitive)
             ?.contentOrNull
             ?.trim()
             ?.takeIf(String::isNotBlank)
+
+    private fun JsonObject.firstText(key: String): String? =
+        text(key) ?: (this[key] as? JsonArray)
+            ?.asSequence()
+            ?.mapNotNull { element ->
+                (element as? JsonPrimitive)
+                    ?.contentOrNull
+                    ?.trim()
+                    ?.takeIf(String::isNotBlank)
+            }
+            ?.firstOrNull()
 
     private fun JsonObject.int(key: String): Int? = text(key)?.toIntOrNull()
 

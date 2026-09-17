@@ -10,6 +10,8 @@ interface XtreamClient {
     suspend fun liveStreams(connection: XtreamConnection): List<XtreamLiveStream>
     suspend fun movieCategories(connection: XtreamConnection): List<XtreamCategory>
     suspend fun movies(connection: XtreamConnection): List<XtreamMovie>
+    suspend fun movieInfo(connection: XtreamConnection, movieId: String): XtreamMovieDetail =
+        throw UnsupportedOperationException("Movie detail is not supported")
     suspend fun seriesCategories(connection: XtreamConnection): List<XtreamCategory>
     suspend fun series(connection: XtreamConnection): List<XtreamSeries>
     suspend fun seriesInfo(connection: XtreamConnection, seriesId: String): XtreamSeriesDetail
@@ -37,6 +39,19 @@ class OkHttpXtreamClient(
         connection: XtreamConnection,
     ): List<XtreamMovie> =
         parse(connection, "get_vod_streams", XtreamPayloadParser::movies)
+
+    override suspend fun movieInfo(
+        connection: XtreamConnection,
+        movieId: String,
+    ): XtreamMovieDetail {
+        require(movieId.isNotBlank()) { "Movie id must not be blank" }
+        return parse(
+            connection = connection,
+            action = "get_vod_info",
+            parser = XtreamPayloadParser::movieInfo,
+            extraParameters = mapOf("vod_id" to movieId),
+        )
+    }
 
     override suspend fun seriesCategories(
         connection: XtreamConnection,
