@@ -36,6 +36,19 @@ interface LiveOrganizationDao {
 
     @Query(
         """
+        SELECT p.channelId
+        FROM channel_personalization AS p
+        INNER JOIN live_channels AS c ON c.channelId = p.channelId
+        WHERE c.sourceId = :sourceId
+          AND c.available = 1
+          AND p.favorite = 1
+        ORDER BY c.providerOrder, c.channelId
+        """,
+    )
+    fun observeFavoriteChannelIds(sourceId: String): Flow<List<String>>
+
+    @Query(
+        """
         SELECT * FROM ownplay_live_categories
         WHERE sourceId = :sourceId
         ORDER BY categoryId
