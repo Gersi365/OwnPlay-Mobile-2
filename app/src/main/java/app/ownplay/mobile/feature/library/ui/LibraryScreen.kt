@@ -24,6 +24,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import app.ownplay.mobile.OwnPlayApplication
 import app.ownplay.mobile.design.OwnPlayColors
 import app.ownplay.mobile.design.OwnPlayFeaturePlaceholder
@@ -35,6 +37,12 @@ import app.ownplay.mobile.feature.library.domain.LibraryMovieSummary
 import app.ownplay.mobile.feature.library.domain.LibraryRepository
 import app.ownplay.mobile.feature.library.domain.LibrarySeriesDetail
 import app.ownplay.mobile.feature.library.domain.LibrarySeriesSummary
+import app.ownplay.mobile.feature.playback.data.Media3PlaybackEngine
+import app.ownplay.mobile.feature.playback.domain.PlaybackPresentation
+import app.ownplay.mobile.feature.playback.domain.PlaybackReadiness
+import app.ownplay.mobile.feature.playback.domain.PlaybackSessionController
+import app.ownplay.mobile.feature.playback.domain.PlaybackTarget
+import app.ownplay.mobile.feature.playback.ui.PlaybackVideoSurface
 import app.ownplay.mobile.sources.domain.SourceSummary
 import kotlinx.coroutines.launch
 
@@ -48,6 +56,7 @@ fun LibraryScreen(
         services.sourceRepository.observeActiveSource()
     }
     val activeSource by activeSourceFlow.collectAsState(initial = null)
+    val playbackState by services.playbackSessionController.state.collectAsState()
 
     val source = activeSource
     if (source == null) {
@@ -62,14 +71,30 @@ fun LibraryScreen(
     LibrarySourceScreen(
         source = source,
         repository = services.libraryRepository,
+        playbackSessionController = services.playbackSessionController,
         modifier = modifier,
     )
+
+    val libraryTarget = playbackState.target as? PlaybackTarget.Library
+    if (
+        libraryTarget != null &&
+        libraryTarget.sourceId == source.sourceId &&
+        playbackState.presentation == PlaybackPresentation.FULLSCREEN
+    ) {
+        LibraryPlaybackFullscreenPresentation(
+            target = libraryTarget,
+            readiness = playbackState.readiness,
+            playbackEngine = services.playbackEngine,
+            onDismiss = services.playbackSessionController::clear,
+        )
+    }
 }
 
 @Composable
 private fun LibrarySourceScreen(
     source: SourceSummary,
     repository: LibraryRepository,
+    playbackSessionController: PlaybackSessionController,
     modifier: Modifier,
 ) {
     var selectedSeriesId by remember(source.sourceId) { mutableStateOf<String?>(null) }
@@ -79,6 +104,7 @@ private fun LibrarySourceScreen(
             source = source,
             seriesId = openSeriesId,
             repository = repository,
+            playbackSessionController = playbackSessionController,
             onBack = { selectedSeriesId = null },
             modifier = modifier,
         )
@@ -140,6 +166,16 @@ private fun LibrarySourceScreen(
                 LibraryMovieRow(
                     movie = movie,
                     categoryName = movie.categoryId?.let(movieCategoryNames::get),
+                    onPlay = {
+                        scope.launch {
+                            playbackSessionController.activateLibraryMedia(
+                                PlaybackTarget.Movie(
+                                    sourceId = source.sourceId,
+                                    movieId = movie.movieId,
+                                ),
+                            )
+                        }
+                    },
                     onFavorite = {
                         scope.launch {
                             repository.setFavorite(
@@ -189,6 +225,7 @@ private fun LibrarySeriesDetailScreen(
     source: SourceSummary,
     seriesId: String,
     repository: LibraryRepository,
+    playbackSessionController: PlaybackSessionController,
     onBack: () -> Unit,
     modifier: Modifier,
 ) {
@@ -282,6 +319,30 @@ private fun LibrarySeriesDetailScreen(
                     }
                 },
             )
+        }
+
+        val selectedEpisode = LibraryDetailStartPolicy.selectedOrFirstAvailable(
+            detail = currentDetail,
+            selectedEpisodeId = selectedEpisodeId,
+        )
+        item {
+            TextButton(
+                enabled = selectedEpisode != null,
+                onClick = {
+                    selectedEpisode?.let { episode ->
+                        scope.launch {
+                            playbackSessionController.activateLibraryMedia(
+                                PlaybackTarget.Episode(
+                                    sourceId = source.sourceId,
+                                    episodeId = episode.episodeId,
+                                ),
+                            )
+                        }
+                    }
+                },
+            ) {
+                Text("Play selected episode")
+            }
         }
 
         when (refreshResult) {
@@ -392,6 +453,7 @@ private fun LibrarySeriesMetadata(
 private fun LibraryMovieRow(
     movie: LibraryMovieSummary,
     categoryName: String?,
+    onPlay: () -> Unit,
     onFavorite: () -> Unit,
 ) {
     LibraryMediaRow(
@@ -399,7 +461,8 @@ private fun LibraryMovieRow(
         categoryName = categoryName,
         rating = movie.rating,
         favorite = movie.favorite,
-        onOpen = null,
+        primaryActionLabel = "Play",
+        onPrimaryAction = onPlay,
         onFavorite = onFavorite,
     )
 }
@@ -416,7 +479,8 @@ private fun LibrarySeriesRow(
         categoryName = categoryName,
         rating = series.rating,
         favorite = series.favorite,
-        onOpen = onOpen,
+        primaryActionLabel = "Open details",
+        onPrimaryAction = onOpen,
         onFavorite = onFavorite,
     )
 }
@@ -427,7 +491,8 @@ private fun LibraryMediaRow(
     categoryName: String?,
     rating: String?,
     favorite: Boolean,
-    onOpen: (() -> Unit)?,
+    primaryActionLabel: String,
+    onPrimaryAction: () -> Unit,
     onFavorite: () -> Unit,
 ) {
     Surface(
@@ -453,15 +518,72 @@ private fun LibraryMediaRow(
                 rating?.takeIf(String::isNotBlank)?.let {
                     Text(text = "Rating: $it", color = OwnPlayColors.TextMuted)
                 }
-                onOpen?.let { open ->
-                    TextButton(onClick = open) {
-                        Text("Open details")
-                    }
+                TextButton(onClick = onPrimaryAction) {
+                    Text(primaryActionLabel)
                 }
             }
             TextButton(onClick = onFavorite) {
                 Text(if (favorite) "Unfavorite" else "Favorite")
             }
         }
+    }
+}
+
+@Composable
+private fun LibraryPlaybackFullscreenPresentation(
+    target: PlaybackTarget.Library,
+    readiness: PlaybackReadiness,
+    playbackEngine: Media3PlaybackEngine,
+    onDismiss: () -> Unit,
+) {
+    val title = when (target) {
+        is PlaybackTarget.Movie -> "Movie playback"
+        is PlaybackTarget.Episode -> "Episode playback"
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Surface(
+            color = OwnPlayColors.Background,
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            Column(modifier = Modifier.fillMaxSize()) {
+                PlaybackVideoSurface(
+                    playbackEngine = playbackEngine,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                )
+                Column(
+                    modifier = Modifier.padding(24.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Text(
+                        text = title,
+                        color = OwnPlayColors.TextPrimary,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    LibraryPlaybackReadinessMessage(readiness)
+                    TextButton(onClick = onDismiss) {
+                        Text("Close")
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LibraryPlaybackReadinessMessage(readiness: PlaybackReadiness) {
+    val message = when (readiness) {
+        PlaybackReadiness.IDLE -> null
+        PlaybackReadiness.PREPARING -> "Preparing playback…"
+        PlaybackReadiness.PREPARED -> null
+        PlaybackReadiness.UNAVAILABLE -> "Playback is unavailable for this item."
+    }
+    if (message != null) {
+        Text(text = message, color = OwnPlayColors.TextMuted)
     }
 }
