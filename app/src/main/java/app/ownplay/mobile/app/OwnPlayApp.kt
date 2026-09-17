@@ -50,16 +50,17 @@ fun OwnPlayApp(
         var selectedDestination by rememberSaveable {
             mutableStateOf(AppDestination.Live)
         }
-        var contentFullscreenKind by rememberSaveable {
+        var contentFullscreenKind by remember {
             mutableStateOf(ContentFullscreenKind.NONE)
         }
         var exitConfirmationVisible by rememberSaveable { mutableStateOf(false) }
-        var pendingOfflineDownloadId by rememberSaveable { mutableStateOf<String?>(null) }
         var destinationTransitionInProgress by remember { mutableStateOf(false) }
         val scope = rememberCoroutineScope()
         val playerInteractionState = rememberPlayerInteractionState()
         val settingsFlow = remember(services.settingsPreferences) { services.settingsPreferences.settings }
         val settings by settingsFlow.collectAsState(initial = SettingsSnapshot())
+        val libraryCatalogFlow = remember(services.libraryRepository) { services.libraryRepository.observeCatalog() }
+        val libraryCatalog by libraryCatalogFlow.collectAsState(initial = null)
 
         fun setContentFullscreen(kind: ContentFullscreenKind) {
             contentFullscreenKind = kind
@@ -138,6 +139,7 @@ fun OwnPlayApp(
                         when (selectedDestination) {
                             AppDestination.Live -> LiveShell(
                                 liveRepository = services.liveRepository,
+                                liveOrganizationRepository = services.liveOrganizationRepository,
                                 playbackController = services.playbackController,
                                 showChannelLogos = settings.showChannelLogos,
                                 hideChannelPrefix = settings.hideChannelPrefix,
@@ -151,14 +153,13 @@ fun OwnPlayApp(
                             )
 
                             AppDestination.Library -> LibraryShell(
+                                catalog = libraryCatalog,
                                 libraryRepository = services.libraryRepository,
                                 downloadRepository = services.downloadRepository,
                                 downloadMetadataResolver = services.libraryDownloadMetadataResolver,
                                 libraryVisibilityPreferences = services.libraryVisibilityPreferences,
                                 playbackController = services.playbackController,
                                 resumePlaybackEnabled = settings.resumePlaybackEnabled,
-                                initialOfflineDownloadId = pendingOfflineDownloadId,
-                                onInitialOfflineConsumed = { pendingOfflineDownloadId = null },
                                 onFullscreenChanged = { fullscreen ->
                                     setContentFullscreen(
                                         if (fullscreen) ContentFullscreenKind.LIBRARY else ContentFullscreenKind.NONE,
@@ -169,14 +170,9 @@ fun OwnPlayApp(
                             AppDestination.Settings -> SettingsShell(
                                 sourceRepository = services.sourceRepository,
                                 settingsPreferences = services.settingsPreferences,
-                                libraryVisibilityPreferences = services.libraryVisibilityPreferences,
                                 backupRepository = services.backupRepository,
                                 liveRepository = services.liveRepository,
-                                downloadRepository = services.downloadRepository,
-                                onPlayOffline = { downloadId ->
-                                    pendingOfflineDownloadId = downloadId
-                                    selectedDestination = AppDestination.Library
-                                },
+                                liveOrganizationRepository = services.liveOrganizationRepository,
                             )
                         }
                     }

@@ -4,6 +4,14 @@ import app.ownplay.mobile.data.db.LibraryDao
 import app.ownplay.mobile.feature.library.domain.LibraryMediaKind
 import app.ownplay.mobile.feature.library.domain.LibraryMediaMetadata
 
+data class LibraryDownloadEpisodeContext(
+    val seriesId: String,
+    val seriesName: String,
+    val seasonNumber: Int,
+    val episodeNumber: Int,
+    val available: Boolean,
+)
+
 /**
  * Builds a durable download-metadata snapshot from the catalog already stored in Room.
  *
@@ -22,6 +30,24 @@ class LibraryDownloadMetadataResolver(
         return when (mediaKind) {
             LibraryMediaKind.MOVIE -> resolveMovie(sourceId, contentId)
             LibraryMediaKind.EPISODE -> resolveEpisode(sourceId, contentId)
+        }
+    }
+
+    suspend fun resolveEpisodeContexts(
+        sourceId: String,
+        episodeIds: List<String>,
+    ): Map<String, LibraryDownloadEpisodeContext> {
+        if (sourceId.isBlank()) return emptyMap()
+        val stableIds = episodeIds.filter(String::isNotBlank).distinct()
+        if (stableIds.isEmpty()) return emptyMap()
+        return libraryDao.getEpisodesForProgress(sourceId, stableIds).associate { episode ->
+            episode.episodeId to LibraryDownloadEpisodeContext(
+                seriesId = episode.seriesId,
+                seriesName = episode.seriesName,
+                seasonNumber = episode.seasonNumber,
+                episodeNumber = episode.episodeNumber,
+                available = episode.available,
+            )
         }
     }
 

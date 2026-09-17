@@ -201,7 +201,7 @@ fun OwnPlayFilterChip(
 ) {
     Surface(
         onClick = onClick,
-        modifier = modifier.heightIn(min = 48.dp),
+        modifier = modifier.heightIn(min = 52.dp),
         shape = OwnPlayShapeTokens.Small,
         color = if (selected) OwnPlayColors.Accent.copy(alpha = 0.10f) else Color.Transparent,
         tonalElevation = 0.dp,
@@ -215,7 +215,8 @@ fun OwnPlayFilterChip(
                 text = label,
                 style = MaterialTheme.typography.labelLarge,
                 color = if (selected) OwnPlayColors.TextPrimary else OwnPlayColors.TextSecondary,
-                maxLines = 1,
+                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                maxLines = 2,
             )
             Spacer(modifier = Modifier.height(5.dp))
             Box(

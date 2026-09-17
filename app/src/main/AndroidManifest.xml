@@ -32,6 +32,10 @@
             </intent-filter>
         </activity>
 
+        <receiver
+            android:name=".downloads.data.DownloadNotificationActionReceiver"
+            android:exported="false" />
+
         <service
             android:name="androidx.work.impl.foreground.SystemForegroundService"
             android:foregroundServiceType="dataSync"

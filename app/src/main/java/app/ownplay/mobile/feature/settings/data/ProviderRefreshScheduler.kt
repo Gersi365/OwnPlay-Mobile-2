@@ -10,6 +10,7 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import app.ownplay.mobile.OwnPlayApplication
 import app.ownplay.mobile.feature.settings.domain.BackupResult
+import app.ownplay.mobile.feature.settings.domain.ProviderRefreshRetryPolicy
 import app.ownplay.mobile.sources.domain.SourceResult
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.flow.first
@@ -53,17 +54,22 @@ class ProviderRefreshWorker(
         val sources = services.sourceRepository.observeSources().first()
             .filter { source -> source.enabled && !source.requiresCredentials }
 
+        var retryNeeded = false
         sources.forEach { source ->
-            when (services.sourceRepository.refresh(source.sourceId)) {
+            when (val refresh = services.sourceRepository.refresh(source.sourceId)) {
                 is SourceResult.Success -> {
                     when (services.backupRepository.applyPendingForSource(source.sourceId)) {
                         is BackupResult.Success -> Unit
                         is BackupResult.Failure -> Unit
                     }
                 }
-                is SourceResult.Failure -> Unit
+                is SourceResult.Failure -> {
+                    if (ProviderRefreshRetryPolicy.shouldRetry(refresh.error.code)) {
+                        retryNeeded = true
+                    }
+                }
             }
         }
-        return Result.success()
+        return if (retryNeeded) Result.retry() else Result.success()
     }
 }

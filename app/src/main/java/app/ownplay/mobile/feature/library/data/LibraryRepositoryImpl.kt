@@ -159,10 +159,11 @@ class LibraryRepositoryImpl(
                         )
                     }
                     database.withTransaction {
-                        libraryDao.markEpisodesUnavailable(series.seriesId)
+                        if (result.warningCode == null) libraryDao.markEpisodesUnavailable(series.seriesId)
                         catalogDao.upsertEpisodes(rows)
                     }
                     LibrarySeriesDetailResult.Success(
+                        refreshWarning = result.warningCode?.let { "Some episodes could not be refreshed; saved episodes were kept." },
                         detail = LibrarySeriesDetail(
                             series = series.toDomain(),
                             episodes = libraryDao.getEpisodesForSeries(series.seriesId).map { it.toDomain() },
@@ -338,16 +339,18 @@ class LibraryRepositoryImpl(
             libraryDao.observeCompletedDownloads(sourceId),
             libraryDao.observeMediaFavorites(sourceId),
         ) { core, categories, progress, downloads, favorites ->
-            val progressEpisodes = mutableListOf<EpisodeLibraryView>()
-            for (row in progress) {
-                if (
+            val progressEpisodeIds = progress.asSequence()
+                .filter { row ->
                     row.mediaKind.equals(LibraryMediaKind.EPISODE.name, ignoreCase = true) &&
-                    !row.completed && row.positionMs > 0L && row.durationMs > 0L
-                ) {
-                    libraryDao.getEpisode(row.contentId)
-                        ?.takeIf { it.sourceId == sourceId }
-                        ?.let(progressEpisodes::add)
+                        !row.completed && row.positionMs > 0L && row.durationMs > 0L
                 }
+                .map { it.contentId }
+                .distinct()
+                .toList()
+            val progressEpisodes = if (progressEpisodeIds.isEmpty()) {
+                emptyList()
+            } else {
+                libraryDao.getEpisodesForProgress(sourceId, progressEpisodeIds)
             }
             LibraryRows(
                 movies = core.movies,

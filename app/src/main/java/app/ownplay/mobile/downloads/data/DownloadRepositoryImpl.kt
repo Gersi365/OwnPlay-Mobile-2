@@ -56,6 +56,7 @@ internal class DownloadRepositoryImpl(
     private val fileStore = DownloadFileStore(appContext.filesDir)
     private val publicFileStore = PublicDownloadFileStore(appContext)
     private val metadataStore = DownloadMetadataStore(appContext, httpClient)
+    private val notificationController = DownloadNotificationController(appContext)
     private val transferMutex = Mutex()
 
     override fun observeDownloads(): Flow<List<DownloadItem>> =
@@ -63,26 +64,28 @@ internal class DownloadRepositoryImpl(
             downloadDao.observeAll(),
             libraryDao.observeAllIncompleteProgress(),
         ) { downloads, progress ->
-            val progressByKey = progress.associateBy { row ->
-                ProgressKey(
-                    sourceId = row.sourceId,
-                    mediaKind = row.mediaKind.uppercase(Locale.US),
-                    contentId = row.contentId,
+            withContext(Dispatchers.IO) {
+                val progressByKey = progress.associateBy { row ->
+                    ProgressKey(
+                        sourceId = row.sourceId,
+                        mediaKind = row.mediaKind.uppercase(Locale.US),
+                        contentId = row.contentId,
+                    )
+                }
+                DownloadOrderingPolicy.ordered(
+                    downloads.mapNotNull { row ->
+                        row.toDomainOrNull(
+                            progress = progressByKey[
+                                ProgressKey(
+                                    sourceId = row.sourceId,
+                                    mediaKind = row.mediaKind.uppercase(Locale.US),
+                                    contentId = row.contentId,
+                                )
+                            ],
+                        )
+                    },
                 )
             }
-            DownloadOrderingPolicy.ordered(
-                downloads.mapNotNull { row ->
-                    row.toDomainOrNull(
-                        progress = progressByKey[
-                            ProgressKey(
-                                sourceId = row.sourceId,
-                                mediaKind = row.mediaKind.uppercase(Locale.US),
-                                contentId = row.contentId,
-                            )
-                        ],
-                    )
-                },
-            )
         }
 
     override suspend fun requestDownload(
@@ -98,7 +101,10 @@ internal class DownloadRepositoryImpl(
             return failure("MEDIA_UNAVAILABLE", "This item is no longer available for download.")
         }
         val existing = downloadDao.getForContent(sourceId, mediaKind.name, contentId)
-        if (existing != null) return DownloadOperationResult.Success(existing.toDomainOrNull())
+        if (existing != null) {
+            syncNotification(existing.downloadId)
+            return DownloadOperationResult.Success(existing.toDomainOrNull())
+        }
         if (!publicFileStore.canWrite()) {
             return failure(
                 "STORAGE_PERMISSION_REQUIRED",
@@ -127,11 +133,13 @@ internal class DownloadRepositoryImpl(
         return try {
             downloadDao.insert(row)
             schedule(downloadId)
-            DownloadOperationResult.Success(row.toDomainOrNull())
+            syncNotification(downloadId)
+            DownloadOperationResult.Success(downloadDao.get(downloadId)?.toDomainOrNull())
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Exception) {
             downloadDao.failIfRunnable(downloadId, "SCHEDULER", nowMillis())
+            syncNotification(downloadId)
             failure("DOWNLOAD_SCHEDULE_FAILED", "The download could not be scheduled.")
         }
     }
@@ -147,15 +155,24 @@ internal class DownloadRepositoryImpl(
         if (row.state.toDownloadStateOrNull() != DownloadState.COMPLETED) {
             return@withContext OfflineAvailability.INCOMPLETE
         }
-        val reference = row.localReference ?: return@withContext OfflineAvailability.MISSING
-        val integrity = row.integrityMetadata ?: return@withContext OfflineAvailability.MISSING
+        val reference = row.localReference
+        val integrity = row.integrityMetadata
+        if (reference == null || integrity == null) {
+            invalidateCompletedDownload(row, "OFFLINE_FILE_MISSING")
+            return@withContext OfflineAvailability.MISSING
+        }
         val valid = if (publicFileStore.handles(reference)) {
             publicFileStore.verify(reference, integrity)
         } else {
             val file = fileStore.resolve(reference)
             file != null && DownloadIntegrity.verify(file, integrity)
         }
-        if (valid) OfflineAvailability.AVAILABLE else OfflineAvailability.MISSING
+        if (valid) {
+            OfflineAvailability.AVAILABLE
+        } else {
+            invalidateCompletedDownload(row, "INTEGRITY")
+            OfflineAvailability.MISSING
+        }
     }
 
     override suspend fun redownload(downloadId: String): DownloadOperationResult {
@@ -175,10 +192,13 @@ internal class DownloadRepositoryImpl(
         }
 
         workManager.cancelUniqueWork(workName(downloadId)).await()
+        val publicReference = row.localReference?.takeIf(publicFileStore::handles)
+        if (publicReference != null && !publicFileStore.delete(publicReference)) {
+            return failure("DOWNLOAD_FILE_REMOVE_FAILED", "The existing offline file could not be removed.")
+        }
         fileStore.delete(row)
-        row.localReference?.takeIf(publicFileStore::handles)?.let(publicFileStore::delete)
         val now = nowMillis()
-        if (downloadDao.markCompletedIntegrityFailure(downloadId, now) == 0) {
+        if (downloadDao.markCompletedFailure(downloadId, "INTEGRITY", now) == 0) {
             return invalidState(downloadId, "restart")
         }
         if (downloadDao.queueIfFailed(downloadId, nowMillis()) == 0) {
@@ -192,6 +212,7 @@ internal class DownloadRepositoryImpl(
         val changed = downloadDao.pauseIfActive(downloadId, nowMillis())
         if (changed == 0) return invalidState(downloadId, "pause")
         workManager.cancelUniqueWork(workName(downloadId)).await()
+        syncNotification(downloadId)
         return DownloadOperationResult.Success(downloadDao.get(downloadId)?.toDomainOrNull())
     }
 
@@ -214,10 +235,14 @@ internal class DownloadRepositoryImpl(
         val row = downloadDao.get(downloadId)
             ?: return failure("DOWNLOAD_NOT_FOUND", "This download no longer exists.")
         workManager.cancelUniqueWork(workName(downloadId)).await()
+        val publicReference = row.localReference?.takeIf(publicFileStore::handles)
+        if (publicReference != null && !publicFileStore.delete(publicReference)) {
+            return failure("DOWNLOAD_FILE_REMOVE_FAILED", "The offline file could not be removed from Downloads.")
+        }
         fileStore.delete(row)
-        row.localReference?.takeIf(publicFileStore::handles)?.let(publicFileStore::delete)
         downloadDao.delete(downloadId)
         metadataStore.delete(downloadId)
+        notificationController.cancel(downloadId)
         return DownloadOperationResult.Success()
     }
 
@@ -232,21 +257,23 @@ internal class DownloadRepositoryImpl(
             return playbackFailure("DOWNLOAD_INCOMPLETE", "Offline playback is available only after the download is complete.")
         }
         val localReference = row.localReference
-            ?: return playbackFailure("OFFLINE_FILE_MISSING", "Not available offline.")
         val integrityMetadata = row.integrityMetadata
-            ?: return playbackFailure("OFFLINE_FILE_MISSING", "Not available offline.")
+        if (localReference == null || integrityMetadata == null) {
+            invalidateCompletedDownload(row, "OFFLINE_FILE_MISSING")
+            return playbackFailure("OFFLINE_FILE_MISSING", "Not available offline. Retry the download.")
+        }
 
         val playbackUri = if (publicFileStore.handles(localReference)) {
             if (!publicFileStore.verify(localReference, integrityMetadata)) {
-                publicFileStore.delete(localReference)
-                return playbackFailure("OFFLINE_FILE_MISSING", "Not available offline.")
+                invalidateCompletedDownload(row, "INTEGRITY")
+                return playbackFailure("OFFLINE_FILE_MISSING", "Not available offline. Retry the download.")
             }
             localReference
         } else {
             val file = fileStore.resolve(localReference)
             if (file == null || !DownloadIntegrity.verify(file, integrityMetadata)) {
-                file?.delete()
-                return playbackFailure("OFFLINE_FILE_MISSING", "Not available offline.")
+                invalidateCompletedDownload(row, "INTEGRITY")
+                return playbackFailure("OFFLINE_FILE_MISSING", "Not available offline. Retry the download.")
             }
             file.toURI().toString()
         }
@@ -303,7 +330,10 @@ internal class DownloadRepositoryImpl(
 
         when (val source = streamResolver.resolve(row)) {
             is DownloadSourceResolution.Failure -> {
-                if (source.retryable) DownloadWorkResult.RETRY else {
+                if (source.retryable) {
+                    downloadDao.queueIfDownloading(downloadId, nowMillis())
+                    DownloadWorkResult.RETRY
+                } else {
                     downloadDao.failIfRunnable(downloadId, source.code, nowMillis())
                     DownloadWorkResult.FAILURE
                 }
@@ -327,7 +357,10 @@ internal class DownloadRepositoryImpl(
                     downloadDao.failIfRunnable(downloadId, transfer.code, nowMillis())
                     DownloadWorkResult.FAILURE
                 }
-                TransferResult.TransientFailure -> DownloadWorkResult.RETRY
+                TransferResult.TransientFailure -> {
+                    downloadDao.queueIfDownloading(downloadId, nowMillis())
+                    DownloadWorkResult.RETRY
+                }
                 TransferResult.Stopped -> DownloadWorkResult.NO_OP
             }
         }
@@ -335,11 +368,13 @@ internal class DownloadRepositoryImpl(
 
     private suspend fun scheduleAndReturn(downloadId: String): DownloadOperationResult = try {
         schedule(downloadId)
+        syncNotification(downloadId)
         DownloadOperationResult.Success(downloadDao.get(downloadId)?.toDomainOrNull())
     } catch (cancelled: CancellationException) {
         throw cancelled
     } catch (_: Exception) {
         downloadDao.failIfRunnable(downloadId, "SCHEDULER", nowMillis())
+        syncNotification(downloadId)
         failure("DOWNLOAD_SCHEDULE_FAILED", "The download could not be scheduled.")
     }
 
@@ -353,6 +388,19 @@ internal class DownloadRepositoryImpl(
         workManager.enqueueUniqueWork(workName(downloadId), ExistingWorkPolicy.REPLACE, request).await()
     }
 
+    private suspend fun syncNotification(downloadId: String) {
+        val snapshot = downloadDao.get(downloadId)?.toNotificationSnapshotOrNull()
+        if (snapshot == null) {
+            notificationController.cancel(downloadId)
+            return
+        }
+        when (snapshot.state) {
+            DownloadState.QUEUED, DownloadState.PAUSED -> notificationController.show(snapshot)
+            DownloadState.DOWNLOADING -> notificationController.cancelControl(downloadId)
+            DownloadState.FAILED, DownloadState.COMPLETED -> notificationController.cancel(downloadId)
+        }
+    }
+
     private suspend fun contentBelongsToSource(
         sourceId: String,
         mediaKind: LibraryMediaKind,
@@ -360,6 +408,17 @@ internal class DownloadRepositoryImpl(
     ): Boolean = when (mediaKind) {
         LibraryMediaKind.MOVIE -> libraryDao.getMovie(contentId)?.let { it.sourceId == sourceId && it.available } ?: false
         LibraryMediaKind.EPISODE -> libraryDao.getEpisode(contentId)?.let { it.sourceId == sourceId && it.available } ?: false
+    }
+
+    private suspend fun invalidateCompletedDownload(row: DownloadEntity, failureCode: String) {
+        row.localReference?.let { reference ->
+            if (publicFileStore.handles(reference)) {
+                publicFileStore.delete(reference)
+            } else {
+                fileStore.resolve(reference)?.delete()
+            }
+        }
+        downloadDao.markCompletedFailure(row.downloadId, failureCode, nowMillis())
     }
 
     private suspend fun invalidState(downloadId: String, verb: String): DownloadOperationResult {

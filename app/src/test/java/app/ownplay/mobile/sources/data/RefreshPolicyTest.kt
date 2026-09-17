@@ -40,6 +40,33 @@ class RefreshPolicyTest {
         assertTrue(plan.successfulSections.isEmpty())
     }
 
+    @Test
+    fun incompleteInventoryIsUpsertedWithoutRetiringUnseenItems() {
+        val payload = payload(
+            live = RemoteSection.partial(emptyList(), "M3U_PARTIAL"),
+            movies = RemoteSection.success(emptyList()),
+        )
+        val plan = RefreshPolicy.plan(7, payload)
+        assertEquals(8, plan.generation)
+        assertEquals("PARTIAL", plan.state)
+        assertTrue(CatalogSection.LIVE_CHANNELS in plan.successfulSections)
+        assertFalse(CatalogSection.LIVE_CHANNELS in plan.authoritativeSections)
+        // Explicitly complete empty provider inventories can still retire removed items.
+        assertTrue(CatalogSection.MOVIES in plan.authoritativeSections)
+        assertEquals("M3U_PARTIAL", plan.errorCode)
+    }
+
+    @Test
+    fun failedAndSkippedSectionsNeverAuthorizeRetirement() {
+        val plan = RefreshPolicy.plan(3, payload(
+            live = RemoteSection.failed("NETWORK"),
+            movies = RemoteSection.skipped(),
+        ))
+        assertTrue(plan.authoritativeSections.isEmpty())
+        assertTrue(plan.successfulSections.isEmpty())
+        assertEquals(3, plan.generation)
+    }
+
     private fun payload(
         live: RemoteSection<List<ProviderLiveChannelRecord>>,
         movies: RemoteSection<List<ProviderMovieRecord>>,

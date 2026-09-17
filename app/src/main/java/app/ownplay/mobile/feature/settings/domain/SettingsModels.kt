@@ -29,3 +29,17 @@ object ProviderRefreshSchedulePolicy {
     fun intervalHours(settings: SettingsSnapshot): Long? =
         settings.providerRefreshInterval.hours.takeIf { settings.autoRefreshProviders }
 }
+
+object ProviderRefreshRetryPolicy {
+    private val retryableCodes = setOf(
+        "REFRESH_DNS",
+        "REFRESH_TIMEOUT",
+        "REFRESH_NETWORK",
+        "REFRESH_HTTP_429",
+        "REFRESH_PROVIDER_HTTP",
+        "REFRESH_READ",
+        "REFRESH_FAILED",
+    )
+
+    fun shouldRetry(errorCode: String): Boolean = errorCode in retryableCodes
+}

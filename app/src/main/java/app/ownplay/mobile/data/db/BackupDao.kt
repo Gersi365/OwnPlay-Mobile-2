@@ -11,6 +11,7 @@ data class BackupChannelPersonalizationView(
     val favorite: Boolean,
     val hidden: Boolean,
     val localName: String?,
+    val localLogo: String?,
     val manualOrder: Int?,
 )
 
@@ -31,6 +32,7 @@ interface BackupDao {
             p.favorite AS favorite,
             p.hidden AS hidden,
             p.localName AS localName,
+            p.localLogo AS localLogo,
             p.manualOrder AS manualOrder
         FROM channel_personalization AS p
         INNER JOIN live_channels AS c ON c.channelId = p.channelId
@@ -41,6 +43,14 @@ interface BackupDao {
 
     @Query("SELECT * FROM channel_personalization WHERE channelId = :channelId LIMIT 1")
     suspend fun getChannelPersonalizationRow(channelId: String): ChannelPersonalizationEntity?
+
+    @Query(
+        """
+        SELECT * FROM category_personalization
+        ORDER BY sourceId ASC, kind ASC, categoryKey ASC
+        """,
+    )
+    suspend fun getCategoryPersonalization(): List<CategoryPersonalizationEntity>
 
     @Query("SELECT * FROM custom_groups ORDER BY sourceId ASC, manualOrder ASC, groupId ASC")
     suspend fun getCustomGroups(): List<CustomGroupEntity>
@@ -129,6 +139,9 @@ interface BackupDao {
         """,
     )
     suspend fun hasCustomGroup(sourceId: String, groupId: String): Boolean
+
+    @Upsert
+    suspend fun upsertCategoryPersonalization(rows: List<CategoryPersonalizationEntity>)
 
     @Upsert
     suspend fun upsertCustomGroups(rows: List<CustomGroupEntity>)

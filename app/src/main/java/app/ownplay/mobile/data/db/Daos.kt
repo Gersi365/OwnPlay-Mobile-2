@@ -18,6 +18,7 @@ data class LiveChannelView(
     val streamLocator: String,
     val favorite: Boolean,
     val sortOrder: Int,
+    val manualOrder: Int?,
 )
 
 data class ManageableLiveCategoryView(
@@ -86,6 +87,26 @@ interface SourceDao {
 interface CatalogDao {
     @Upsert
     suspend fun upsertCategories(rows: List<ProviderCategoryEntity>)
+
+    @Query("SELECT * FROM live_channels WHERE sourceId = :sourceId ORDER BY channelId")
+    suspend fun getLiveChannelsForRefresh(sourceId: String): List<LiveChannelEntity>
+
+    @Query(
+        """
+        SELECT * FROM provider_categories
+        WHERE sourceId = :sourceId
+          AND kind = :kind
+          AND available = 1
+        ORDER BY providerOrder, name COLLATE NOCASE, categoryKey
+        """,
+    )
+    suspend fun getAvailableCategoriesForRefresh(sourceId: String, kind: String): List<ProviderCategoryEntity>
+
+    @Query("SELECT * FROM movies WHERE sourceId = :sourceId")
+    suspend fun getMoviesForRefresh(sourceId: String): List<MovieEntity>
+
+    @Query("SELECT * FROM series WHERE sourceId = :sourceId")
+    suspend fun getSeriesForRefresh(sourceId: String): List<SeriesEntity>
 
     @Upsert
     suspend fun upsertLiveChannels(rows: List<LiveChannelEntity>)
@@ -159,7 +180,8 @@ interface CatalogDao {
             COALESCE(p.localLogo, c.logoUrl) AS logoUrl,
             c.streamLocator AS streamLocator,
             COALESCE(p.favorite, 0) AS favorite,
-            COALESCE(p.manualOrder, c.providerOrder) AS sortOrder
+            COALESCE(p.manualOrder, c.providerOrder) AS sortOrder,
+            p.manualOrder AS manualOrder
         FROM live_channels AS c
         LEFT JOIN channel_personalization AS p ON p.channelId = c.channelId
         LEFT JOIN category_personalization AS cp
@@ -207,6 +229,78 @@ interface CatalogDao {
         """,
     )
     fun observeManageableLiveChannels(sourceId: String): Flow<List<ManageableLiveChannelView>>
+
+    @Query(
+        """
+        SELECT
+            c.channelId AS channelId,
+            c.sourceId AS sourceId,
+            c.categoryKey AS categoryKey,
+            COALESCE(p.localName, c.name) AS name,
+            COALESCE(p.localLogo, c.logoUrl) AS logoUrl,
+            c.providerOrder AS providerOrder,
+            COALESCE(p.favorite, 0) AS favorite,
+            p.localName AS localName,
+            p.localLogo AS localLogo,
+            COALESCE(p.hidden, 0) AS hidden,
+            p.manualOrder AS manualOrder
+        FROM live_channels AS c
+        INNER JOIN ownplay_live_channel_memberships AS m
+          ON m.sourceId = c.sourceId
+         AND m.channelId = c.channelId
+        LEFT JOIN channel_personalization AS p ON p.channelId = c.channelId
+        WHERE c.sourceId = :sourceId
+          AND c.available = 1
+          AND m.categoryId = :categoryId
+          AND m.included = 1
+          AND m.available = 1
+        ORDER BY c.providerOrder, c.name COLLATE NOCASE, c.channelId
+        """,
+    )
+    fun observeOwnPlayManageableLiveChannels(
+        sourceId: String,
+        categoryId: String,
+    ): Flow<List<ManageableLiveChannelView>>
+
+    @Query(
+        """
+        SELECT
+            c.channelId AS channelId,
+            c.sourceId AS sourceId,
+            c.categoryKey AS categoryKey,
+            COALESCE(p.localName, c.name) AS name,
+            COALESCE(p.localLogo, c.logoUrl) AS logoUrl,
+            c.providerOrder AS providerOrder,
+            COALESCE(p.favorite, 0) AS favorite,
+            p.localName AS localName,
+            p.localLogo AS localLogo,
+            COALESCE(p.hidden, 0) AS hidden,
+            p.manualOrder AS manualOrder
+        FROM live_channels AS c
+        LEFT JOIN channel_personalization AS p ON p.channelId = c.channelId
+        WHERE c.sourceId = :sourceId
+          AND c.available = 1
+          AND COALESCE(p.localName, c.name) LIKE '%' || :query || '%' COLLATE NOCASE
+        ORDER BY c.providerOrder, c.name COLLATE NOCASE, c.channelId
+        """,
+    )
+    fun searchManageableLiveChannels(
+        sourceId: String,
+        query: String,
+    ): Flow<List<ManageableLiveChannelView>>
+
+    @Query(
+        """
+        SELECT channelId FROM live_channels
+        WHERE sourceId = :sourceId
+          AND available = 1
+          AND channelId IN (:channelIds)
+        """,
+    )
+    suspend fun getAvailableLiveChannelIds(
+        sourceId: String,
+        channelIds: List<String>,
+    ): List<String>
 
     @Query("SELECT * FROM live_channels WHERE channelId = :channelId LIMIT 1")
     suspend fun getLiveChannel(channelId: String): LiveChannelEntity?
@@ -453,6 +547,40 @@ interface LibraryDao {
           ON p.sourceId = s.sourceId
          AND p.mediaKind = 'EPISODE'
          AND p.contentId = e.episodeId
+        WHERE s.sourceId = :sourceId
+          AND e.episodeId IN (:episodeIds)
+        ORDER BY e.seriesId ASC, e.seasonNumber ASC, e.episodeNumber ASC, e.episodeId ASC
+        """,
+    )
+    suspend fun getEpisodesForProgress(
+        sourceId: String,
+        episodeIds: List<String>,
+    ): List<EpisodeLibraryView>
+
+    @Query(
+        """
+        SELECT
+            e.episodeId AS episodeId,
+            e.seriesId AS seriesId,
+            s.sourceId AS sourceId,
+            s.name AS seriesName,
+            e.providerEpisodeId AS providerEpisodeId,
+            e.seasonNumber AS seasonNumber,
+            e.episodeNumber AS episodeNumber,
+            e.title AS title,
+            e.durationMs AS durationMs,
+            e.extension AS extension,
+            e.available AS available,
+            p.positionMs AS progressPositionMs,
+            p.durationMs AS progressDurationMs,
+            p.completed AS progressCompleted,
+            p.updatedAt AS progressUpdatedAt
+        FROM episodes AS e
+        INNER JOIN series AS s ON s.seriesId = e.seriesId
+        LEFT JOIN playback_progress AS p
+          ON p.sourceId = s.sourceId
+         AND p.mediaKind = 'EPISODE'
+         AND p.contentId = e.episodeId
         WHERE e.seriesId = :seriesId
           AND e.available = 1
         ORDER BY e.seasonNumber ASC, e.episodeNumber ASC, e.episodeId ASC
@@ -500,6 +628,9 @@ interface DownloadDao {
         """,
     )
     fun observeForSource(sourceId: String): Flow<List<DownloadEntity>>
+
+    @Query("SELECT * FROM downloads WHERE downloadId = :downloadId LIMIT 1")
+    fun observe(downloadId: String): Flow<DownloadEntity?>
 
     @Query("SELECT * FROM downloads WHERE downloadId = :downloadId LIMIT 1")
     suspend fun get(downloadId: String): DownloadEntity?
@@ -551,6 +682,16 @@ interface DownloadDao {
         """,
     )
     suspend fun queueIfPaused(downloadId: String, updatedAt: Long): Int
+
+    @Query(
+        """
+        UPDATE downloads
+        SET state = 'QUEUED', updatedAt = :updatedAt
+        WHERE downloadId = :downloadId
+          AND state = 'DOWNLOADING'
+        """,
+    )
+    suspend fun queueIfDownloading(downloadId: String, updatedAt: Long): Int
 
     @Query(
         """
@@ -618,13 +759,13 @@ interface DownloadDao {
         SET state = 'FAILED',
             localReference = NULL,
             integrityMetadata = NULL,
-            failureReason = 'INTEGRITY',
+            failureReason = :failureCode,
             updatedAt = :updatedAt
         WHERE downloadId = :downloadId
           AND state = 'COMPLETED'
         """,
     )
-    suspend fun markCompletedIntegrityFailure(downloadId: String, updatedAt: Long): Int
+    suspend fun markCompletedFailure(downloadId: String, failureCode: String, updatedAt: Long): Int
 
     @Query("DELETE FROM downloads WHERE downloadId = :downloadId")
     suspend fun delete(downloadId: String): Int

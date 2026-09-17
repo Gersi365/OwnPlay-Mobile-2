@@ -82,8 +82,10 @@ internal class PublicDownloadFileStore(context: Context) {
     fun delete(reference: String): Boolean {
         return try {
             when {
-                reference.startsWith(CONTENT_SCHEME) ->
-                    contentResolver.delete(Uri.parse(reference), null, null) > 0
+                reference.startsWith(CONTENT_SCHEME) -> {
+                    contentResolver.delete(Uri.parse(reference), null, null)
+                    true
+                }
 
                 reference.startsWith(FILE_SCHEME) -> {
                     val path = Uri.parse(reference).path ?: return false
