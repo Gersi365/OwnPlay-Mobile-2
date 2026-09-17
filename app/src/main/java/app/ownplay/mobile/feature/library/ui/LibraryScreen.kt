@@ -31,6 +31,7 @@ import app.ownplay.mobile.design.OwnPlayColors
 import app.ownplay.mobile.design.OwnPlayFeaturePlaceholder
 import app.ownplay.mobile.feature.library.domain.LibraryCatalogSnapshot
 import app.ownplay.mobile.feature.library.domain.LibraryContentKind
+import app.ownplay.mobile.feature.library.domain.LibraryContinueWatchingItem
 import app.ownplay.mobile.feature.library.domain.LibraryDetailRefreshResult
 import app.ownplay.mobile.feature.library.domain.LibraryDetailStartPolicy
 import app.ownplay.mobile.feature.library.domain.LibraryMovieSummary
@@ -43,6 +44,7 @@ import app.ownplay.mobile.feature.playback.domain.PlaybackReadiness
 import app.ownplay.mobile.feature.playback.domain.PlaybackSessionController
 import app.ownplay.mobile.feature.playback.domain.PlaybackTarget
 import app.ownplay.mobile.feature.playback.ui.PlaybackVideoSurface
+import app.ownplay.mobile.sources.domain.SourceId
 import app.ownplay.mobile.sources.domain.SourceSummary
 import kotlinx.coroutines.launch
 
@@ -126,6 +128,10 @@ private fun LibrarySourceScreen(
     val movieCategoryNames = catalog.movieCategories.associate { it.categoryId to it.displayName }
     val seriesCategoryNames = catalog.seriesCategories.associate { it.categoryId to it.displayName }
 
+    fun activate(target: PlaybackTarget.Library) {
+        scope.launch { playbackSessionController.activateLibraryMedia(target) }
+    }
+
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
@@ -153,28 +159,38 @@ private fun LibrarySourceScreen(
             }
         }
 
+        if (catalog.continueWatching.isNotEmpty()) {
+            item {
+                LibrarySectionTitle("Continue Watching")
+            }
+            items(
+                items = catalog.continueWatching,
+                key = { item -> "continue:${item.contentKind}:${item.contentId}" },
+            ) { item ->
+                LibraryContinueWatchingRow(
+                    item = item,
+                    onResume = {
+                        continueWatchingTarget(source.sourceId, item)?.let(::activate)
+                    },
+                )
+            }
+        }
+
         if (catalog.movies.isNotEmpty()) {
             item {
-                Text(
-                    text = "Movies",
-                    color = OwnPlayColors.TextPrimary,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(top = 8.dp),
-                )
+                LibrarySectionTitle("Movies")
             }
             items(catalog.movies, key = { "movie:${it.movieId}" }) { movie ->
                 LibraryMovieRow(
                     movie = movie,
                     categoryName = movie.categoryId?.let(movieCategoryNames::get),
                     onPlay = {
-                        scope.launch {
-                            playbackSessionController.activateLibraryMedia(
-                                PlaybackTarget.Movie(
-                                    sourceId = source.sourceId,
-                                    movieId = movie.movieId,
-                                ),
-                            )
-                        }
+                        activate(
+                            PlaybackTarget.Movie(
+                                sourceId = source.sourceId,
+                                movieId = movie.movieId,
+                            ),
+                        )
                     },
                     onFavorite = {
                         scope.launch {
@@ -192,12 +208,7 @@ private fun LibrarySourceScreen(
 
         if (catalog.series.isNotEmpty()) {
             item {
-                Text(
-                    text = "Series",
-                    color = OwnPlayColors.TextPrimary,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(top = 8.dp),
-                )
+                LibrarySectionTitle("Series")
             }
             items(catalog.series, key = { "series:${it.seriesId}" }) { series ->
                 LibrarySeriesRow(
@@ -218,6 +229,67 @@ private fun LibrarySourceScreen(
             }
         }
     }
+}
+
+@Composable
+private fun LibrarySectionTitle(title: String) {
+    Text(
+        text = title,
+        color = OwnPlayColors.TextPrimary,
+        fontWeight = FontWeight.Bold,
+        modifier = Modifier.padding(top = 8.dp),
+    )
+}
+
+@Composable
+private fun LibraryContinueWatchingRow(
+    item: LibraryContinueWatchingItem,
+    onResume: () -> Unit,
+) {
+    val context = when (item.contentKind) {
+        LibraryContentKind.MOVIE -> "Movie"
+        LibraryContentKind.EPISODE -> listOfNotNull(
+            item.seriesTitle,
+            item.seasonNumber?.let { season ->
+                item.episodeNumber?.let { episode -> "S$season • E$episode" }
+            },
+        ).joinToString(" • ").ifBlank { "Episode" }
+        LibraryContentKind.SERIES -> "Series"
+    }
+
+    Surface(
+        color = OwnPlayColors.Surface,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(3.dp),
+            ) {
+                Text(
+                    text = item.title,
+                    color = OwnPlayColors.TextPrimary,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(text = context, color = OwnPlayColors.TextSecondary)
+            }
+            TextButton(onClick = onResume) {
+                Text("Resume")
+            }
+        }
+    }
+}
+
+private fun continueWatchingTarget(
+    sourceId: SourceId,
+    item: LibraryContinueWatchingItem,
+): PlaybackTarget.Library? = when (item.contentKind) {
+    LibraryContentKind.MOVIE -> PlaybackTarget.Movie(sourceId, item.contentId)
+    LibraryContentKind.EPISODE -> PlaybackTarget.Episode(sourceId, item.contentId)
+    LibraryContentKind.SERIES -> null
 }
 
 @Composable
