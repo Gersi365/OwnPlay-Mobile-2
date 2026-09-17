@@ -74,6 +74,9 @@ class RoomLiveOrganizationRepository(
             )
         }
 
+    override fun observeFavoriteChannelIds(sourceId: SourceId): Flow<Set<String>> =
+        dao.observeFavoriteChannelIds(sourceId.value).map { rows -> rows.toSet() }
+
     override suspend fun setMode(sourceId: SourceId, mode: LiveOrganizationMode): Boolean = try {
         database.withTransaction {
             if (dao.countSource(sourceId.value) == 0) return@withTransaction false
@@ -207,6 +210,7 @@ class RoomLiveOrganizationRepository(
             countries = countryById.values.toList(),
             semanticCategories = OwnPlayLiveSemanticCategory.canonicalOrder,
             channelIdsByPlacement = channelsByPlacement.mapValues { (_, channelIds) -> channelIds.toList() },
+            manualPlacementChannelIds = overrideByChannelId.keys + legacyByChannelId.keys,
         )
     }
 
