@@ -12,6 +12,7 @@ object LibrarySearchPolicy {
             movies = catalog.movies.filter { it.title.contains(normalized, ignoreCase = true) },
             series = catalog.series.filter { it.title.contains(normalized, ignoreCase = true) },
             continueWatching = emptyList(),
+            downloadedMedia = emptyList(),
         )
     }
 

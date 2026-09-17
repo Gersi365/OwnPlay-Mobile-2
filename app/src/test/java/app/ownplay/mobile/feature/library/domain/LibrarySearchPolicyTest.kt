@@ -6,7 +6,7 @@ import org.junit.Test
 
 class LibrarySearchPolicyTest {
     @Test
-    fun catalogSearchMatchesMovieAndSeriesTitlesCaseInsensitivelyAndHidesContinueWatching() {
+    fun catalogSearchMatchesMovieAndSeriesTitlesCaseInsensitivelyAndHidesNonSearchSections() {
         val catalog = LibraryCatalogSnapshot(
             movieCategories = emptyList(),
             seriesCategories = emptyList(),
@@ -23,6 +23,17 @@ class LibrarySearchPolicyTest {
                     updatedAt = 5L,
                 ),
             ),
+            downloadedMedia = listOf(
+                LibraryDownloadedMediaItem(
+                    downloadId = "download-a",
+                    contentKind = LibraryContentKind.MOVIE,
+                    contentId = "movie-a",
+                    title = "Alpha Movie",
+                    bytesDownloaded = 100L,
+                    totalBytes = 100L,
+                    updatedAt = 6L,
+                ),
+            ),
         )
 
         val filtered = LibrarySearchPolicy.filterCatalog(catalog, " alpha ")
@@ -30,6 +41,7 @@ class LibrarySearchPolicyTest {
         assertEquals(listOf("movie-a"), filtered.movies.map { it.movieId })
         assertEquals(listOf("series-a"), filtered.series.map { it.seriesId })
         assertTrue(filtered.continueWatching.isEmpty())
+        assertTrue(filtered.downloadedMedia.isEmpty())
     }
 
     @Test
@@ -39,6 +51,17 @@ class LibrarySearchPolicyTest {
             seriesCategories = emptyList(),
             movies = listOf(movie("movie-a", "Alpha")),
             series = emptyList(),
+            downloadedMedia = listOf(
+                LibraryDownloadedMediaItem(
+                    downloadId = "download-a",
+                    contentKind = LibraryContentKind.MOVIE,
+                    contentId = "movie-a",
+                    title = "Alpha",
+                    bytesDownloaded = 100L,
+                    totalBytes = 100L,
+                    updatedAt = 1L,
+                ),
+            ),
         )
 
         assertEquals(catalog, LibrarySearchPolicy.filterCatalog(catalog, "   "))
