@@ -1,7 +1,11 @@
 package app.ownplay.mobile.sources.data
 
+import app.ownplay.mobile.data.db.LiveChannelEntity
+import app.ownplay.mobile.data.db.MovieEntity
+import app.ownplay.mobile.data.db.ProviderCategoryEntity
 import app.ownplay.mobile.data.db.RefreshStateDao
 import app.ownplay.mobile.data.db.RefreshStateEntity
+import app.ownplay.mobile.data.db.SeriesEntity
 import app.ownplay.mobile.data.db.SourceDao
 import app.ownplay.mobile.data.db.SourceEntity
 import app.ownplay.mobile.data.prefs.ActiveSourceSelectionStore
@@ -11,6 +15,9 @@ import app.ownplay.mobile.sources.domain.SourceId
 import app.ownplay.mobile.sources.domain.SourceInput
 import app.ownplay.mobile.sources.domain.SourceMutationRejection
 import app.ownplay.mobile.sources.domain.SourceMutationResult
+import app.ownplay.mobile.sources.domain.SourceRefreshFailureCategory
+import app.ownplay.mobile.sources.domain.SourceRefreshResult
+import app.ownplay.mobile.sources.domain.SourceType
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -185,11 +192,266 @@ class SourceRepositoryImplTest {
         assertTrue(credentialStore.secrets.containsKey(SourceId("source-b")))
     }
 
+    @Test
+    fun successfulRefreshAdvancesGenerationOnlyWhenSnapshotCommits() = runBlocking {
+        val sourceId = SourceId("source-a")
+        val refreshStateDao = FakeRefreshStateDao().apply {
+            upsert(
+                RefreshStateEntity(
+                    sourceId = sourceId.value,
+                    generation = 3,
+                    state = "SUCCESS",
+                    lastAttempt = 400L,
+                    lastSuccess = 500L,
+                    errorCode = null,
+                ),
+            )
+        }
+        val credentialStore = FakeCredentialStore().apply {
+            seed(sourceId, SourceSecret.Xtream("user", "password"))
+        }
+        val loader = FakeSourceCatalogLoader()
+        val store = FakeCatalogRefreshStore(refreshStateDao)
+        val clock = ArrayDeque(listOf(1_000L, 1_100L))
+        val repository = repository(
+            sourceDao = FakeSourceDao(listOf(source(id = sourceId.value, enabled = true, updatedAt = 1L))),
+            refreshStateDao = refreshStateDao,
+            credentialStore = credentialStore,
+            catalogLoader = loader,
+            catalogRefreshStore = store,
+            nowMillis = { clock.removeFirst() },
+        )
+
+        val result = repository.refreshSource(sourceId)
+
+        assertEquals(SourceRefreshResult.Success, result)
+        assertEquals(1, store.commitCalls)
+        assertEquals(4L, store.lastGeneration)
+        val state = refreshStateDao.get(sourceId.value)!!
+        assertEquals(4L, state.generation)
+        assertEquals("SUCCESS", state.state)
+        assertEquals(1_100L, state.lastSuccess)
+    }
+
+    @Test
+    fun failedCatalogLoadPreservesSuccessfulGenerationAndSkipsCatalogCommit() = runBlocking {
+        val sourceId = SourceId("source-a")
+        val refreshStateDao = FakeRefreshStateDao().apply {
+            upsert(
+                RefreshStateEntity(
+                    sourceId = sourceId.value,
+                    generation = 7,
+                    state = "SUCCESS",
+                    lastAttempt = 700L,
+                    lastSuccess = 650L,
+                    errorCode = null,
+                ),
+            )
+        }
+        val credentialStore = FakeCredentialStore().apply {
+            seed(sourceId, SourceSecret.Xtream("user", "password"))
+        }
+        val loader = FakeSourceCatalogLoader(
+            failure = SourceRefreshFailureCategory.NETWORK,
+        )
+        val store = FakeCatalogRefreshStore(refreshStateDao)
+        val repository = repository(
+            sourceDao = FakeSourceDao(listOf(source(id = sourceId.value, enabled = true, updatedAt = 1L))),
+            refreshStateDao = refreshStateDao,
+            credentialStore = credentialStore,
+            catalogLoader = loader,
+            catalogRefreshStore = store,
+        )
+
+        val result = repository.refreshSource(sourceId)
+
+        assertEquals(
+            SourceRefreshResult.Failure(
+                category = SourceRefreshFailureCategory.NETWORK,
+                safeMessage = "Source network request failed.",
+            ),
+            result,
+        )
+        assertEquals(0, store.commitCalls)
+        val state = refreshStateDao.get(sourceId.value)!!
+        assertEquals(7L, state.generation)
+        assertEquals(650L, state.lastSuccess)
+        assertEquals("FAILED", state.state)
+        assertEquals("NETWORK", state.errorCode)
+    }
+
+    @Test
+    fun failedCatalogCommitPreservesSuccessfulGenerationAndReportsStorageFailure() = runBlocking {
+        val sourceId = SourceId("source-a")
+        val refreshStateDao = FakeRefreshStateDao().apply {
+            upsert(
+                RefreshStateEntity(
+                    sourceId = sourceId.value,
+                    generation = 2,
+                    state = "SUCCESS",
+                    lastAttempt = 200L,
+                    lastSuccess = 180L,
+                    errorCode = null,
+                ),
+            )
+        }
+        val credentialStore = FakeCredentialStore().apply {
+            seed(sourceId, SourceSecret.Xtream("user", "password"))
+        }
+        val store = FakeCatalogRefreshStore(refreshStateDao, failCommit = true)
+        val repository = repository(
+            sourceDao = FakeSourceDao(listOf(source(id = sourceId.value, enabled = true, updatedAt = 1L))),
+            refreshStateDao = refreshStateDao,
+            credentialStore = credentialStore,
+            catalogRefreshStore = store,
+        )
+
+        val result = repository.refreshSource(sourceId)
+
+        assertEquals(
+            SourceRefreshResult.Failure(
+                category = SourceRefreshFailureCategory.STORAGE,
+                safeMessage = "Source refresh could not be saved.",
+            ),
+            result,
+        )
+        val state = refreshStateDao.get(sourceId.value)!!
+        assertEquals(2L, state.generation)
+        assertEquals(180L, state.lastSuccess)
+        assertEquals("FAILED", state.state)
+        assertEquals("STORAGE", state.errorCode)
+    }
+
+    @Test
+    fun catalogReconciliationReusesLegacyProviderIdentityKeys() {
+        val sourceId = SourceId("source-a")
+        val snapshot = ProviderCatalogSnapshot(
+            sourceType = SourceType.XTREAM,
+            categories = listOf(
+                ProviderCategoryRecord("LIVE", "7", "News", 0),
+                ProviderCategoryRecord("MOVIE", "8", "Movies", 0),
+                ProviderCategoryRecord("SERIES", "9", "Series", 0),
+            ),
+            liveChannels = listOf(
+                ProviderLiveChannelRecord(
+                    proposedChannelId = StableIdentity.xtreamLiveChannel(sourceId, "42"),
+                    providerKey = "42",
+                    providerStreamId = "42",
+                    categoryProviderKey = "7",
+                    name = "News One",
+                    tvgId = "news.one",
+                    tvgName = "News One",
+                    logoUrl = null,
+                    streamLocator = "xtream://live/42",
+                    providerOrder = 0,
+                ),
+            ),
+            movies = listOf(
+                ProviderMovieRecord(
+                    proposedMovieId = StableIdentity.xtreamMovie(sourceId, "52"),
+                    providerStreamId = "52",
+                    categoryProviderKey = "8",
+                    name = "Movie",
+                    posterUrl = null,
+                    backdropUrl = null,
+                    extension = "mp4",
+                    rating = null,
+                    providerOrder = 0,
+                ),
+            ),
+            series = listOf(
+                ProviderSeriesRecord(
+                    proposedSeriesId = StableIdentity.xtreamSeries(sourceId, "62"),
+                    providerSeriesId = "62",
+                    categoryProviderKey = "9",
+                    name = "Series",
+                    posterUrl = null,
+                    backdropUrl = null,
+                    description = null,
+                    rating = null,
+                    providerOrder = 0,
+                ),
+            ),
+        )
+
+        val plan = CatalogReconciler.reconcile(
+            sourceId = sourceId,
+            sourceType = SourceType.XTREAM,
+            generation = 10,
+            snapshot = snapshot,
+            existingCategories = listOf(
+                ProviderCategoryEntity(sourceId.value, "LIVE", "legacy-live-category", "7", "Old", 0, true, 9),
+                ProviderCategoryEntity(sourceId.value, "MOVIE", "legacy-movie-category", "8", "Old", 0, true, 9),
+                ProviderCategoryEntity(sourceId.value, "SERIES", "legacy-series-category", "9", "Old", 0, true, 9),
+            ),
+            existingLiveChannels = listOf(
+                LiveChannelEntity(
+                    channelId = "legacy-live-id",
+                    sourceId = sourceId.value,
+                    providerKey = "42",
+                    providerStreamId = "42",
+                    categoryKey = "legacy-live-category",
+                    name = "Old",
+                    tvgId = null,
+                    tvgName = null,
+                    logoUrl = null,
+                    streamLocator = "xtream://live/42",
+                    providerOrder = 0,
+                    available = true,
+                    lastSeenGeneration = 9,
+                ),
+            ),
+            existingMovies = listOf(
+                MovieEntity(
+                    movieId = "legacy-movie-id",
+                    sourceId = sourceId.value,
+                    providerStreamId = "52",
+                    categoryKey = "legacy-movie-category",
+                    name = "Old",
+                    posterUrl = null,
+                    backdropUrl = null,
+                    extension = null,
+                    rating = null,
+                    providerOrder = 0,
+                    available = true,
+                    lastSeenGeneration = 9,
+                ),
+            ),
+            existingSeries = listOf(
+                SeriesEntity(
+                    seriesId = "legacy-series-id",
+                    sourceId = sourceId.value,
+                    providerSeriesId = "62",
+                    categoryKey = "legacy-series-category",
+                    name = "Old",
+                    posterUrl = null,
+                    backdropUrl = null,
+                    description = null,
+                    rating = null,
+                    providerOrder = 0,
+                    available = true,
+                    lastSeenGeneration = 9,
+                ),
+            ),
+        )
+
+        assertEquals("legacy-live-category", plan.categories.first { it.kind == "LIVE" }.categoryKey)
+        assertEquals("legacy-live-id", plan.liveChannels.single().channelId)
+        assertEquals("legacy-live-category", plan.liveChannels.single().categoryKey)
+        assertEquals("legacy-movie-id", plan.movies.single().movieId)
+        assertEquals("legacy-movie-category", plan.movies.single().categoryKey)
+        assertEquals("legacy-series-id", plan.series.single().seriesId)
+        assertEquals("legacy-series-category", plan.series.single().categoryKey)
+    }
+
     private fun repository(
         sourceDao: FakeSourceDao = FakeSourceDao(),
         refreshStateDao: FakeRefreshStateDao = FakeRefreshStateDao(),
         activeSourceStore: FakeActiveSourceStore = FakeActiveSourceStore(),
         credentialStore: FakeCredentialStore = FakeCredentialStore(),
+        catalogLoader: SourceCatalogLoader = FakeSourceCatalogLoader(),
+        catalogRefreshStore: CatalogRefreshStore = FakeCatalogRefreshStore(refreshStateDao),
+        nowMillis: () -> Long = { 1_000L },
     ): SourceRepositoryImpl {
         val ids = AtomicInteger(0)
         return SourceRepositoryImpl(
@@ -197,7 +459,9 @@ class SourceRepositoryImplTest {
             refreshStateDao = refreshStateDao,
             activeSourceStore = activeSourceStore,
             credentialStore = credentialStore,
-            nowMillis = { 1_000L },
+            catalogLoader = catalogLoader,
+            catalogRefreshStore = catalogRefreshStore,
+            nowMillis = nowMillis,
             newSourceId = { SourceId("source-${ids.incrementAndGet()}") },
         )
     }
@@ -263,6 +527,10 @@ private class FakeRefreshStateDao(
     initial: List<RefreshStateEntity> = emptyList(),
 ) : RefreshStateDao {
     private val rows = MutableStateFlow(initial.sortedBy(RefreshStateEntity::sourceId))
+    private var categories: List<ProviderCategoryEntity> = emptyList()
+    private var liveChannels: List<LiveChannelEntity> = emptyList()
+    private var movies: List<MovieEntity> = emptyList()
+    private var series: List<SeriesEntity> = emptyList()
 
     override fun observeAll(): Flow<List<RefreshStateEntity>> = rows
 
@@ -272,6 +540,84 @@ private class FakeRefreshStateDao(
     override suspend fun upsert(entity: RefreshStateEntity) {
         rows.value = (rows.value.filterNot { it.sourceId == entity.sourceId } + entity)
             .sortedBy(RefreshStateEntity::sourceId)
+    }
+
+    override suspend fun getCategoriesForRefresh(sourceId: String): List<ProviderCategoryEntity> =
+        categories.filter { it.sourceId == sourceId }
+
+    override suspend fun getLiveChannelsForRefresh(sourceId: String): List<LiveChannelEntity> =
+        liveChannels.filter { it.sourceId == sourceId }
+
+    override suspend fun getMoviesForRefresh(sourceId: String): List<MovieEntity> =
+        movies.filter { it.sourceId == sourceId }
+
+    override suspend fun getSeriesForRefresh(sourceId: String): List<SeriesEntity> =
+        series.filter { it.sourceId == sourceId }
+
+    override suspend fun upsertCategories(rows: List<ProviderCategoryEntity>) {
+        val incoming = rows.associateBy { Triple(it.sourceId, it.kind, it.categoryKey) }
+        categories = categories.filterNot {
+            Triple(it.sourceId, it.kind, it.categoryKey) in incoming
+        } + rows
+    }
+
+    override suspend fun upsertLiveChannels(rows: List<LiveChannelEntity>) {
+        val incoming = rows.associateBy(LiveChannelEntity::channelId)
+        liveChannels = liveChannels.filterNot { it.channelId in incoming } + rows
+    }
+
+    override suspend fun upsertMovies(rows: List<MovieEntity>) {
+        val incoming = rows.associateBy(MovieEntity::movieId)
+        movies = movies.filterNot { it.movieId in incoming } + rows
+    }
+
+    override suspend fun upsertSeries(rows: List<SeriesEntity>) {
+        val incoming = rows.associateBy(SeriesEntity::seriesId)
+        series = series.filterNot { it.seriesId in incoming } + rows
+    }
+
+    override suspend fun markMissingCategoriesUnavailable(
+        sourceId: String,
+        kind: String,
+        generation: Long,
+    ) {
+        categories = categories.map {
+            if (it.sourceId == sourceId && it.kind == kind && it.lastSeenGeneration != generation) {
+                it.copy(available = false)
+            } else {
+                it
+            }
+        }
+    }
+
+    override suspend fun markMissingLiveUnavailable(sourceId: String, generation: Long) {
+        liveChannels = liveChannels.map {
+            if (it.sourceId == sourceId && it.lastSeenGeneration != generation) {
+                it.copy(available = false)
+            } else {
+                it
+            }
+        }
+    }
+
+    override suspend fun markMissingMoviesUnavailable(sourceId: String, generation: Long) {
+        movies = movies.map {
+            if (it.sourceId == sourceId && it.lastSeenGeneration != generation) {
+                it.copy(available = false)
+            } else {
+                it
+            }
+        }
+    }
+
+    override suspend fun markMissingSeriesUnavailable(sourceId: String, generation: Long) {
+        series = series.map {
+            if (it.sourceId == sourceId && it.lastSeenGeneration != generation) {
+                it.copy(available = false)
+            } else {
+                it
+            }
+        }
     }
 }
 
@@ -306,5 +652,56 @@ private class FakeCredentialStore : CredentialStore {
 
     fun seed(sourceId: SourceId, secret: SourceSecret) {
         secrets[sourceId] = secret
+    }
+}
+
+private class FakeSourceCatalogLoader(
+    private val failure: SourceRefreshFailureCategory? = null,
+) : SourceCatalogLoader {
+    override suspend fun load(
+        sourceId: SourceId,
+        sourceType: SourceType,
+        baseLocator: String,
+        secret: SourceSecret,
+    ): ProviderCatalogSnapshot {
+        failure?.let { throw CatalogLoadException(it) }
+        return ProviderCatalogSnapshot(
+            sourceType = sourceType,
+            categories = emptyList(),
+            liveChannels = emptyList(),
+            movies = emptyList(),
+            series = emptyList(),
+        )
+    }
+}
+
+private class FakeCatalogRefreshStore(
+    private val refreshStateDao: RefreshStateDao,
+    private val failCommit: Boolean = false,
+) : CatalogRefreshStore {
+    var commitCalls: Int = 0
+    var lastGeneration: Long? = null
+
+    override suspend fun commitSuccessfulRefresh(
+        sourceId: SourceId,
+        sourceType: SourceType,
+        generation: Long,
+        snapshot: ProviderCatalogSnapshot,
+        attemptAtEpochMs: Long,
+        completedAtEpochMs: Long,
+    ) {
+        commitCalls += 1
+        lastGeneration = generation
+        if (failCommit) error("commit failed")
+        refreshStateDao.upsert(
+            RefreshStateEntity(
+                sourceId = sourceId.value,
+                generation = generation,
+                state = "SUCCESS",
+                lastAttempt = attemptAtEpochMs,
+                lastSuccess = completedAtEpochMs,
+                errorCode = null,
+            ),
+        )
     }
 }

@@ -5,6 +5,17 @@ import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 
 object StableIdentity {
+    fun providerCategory(
+        sourceId: SourceId,
+        kind: String,
+        providerKey: String,
+    ): String = typedId(
+        prefix = "category",
+        sourceId = sourceId,
+        providerType = "provider",
+        providerIdentity = "${kind.trim().uppercase()}:${providerKey.trim()}",
+    )
+
     fun xtreamLiveChannel(
         sourceId: SourceId,
         providerStreamId: String,

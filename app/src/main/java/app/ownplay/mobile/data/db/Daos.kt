@@ -39,4 +39,73 @@ interface RefreshStateDao {
 
     @Upsert
     suspend fun upsert(entity: RefreshStateEntity)
+
+    @Query("SELECT * FROM provider_categories WHERE sourceId = :sourceId")
+    suspend fun getCategoriesForRefresh(sourceId: String): List<ProviderCategoryEntity>
+
+    @Query("SELECT * FROM live_channels WHERE sourceId = :sourceId")
+    suspend fun getLiveChannelsForRefresh(sourceId: String): List<LiveChannelEntity>
+
+    @Query("SELECT * FROM movies WHERE sourceId = :sourceId")
+    suspend fun getMoviesForRefresh(sourceId: String): List<MovieEntity>
+
+    @Query("SELECT * FROM series WHERE sourceId = :sourceId")
+    suspend fun getSeriesForRefresh(sourceId: String): List<SeriesEntity>
+
+    @Upsert
+    suspend fun upsertCategories(rows: List<ProviderCategoryEntity>)
+
+    @Upsert
+    suspend fun upsertLiveChannels(rows: List<LiveChannelEntity>)
+
+    @Upsert
+    suspend fun upsertMovies(rows: List<MovieEntity>)
+
+    @Upsert
+    suspend fun upsertSeries(rows: List<SeriesEntity>)
+
+    @Query(
+        """
+        UPDATE provider_categories
+        SET available = 0
+        WHERE sourceId = :sourceId
+          AND kind = :kind
+          AND lastSeenGeneration != :generation
+        """,
+    )
+    suspend fun markMissingCategoriesUnavailable(
+        sourceId: String,
+        kind: String,
+        generation: Long,
+    )
+
+    @Query(
+        """
+        UPDATE live_channels
+        SET available = 0
+        WHERE sourceId = :sourceId
+          AND lastSeenGeneration != :generation
+        """,
+    )
+    suspend fun markMissingLiveUnavailable(sourceId: String, generation: Long)
+
+    @Query(
+        """
+        UPDATE movies
+        SET available = 0
+        WHERE sourceId = :sourceId
+          AND lastSeenGeneration != :generation
+        """,
+    )
+    suspend fun markMissingMoviesUnavailable(sourceId: String, generation: Long)
+
+    @Query(
+        """
+        UPDATE series
+        SET available = 0
+        WHERE sourceId = :sourceId
+          AND lastSeenGeneration != :generation
+        """,
+    )
+    suspend fun markMissingSeriesUnavailable(sourceId: String, generation: Long)
 }

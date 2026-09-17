@@ -1,6 +1,7 @@
 package app.ownplay.mobile.sources.data
 
 import app.ownplay.mobile.data.db.RefreshStateDao
+import app.ownplay.mobile.data.db.RefreshStateEntity
 import app.ownplay.mobile.data.db.SourceDao
 import app.ownplay.mobile.data.db.SourceEntity
 import app.ownplay.mobile.data.prefs.ActiveSourceSelectionStore
@@ -19,17 +20,24 @@ import app.ownplay.mobile.sources.domain.SourceRepository
 import app.ownplay.mobile.sources.domain.SourceSummary
 import app.ownplay.mobile.sources.domain.SourceType
 import java.util.UUID
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 class SourceRepositoryImpl(
     private val sourceDao: SourceDao,
     private val refreshStateDao: RefreshStateDao,
     private val activeSourceStore: ActiveSourceSelectionStore,
     private val credentialStore: CredentialStore,
+    private val catalogLoader: SourceCatalogLoader,
+    private val catalogRefreshStore: CatalogRefreshStore,
     private val nowMillis: () -> Long = System::currentTimeMillis,
     private val newSourceId: () -> SourceId = { SourceId(UUID.randomUUID().toString()) },
 ) : SourceRepository {
+    private val refreshMutex = Mutex()
+
     override fun observeSources(): Flow<List<SourceSummary>> = combine(
         sourceDao.observeAll(),
         refreshStateDao.observeAll(),
@@ -136,26 +144,97 @@ class SourceRepositoryImpl(
         }
     }
 
-    override suspend fun refreshSource(sourceId: SourceId): SourceRefreshResult {
-        val source = try {
-            sourceDao.get(sourceId.value)
-        } catch (_: Exception) {
-            return SourceRefreshResult.Failure(
-                category = SourceRefreshFailureCategory.STORAGE,
-                safeMessage = "Source storage is unavailable.",
-            )
-        }
-        if (source == null) {
-            return SourceRefreshResult.Failure(
+    override suspend fun refreshSource(sourceId: SourceId): SourceRefreshResult =
+        refreshMutex.withLock {
+            val source = try {
+                sourceDao.get(sourceId.value)
+            } catch (_: Exception) {
+                return@withLock storageFailure()
+            } ?: return@withLock SourceRefreshResult.Failure(
                 category = SourceRefreshFailureCategory.UNKNOWN,
                 safeMessage = "Source is unavailable.",
             )
+            if (!source.enabled) {
+                return@withLock SourceRefreshResult.Failure(
+                    category = SourceRefreshFailureCategory.UNKNOWN,
+                    safeMessage = "Source is disabled.",
+                )
+            }
+
+            val sourceType = try {
+                SourceType.valueOf(source.type)
+            } catch (_: Exception) {
+                return@withLock SourceRefreshResult.Failure(
+                    category = SourceRefreshFailureCategory.UNKNOWN,
+                    safeMessage = "Source type is unavailable.",
+                )
+            }
+
+            val secret = try {
+                credentialStore.get(sourceId)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                return@withLock storageFailure()
+            } ?: return@withLock SourceRefreshResult.Failure(
+                category = SourceRefreshFailureCategory.AUTHENTICATION,
+                safeMessage = "Source credentials are unavailable.",
+            )
+
+            val previous = try {
+                refreshStateDao.get(sourceId.value)
+            } catch (_: Exception) {
+                return@withLock storageFailure()
+            }
+            val attemptAt = nowMillis()
+            val generation = (previous?.generation ?: 0L) + 1L
+
+            val snapshot = try {
+                catalogLoader.load(
+                    sourceId = sourceId,
+                    sourceType = sourceType,
+                    baseLocator = source.baseLocator,
+                    secret = secret,
+                )
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: CatalogLoadException) {
+                return@withLock recordRefreshFailure(
+                    sourceId = sourceId,
+                    previous = previous,
+                    attemptAt = attemptAt,
+                    category = error.category,
+                )
+            } catch (_: Exception) {
+                return@withLock recordRefreshFailure(
+                    sourceId = sourceId,
+                    previous = previous,
+                    attemptAt = attemptAt,
+                    category = SourceRefreshFailureCategory.UNKNOWN,
+                )
+            }
+
+            return@withLock try {
+                catalogRefreshStore.commitSuccessfulRefresh(
+                    sourceId = sourceId,
+                    sourceType = sourceType,
+                    generation = generation,
+                    snapshot = snapshot,
+                    attemptAtEpochMs = attemptAt,
+                    completedAtEpochMs = nowMillis(),
+                )
+                SourceRefreshResult.Success
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                recordRefreshFailure(
+                    sourceId = sourceId,
+                    previous = previous,
+                    attemptAt = attemptAt,
+                    category = SourceRefreshFailureCategory.STORAGE,
+                )
+            }
         }
-        return SourceRefreshResult.Failure(
-            category = SourceRefreshFailureCategory.UNKNOWN,
-            safeMessage = "Source refresh is not available in this build stage.",
-        )
-    }
 
     override suspend fun removeSource(sourceId: SourceId): Boolean {
         val existing = try {
@@ -209,6 +288,47 @@ class SourceRepositoryImpl(
             false
         }
     }
+
+    private suspend fun recordRefreshFailure(
+        sourceId: SourceId,
+        previous: RefreshStateEntity?,
+        attemptAt: Long,
+        category: SourceRefreshFailureCategory,
+    ): SourceRefreshResult {
+        return try {
+            refreshStateDao.upsert(
+                RefreshStateEntity(
+                    sourceId = sourceId.value,
+                    generation = previous?.generation ?: 0L,
+                    state = "FAILED",
+                    lastAttempt = attemptAt,
+                    lastSuccess = previous?.lastSuccess,
+                    errorCode = category.name,
+                ),
+            )
+            SourceRefreshResult.Failure(
+                category = category,
+                safeMessage = category.safeMessage(),
+            )
+        } catch (_: Exception) {
+            storageFailure()
+        }
+    }
+
+    private fun SourceRefreshFailureCategory.safeMessage(): String = when (this) {
+        SourceRefreshFailureCategory.AUTHENTICATION -> "Source authentication failed."
+        SourceRefreshFailureCategory.NETWORK -> "Source network request failed."
+        SourceRefreshFailureCategory.TIMEOUT -> "Source request timed out."
+        SourceRefreshFailureCategory.INVALID_PAYLOAD -> "Source returned invalid catalog data."
+        SourceRefreshFailureCategory.PROVIDER -> "Source provider rejected the refresh."
+        SourceRefreshFailureCategory.STORAGE -> "Source refresh could not be saved."
+        SourceRefreshFailureCategory.UNKNOWN -> "Source refresh failed."
+    }
+
+    private fun storageFailure(): SourceRefreshResult.Failure = SourceRefreshResult.Failure(
+        category = SourceRefreshFailureCategory.STORAGE,
+        safeMessage = SourceRefreshFailureCategory.STORAGE.safeMessage(),
+    )
 
     private fun prepare(input: SourceInput): PreparedSource? {
         return when (input) {
