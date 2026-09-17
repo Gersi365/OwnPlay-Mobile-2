@@ -7,12 +7,12 @@ import androidx.media3.exoplayer.ExoPlayer
 import app.ownplay.mobile.feature.playback.domain.PlaybackEngine
 import app.ownplay.mobile.feature.playback.domain.PreparedPlaybackMedia
 
-class Media3PlaybackEngine internal constructor(context: Context) : PlaybackEngine {
+class Media3PlaybackEngine internal constructor(context: Context) {
     private val player = ExoPlayer.Builder(context.applicationContext).build()
     private var attachedSurfaceView: SurfaceView? = null
     private var hasMedia: Boolean = false
 
-    override fun replace(media: PreparedPlaybackMedia) {
+    internal fun replace(media: PreparedPlaybackMedia) {
         val mediaItem = MediaItem.Builder()
             .setUri(media.uri)
             .apply {
@@ -26,7 +26,7 @@ class Media3PlaybackEngine internal constructor(context: Context) : PlaybackEngi
         player.playWhenReady = attachedSurfaceView != null
     }
 
-    override fun clear() {
+    internal fun clear() {
         hasMedia = false
         player.playWhenReady = false
         player.stop()
@@ -55,5 +55,17 @@ class Media3PlaybackEngine internal constructor(context: Context) : PlaybackEngi
         attachedSurfaceView = null
         hasMedia = false
         player.release()
+    }
+}
+
+internal class Media3PlaybackEngineAdapter(
+    private val engine: Media3PlaybackEngine,
+) : PlaybackEngine {
+    override fun replace(media: PreparedPlaybackMedia) {
+        engine.replace(media)
+    }
+
+    override fun clear() {
+        engine.clear()
     }
 }

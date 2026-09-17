@@ -10,6 +10,7 @@ import app.ownplay.mobile.feature.live.data.RoomLiveOrganizationRepository
 import app.ownplay.mobile.feature.live.domain.LiveOrganizationRepository
 import app.ownplay.mobile.feature.playback.data.DefaultLivePlaybackMediaPreparer
 import app.ownplay.mobile.feature.playback.data.Media3PlaybackEngine
+import app.ownplay.mobile.feature.playback.data.Media3PlaybackEngineAdapter
 import app.ownplay.mobile.feature.playback.data.SourceBackedLivePlaybackSourceResolver
 import app.ownplay.mobile.feature.playback.domain.PlaybackSessionController
 import app.ownplay.mobile.sources.data.DefaultSourceCatalogLoader
@@ -69,7 +70,7 @@ class OwnPlayServices private constructor(
             val playbackSessionController = PlaybackSessionController(
                 sourceResolver = playbackSourceResolver,
                 mediaPreparer = DefaultLivePlaybackMediaPreparer(),
-                playbackEngine = playbackEngine,
+                playbackEngine = Media3PlaybackEngineAdapter(playbackEngine),
             )
 
             return OwnPlayServices(
