@@ -31,6 +31,9 @@ interface SourceDao {
 
 @Dao
 interface RefreshStateDao {
+    @Query("SELECT * FROM refresh_state ORDER BY sourceId ASC")
+    fun observeAll(): Flow<List<RefreshStateEntity>>
+
     @Query("SELECT * FROM refresh_state WHERE sourceId = :sourceId LIMIT 1")
     suspend fun get(sourceId: String): RefreshStateEntity?
 
