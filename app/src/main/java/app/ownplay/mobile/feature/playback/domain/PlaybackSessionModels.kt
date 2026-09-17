@@ -61,6 +61,16 @@ object PlaybackSessionPolicy {
     }
 }
 
+object PlaybackPictureInPicturePolicy {
+    fun isEligible(state: PlaybackSessionState): Boolean =
+        state.target != null &&
+            state.readiness == PlaybackReadiness.PREPARED &&
+            (
+                state.presentation == PlaybackPresentation.FULLSCREEN ||
+                    state.presentation == PlaybackPresentation.PICTURE_IN_PICTURE
+            )
+}
+
 internal sealed interface LivePlaybackSource {
     class Direct(
         internal val streamLocator: String,
@@ -111,8 +121,23 @@ internal interface LivePlaybackMediaPreparer {
     fun prepare(source: LivePlaybackSource): PreparedPlaybackMedia?
 }
 
+internal enum class PlaybackEngineReadiness {
+    PREPARING,
+    READY,
+    FAILED,
+}
+
+internal data class PlaybackEngineEvent(
+    val mediaRevision: Long,
+    val readiness: PlaybackEngineReadiness,
+)
+
 internal interface PlaybackEngine {
-    fun replace(media: PreparedPlaybackMedia)
+    fun setEventListener(listener: (PlaybackEngineEvent) -> Unit)
+
+    fun replace(media: PreparedPlaybackMedia): Long
 
     fun clear()
+
+    fun release()
 }

@@ -4,7 +4,17 @@ import android.app.Application
 import app.ownplay.mobile.core.OwnPlayServices
 
 class OwnPlayApplication : Application() {
-    val services: OwnPlayServices by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+    private val servicesDelegate = lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         OwnPlayServices.create(this)
+    }
+
+    val services: OwnPlayServices
+        get() = servicesDelegate.value
+
+    override fun onTerminate() {
+        if (servicesDelegate.isInitialized()) {
+            services.releasePlayback()
+        }
+        super.onTerminate()
     }
 }

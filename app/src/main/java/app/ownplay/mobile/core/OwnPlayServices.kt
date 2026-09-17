@@ -36,6 +36,10 @@ class OwnPlayServices private constructor(
     val m3uClient: M3uClient,
     val xtreamClient: XtreamClient,
 ) {
+    internal fun releasePlayback() {
+        playbackSessionController.release()
+    }
+
     companion object {
         fun create(context: Context): OwnPlayServices {
             val applicationContext = context.applicationContext

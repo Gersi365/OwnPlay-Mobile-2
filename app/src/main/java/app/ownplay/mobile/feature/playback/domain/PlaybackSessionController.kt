@@ -1,5 +1,6 @@
 package app.ownplay.mobile.feature.playback.domain
 
+import app.ownplay.mobile.sources.domain.SourceId
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -15,7 +16,14 @@ class PlaybackSessionController internal constructor(
     private val mutex = Mutex()
     private val mutableState = MutableStateFlow(PlaybackSessionState())
 
+    @Volatile
+    private var activeMediaRevision: Long? = null
+
     val state: StateFlow<PlaybackSessionState> = mutableState.asStateFlow()
+
+    init {
+        playbackEngine.setEventListener(::onPlaybackEngineEvent)
+    }
 
     suspend fun activateLiveChannel(target: PlaybackTarget) {
         mutex.withLock {
@@ -26,6 +34,7 @@ class PlaybackSessionController internal constructor(
 
             if (!targetChanged) return
 
+            activeMediaRevision = null
             playbackEngine.clear()
             val media = try {
                 sourceResolver.resolve(target)?.let(mediaPreparer::prepare)
@@ -43,11 +52,11 @@ class PlaybackSessionController internal constructor(
             }
 
             try {
-                playbackEngine.replace(media)
-                mutableState.value = mutableState.value.copy(readiness = PlaybackReadiness.PREPARED)
+                activeMediaRevision = playbackEngine.replace(media)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
+                activeMediaRevision = null
                 playbackEngine.clear()
                 mutableState.value = mutableState.value.copy(readiness = PlaybackReadiness.UNAVAILABLE)
             }
@@ -62,10 +71,20 @@ class PlaybackSessionController internal constructor(
     }
 
     fun enterPictureInPicture() {
+        val current = mutableState.value
+        if (!PlaybackPictureInPicturePolicy.isEligible(current)) return
         mutableState.value = PlaybackSessionPolicy.present(
-            current = mutableState.value,
+            current = current,
             presentation = PlaybackPresentation.PICTURE_IN_PICTURE,
         )
+    }
+
+    fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean) {
+        if (isInPictureInPictureMode) {
+            enterPictureInPicture()
+        } else if (mutableState.value.presentation == PlaybackPresentation.PICTURE_IN_PICTURE) {
+            returnToPreview()
+        }
     }
 
     fun returnToPreview() {
@@ -75,8 +94,52 @@ class PlaybackSessionController internal constructor(
         )
     }
 
+    fun reconcileActiveSource(activeSourceId: SourceId?) {
+        val target = mutableState.value.target ?: return
+        if (activeSourceId != target.sourceId) {
+            clear()
+        }
+    }
+
+    suspend fun revalidateActiveTarget() {
+        val target = mutableState.value.target ?: return
+        val stillResolvable = try {
+            sourceResolver.resolve(target) != null
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            false
+        }
+
+        if (mutableState.value.target == target && !stillResolvable) {
+            clear()
+        }
+    }
+
     fun clear() {
+        activeMediaRevision = null
         playbackEngine.clear()
         mutableState.value = PlaybackSessionState()
+    }
+
+    internal fun release() {
+        activeMediaRevision = null
+        playbackEngine.release()
+        mutableState.value = PlaybackSessionState()
+    }
+
+    private fun onPlaybackEngineEvent(event: PlaybackEngineEvent) {
+        if (event.mediaRevision != activeMediaRevision) return
+        val current = mutableState.value
+        if (current.target == null) return
+
+        mutableState.value = when (event.readiness) {
+            PlaybackEngineReadiness.PREPARING ->
+                current.copy(readiness = PlaybackReadiness.PREPARING)
+            PlaybackEngineReadiness.READY ->
+                current.copy(readiness = PlaybackReadiness.PREPARED)
+            PlaybackEngineReadiness.FAILED ->
+                current.copy(readiness = PlaybackReadiness.UNAVAILABLE)
+        }
     }
 }
