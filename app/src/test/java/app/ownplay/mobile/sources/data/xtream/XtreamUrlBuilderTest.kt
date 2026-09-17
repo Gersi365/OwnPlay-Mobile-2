@@ -1,7 +1,7 @@
 package app.ownplay.mobile.sources.data.xtream
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class XtreamUrlBuilderTest {
@@ -38,7 +38,7 @@ class XtreamUrlBuilderTest {
     }
 
     @Test
-    fun `builder never appends fragment from base url`() {
+    fun `builder rejects fragment from base url`() {
         val failed = runCatching {
             XtreamUrlBuilder.playerApi(
                 baseUrl = "https://example.com/#secret",
@@ -47,6 +47,6 @@ class XtreamUrlBuilderTest {
             )
         }.isFailure
 
-        assertFalse(!failed)
+        assertTrue(failed)
     }
 }
