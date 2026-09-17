@@ -2,6 +2,7 @@ package app.ownplay.mobile.sources.data.xtream
 
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
@@ -73,6 +74,66 @@ object XtreamPayloadParser {
             )
         }
 
+    fun seriesInfo(body: String): XtreamSeriesDetail {
+        val root = json.parseToJsonElement(body) as? JsonObject
+            ?: return XtreamSeriesDetail(emptyList())
+        val episodePayload = root["episodes"] ?: return XtreamSeriesDetail(emptyList())
+        val episodes = when (episodePayload) {
+            is JsonObject -> episodePayload.entries.flatMap { (seasonKey, value) ->
+                parseSeasonEpisodes(seasonKey, value)
+            }
+            is JsonArray -> episodePayload.mapNotNull { element ->
+                parseEpisode(element as? JsonObject ?: return@mapNotNull null, fallbackSeason = null)
+            }
+            else -> emptyList()
+        }
+        return XtreamSeriesDetail(
+            episodes = episodes.distinctBy(XtreamSeriesEpisode::providerEpisodeId),
+        )
+    }
+
+    private fun parseSeasonEpisodes(
+        seasonKey: String,
+        payload: JsonElement,
+    ): List<XtreamSeriesEpisode> = when (payload) {
+        is JsonArray -> payload.mapNotNull { element ->
+            parseEpisode(
+                objectValue = element as? JsonObject ?: return@mapNotNull null,
+                fallbackSeason = seasonKey.toIntOrNull(),
+            )
+        }
+        is JsonObject -> listOfNotNull(
+            parseEpisode(
+                objectValue = payload,
+                fallbackSeason = seasonKey.toIntOrNull(),
+            ),
+        )
+        else -> emptyList()
+    }
+
+    private fun parseEpisode(
+        objectValue: JsonObject,
+        fallbackSeason: Int?,
+    ): XtreamSeriesEpisode? {
+        val providerEpisodeId = objectValue.text("id") ?: return null
+        val seasonNumber = objectValue.int("season") ?: fallbackSeason ?: return null
+        val episodeNumber = objectValue.int("episode_num") ?: return null
+        if (seasonNumber < 0 || episodeNumber < 0) return null
+        val info = objectValue["info"] as? JsonObject
+        val title = objectValue.text("title") ?: info?.text("name") ?: return null
+        val durationSeconds = info?.long("duration_secs")
+        return XtreamSeriesEpisode(
+            providerEpisodeId = providerEpisodeId,
+            seasonNumber = seasonNumber,
+            episodeNumber = episodeNumber,
+            title = title,
+            containerExtension = objectValue.text("container_extension"),
+            durationMs = durationSeconds
+                ?.takeIf { it > 0L && it <= Long.MAX_VALUE / 1_000L }
+                ?.times(1_000L),
+        )
+    }
+
     private fun parseArray(body: String): JsonArray =
         json.parseToJsonElement(body).jsonArray
 
@@ -81,4 +142,8 @@ object XtreamPayloadParser {
             ?.contentOrNull
             ?.trim()
             ?.takeIf(String::isNotBlank)
+
+    private fun JsonObject.int(key: String): Int? = text(key)?.toIntOrNull()
+
+    private fun JsonObject.long(key: String): Long? = text(key)?.toLongOrNull()
 }

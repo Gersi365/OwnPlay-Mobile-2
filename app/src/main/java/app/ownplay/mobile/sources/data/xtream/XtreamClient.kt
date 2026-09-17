@@ -12,6 +12,7 @@ interface XtreamClient {
     suspend fun movies(connection: XtreamConnection): List<XtreamMovie>
     suspend fun seriesCategories(connection: XtreamConnection): List<XtreamCategory>
     suspend fun series(connection: XtreamConnection): List<XtreamSeries>
+    suspend fun seriesInfo(connection: XtreamConnection, seriesId: String): XtreamSeriesDetail
 }
 
 class OkHttpXtreamClient(
@@ -47,9 +48,23 @@ class OkHttpXtreamClient(
     ): List<XtreamSeries> =
         parse(connection, "get_series", XtreamPayloadParser::series)
 
+    override suspend fun seriesInfo(
+        connection: XtreamConnection,
+        seriesId: String,
+    ): XtreamSeriesDetail {
+        require(seriesId.isNotBlank()) { "Series id must not be blank" }
+        return parse(
+            connection = connection,
+            action = "get_series_info",
+            extraParameters = mapOf("series_id" to seriesId),
+            parser = XtreamPayloadParser::seriesInfo,
+        )
+    }
+
     private suspend fun <T> parse(
         connection: XtreamConnection,
         action: String,
+        extraParameters: Map<String, String> = emptyMap(),
         parser: (String) -> T,
     ): T {
         val response = transport.get(
@@ -58,6 +73,7 @@ class OkHttpXtreamClient(
                 username = connection.username,
                 password = connection.password,
                 action = action,
+                extraParameters = extraParameters,
             ),
         )
 

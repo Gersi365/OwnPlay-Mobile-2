@@ -46,4 +46,53 @@ class XtreamPayloadParserTest {
         assertNull(movies.single().categoryId)
         assertNull(movies.single().posterUrl)
     }
+
+    @Test
+    fun `series info uses provider episode ids and season keys`() {
+        val detail = XtreamPayloadParser.seriesInfo(
+            """
+            {
+              "seasons": [{"season_number": 1}],
+              "episodes": {
+                "1": [
+                  {
+                    "id": "1001",
+                    "episode_num": 2,
+                    "title": "Episode Two",
+                    "container_extension": "mkv",
+                    "info": {"duration_secs": 2700}
+                  }
+                ]
+              }
+            }
+            """.trimIndent(),
+        )
+
+        val episode = detail.episodes.single()
+        assertEquals("1001", episode.providerEpisodeId)
+        assertEquals(1, episode.seasonNumber)
+        assertEquals(2, episode.episodeNumber)
+        assertEquals("Episode Two", episode.title)
+        assertEquals("mkv", episode.containerExtension)
+        assertEquals(2_700_000L, episode.durationMs)
+    }
+
+    @Test
+    fun `series info skips incomplete episodes instead of inventing identity`() {
+        val detail = XtreamPayloadParser.seriesInfo(
+            """
+            {
+              "episodes": {
+                "1": [
+                  {"episode_num": 1, "title": "Missing id"},
+                  {"id": "1002", "title": "Missing number"},
+                  {"id": "1003", "episode_num": 3}
+                ]
+              }
+            }
+            """.trimIndent(),
+        )
+
+        assertEquals(emptyList<XtreamSeriesEpisode>(), detail.episodes)
+    }
 }

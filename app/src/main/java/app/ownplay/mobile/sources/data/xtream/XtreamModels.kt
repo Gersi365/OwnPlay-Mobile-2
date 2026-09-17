@@ -44,3 +44,16 @@ data class XtreamSeries(
     val rating: String?,
     val providerOrder: Int,
 )
+
+data class XtreamSeriesEpisode(
+    val providerEpisodeId: String,
+    val seasonNumber: Int,
+    val episodeNumber: Int,
+    val title: String,
+    val containerExtension: String?,
+    val durationMs: Long?,
+)
+
+data class XtreamSeriesDetail(
+    val episodes: List<XtreamSeriesEpisode>,
+)
