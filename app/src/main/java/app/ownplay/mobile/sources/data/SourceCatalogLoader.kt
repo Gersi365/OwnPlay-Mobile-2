@@ -8,6 +8,7 @@ import app.ownplay.mobile.sources.data.xtream.XtreamClient
 import app.ownplay.mobile.sources.data.xtream.XtreamClientException
 import app.ownplay.mobile.sources.data.xtream.XtreamClientFailureCategory
 import app.ownplay.mobile.sources.data.xtream.XtreamConnection
+import app.ownplay.mobile.sources.data.xtream.XtreamLiveStreamIdentity
 import app.ownplay.mobile.sources.domain.SourceId
 import app.ownplay.mobile.sources.domain.SourceRefreshFailureCategory
 import app.ownplay.mobile.sources.domain.SourceType
@@ -111,7 +112,10 @@ class DefaultSourceCatalogLoader(
                     tvgId = stream.tvgId,
                     tvgName = stream.name,
                     logoUrl = stream.logoUrl,
-                    streamLocator = "xtream://live/${stream.streamId}",
+                    streamLocator = XtreamLiveStreamIdentity.encode(
+                        streamId = stream.streamId,
+                        containerExtension = stream.containerExtension,
+                    ),
                     providerOrder = stream.providerOrder,
                 )
             }.distinctBy(ProviderLiveChannelRecord::proposedChannelId),

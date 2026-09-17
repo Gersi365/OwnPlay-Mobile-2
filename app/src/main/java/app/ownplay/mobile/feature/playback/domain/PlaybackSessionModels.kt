@@ -91,6 +91,28 @@ internal sealed interface LivePlaybackSource {
     }
 }
 
+internal data class PreparedPlaybackMedia(
+    internal val uri: String,
+    internal val mimeType: String? = null,
+) {
+    init {
+        require(uri.isNotBlank()) { "Prepared playback URI must not be blank" }
+    }
+
+    override fun toString(): String =
+        "PreparedPlaybackMedia(uri=<redacted>, mimeType=${mimeType ?: "<unspecified>"})"
+}
+
 internal interface LivePlaybackSourceResolver {
     suspend fun resolve(target: PlaybackTarget): LivePlaybackSource?
+}
+
+internal interface LivePlaybackMediaPreparer {
+    fun prepare(source: LivePlaybackSource): PreparedPlaybackMedia?
+}
+
+internal interface PlaybackEngine {
+    fun replace(media: PreparedPlaybackMedia)
+
+    fun clear()
 }

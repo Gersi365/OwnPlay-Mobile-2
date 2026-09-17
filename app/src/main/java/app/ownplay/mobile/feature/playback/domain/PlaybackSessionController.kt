@@ -9,10 +9,11 @@ import kotlinx.coroutines.sync.withLock
 
 class PlaybackSessionController internal constructor(
     private val sourceResolver: LivePlaybackSourceResolver,
+    private val mediaPreparer: LivePlaybackMediaPreparer,
+    private val playbackEngine: PlaybackEngine,
 ) {
     private val mutex = Mutex()
     private val mutableState = MutableStateFlow(PlaybackSessionState())
-    private var preparedSource: LivePlaybackSource? = null
 
     val state: StateFlow<PlaybackSessionState> = mutableState.asStateFlow()
 
@@ -25,9 +26,9 @@ class PlaybackSessionController internal constructor(
 
             if (!targetChanged) return
 
-            preparedSource = null
-            val resolved = try {
-                sourceResolver.resolve(target)
+            playbackEngine.clear()
+            val media = try {
+                sourceResolver.resolve(target)?.let(mediaPreparer::prepare)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
@@ -36,14 +37,20 @@ class PlaybackSessionController internal constructor(
 
             if (mutableState.value.target != target) return
 
-            preparedSource = resolved
-            mutableState.value = mutableState.value.copy(
-                readiness = if (resolved == null) {
-                    PlaybackReadiness.UNAVAILABLE
-                } else {
-                    PlaybackReadiness.PREPARED
-                },
-            )
+            if (media == null) {
+                mutableState.value = mutableState.value.copy(readiness = PlaybackReadiness.UNAVAILABLE)
+                return
+            }
+
+            try {
+                playbackEngine.replace(media)
+                mutableState.value = mutableState.value.copy(readiness = PlaybackReadiness.PREPARED)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                playbackEngine.clear()
+                mutableState.value = mutableState.value.copy(readiness = PlaybackReadiness.UNAVAILABLE)
+            }
         }
     }
 
@@ -69,7 +76,7 @@ class PlaybackSessionController internal constructor(
     }
 
     fun clear() {
-        preparedSource = null
+        playbackEngine.clear()
         mutableState.value = PlaybackSessionState()
     }
 }

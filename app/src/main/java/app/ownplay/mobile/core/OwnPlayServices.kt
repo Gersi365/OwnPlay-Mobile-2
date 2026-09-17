@@ -8,6 +8,8 @@ import app.ownplay.mobile.data.security.KeystoreCredentialStore
 import app.ownplay.mobile.feature.live.data.RoomLiveOrganizationRefreshStore
 import app.ownplay.mobile.feature.live.data.RoomLiveOrganizationRepository
 import app.ownplay.mobile.feature.live.domain.LiveOrganizationRepository
+import app.ownplay.mobile.feature.playback.data.DefaultLivePlaybackMediaPreparer
+import app.ownplay.mobile.feature.playback.data.Media3PlaybackEngine
 import app.ownplay.mobile.feature.playback.data.SourceBackedLivePlaybackSourceResolver
 import app.ownplay.mobile.feature.playback.domain.PlaybackSessionController
 import app.ownplay.mobile.sources.data.DefaultSourceCatalogLoader
@@ -28,6 +30,7 @@ class OwnPlayServices private constructor(
     val sourceRepository: SourceRepository,
     val liveOrganizationRepository: LiveOrganizationRepository,
     val playbackSessionController: PlaybackSessionController,
+    val playbackEngine: Media3PlaybackEngine,
     val providerTransport: ProviderTransport,
     val m3uClient: M3uClient,
     val xtreamClient: XtreamClient,
@@ -62,7 +65,12 @@ class OwnPlayServices private constructor(
                 liveOrganizationDao = liveOrganizationDao,
                 credentialStore = credentialStore,
             )
-            val playbackSessionController = PlaybackSessionController(playbackSourceResolver)
+            val playbackEngine = Media3PlaybackEngine(applicationContext)
+            val playbackSessionController = PlaybackSessionController(
+                sourceResolver = playbackSourceResolver,
+                mediaPreparer = DefaultLivePlaybackMediaPreparer(),
+                playbackEngine = playbackEngine,
+            )
 
             return OwnPlayServices(
                 database = database,
@@ -78,6 +86,7 @@ class OwnPlayServices private constructor(
                 ),
                 liveOrganizationRepository = liveOrganizationRepository,
                 playbackSessionController = playbackSessionController,
+                playbackEngine = playbackEngine,
                 providerTransport = transport,
                 m3uClient = m3uClient,
                 xtreamClient = xtreamClient,
