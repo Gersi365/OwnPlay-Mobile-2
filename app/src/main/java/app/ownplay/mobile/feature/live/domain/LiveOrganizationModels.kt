@@ -64,6 +64,7 @@ data class OwnPlayLiveCatalogSnapshot(
     val countries: List<OwnPlayCountryScope>,
     val semanticCategories: List<OwnPlayLiveSemanticCategory>,
     val channelIdsByPlacement: Map<OwnPlayLivePlacement, List<String>>,
+    val manualPlacementChannelIds: Set<String> = emptySet(),
 )
 
 interface LiveOrganizationRepository {
@@ -72,6 +73,8 @@ interface LiveOrganizationRepository {
     fun observeProviderCatalog(sourceId: SourceId): Flow<ProviderLiveCatalogSnapshot>
 
     fun observeOwnPlayCatalog(sourceId: SourceId): Flow<OwnPlayLiveCatalogSnapshot>
+
+    fun observeFavoriteChannelIds(sourceId: SourceId): Flow<Set<String>>
 
     suspend fun setMode(sourceId: SourceId, mode: LiveOrganizationMode): Boolean
 
