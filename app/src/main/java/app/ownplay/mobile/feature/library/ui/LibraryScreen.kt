@@ -256,6 +256,18 @@ private fun LibrarySourceScreen(
                 )
             }
         }
+
+        if (visibleCatalog.downloadedMedia.isNotEmpty()) {
+            item {
+                LibrarySectionTitle("Downloaded Media")
+            }
+            items(
+                items = visibleCatalog.downloadedMedia,
+                key = { item -> "download:${item.downloadId}" },
+            ) { item ->
+                LibraryDownloadedMediaRow(item)
+            }
+        }
     }
 }
 
