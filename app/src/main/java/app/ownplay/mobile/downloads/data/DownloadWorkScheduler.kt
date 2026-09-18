@@ -9,23 +9,32 @@ import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import app.ownplay.mobile.downloads.domain.DownloadId
+import app.ownplay.mobile.downloads.domain.DownloadNetworkPreferencePolicy
+import app.ownplay.mobile.downloads.domain.DownloadPreferencesRepository
 import java.util.concurrent.TimeUnit
 
 internal interface DownloadWorkScheduler {
-    fun enqueue(downloadId: DownloadId, replace: Boolean)
+    suspend fun enqueue(downloadId: DownloadId, replace: Boolean)
     fun cancel(downloadId: DownloadId)
 }
 
 internal class WorkManagerDownloadScheduler(
     context: Context,
+    private val preferencesRepository: DownloadPreferencesRepository,
 ) : DownloadWorkScheduler {
     private val applicationContext = context.applicationContext
 
-    override fun enqueue(downloadId: DownloadId, replace: Boolean) {
+    override suspend fun enqueue(downloadId: DownloadId, replace: Boolean) {
+        val preferences = preferencesRepository.current()
+        val networkType = if (DownloadNetworkPreferencePolicy.requiresUnmeteredNetwork(preferences)) {
+            NetworkType.UNMETERED
+        } else {
+            NetworkType.CONNECTED
+        }
         val request = OneTimeWorkRequestBuilder<DownloadWorker>()
             .setConstraints(
                 Constraints.Builder()
-                    .setRequiredNetworkType(NetworkType.CONNECTED)
+                    .setRequiredNetworkType(networkType)
                     .build(),
             )
             .setInputData(

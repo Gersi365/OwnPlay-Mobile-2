@@ -32,6 +32,10 @@ import app.ownplay.mobile.feature.live.domain.LiveOrganizationMode
 import app.ownplay.mobile.feature.live.domain.LiveOrganizationRepository
 import app.ownplay.mobile.feature.live.domain.OwnPlayLiveCatalogSnapshot
 import app.ownplay.mobile.feature.live.domain.OwnPlayLiveSemanticCategory
+import app.ownplay.mobile.downloads.domain.DownloadPreferences
+import app.ownplay.mobile.downloads.domain.DownloadPreferencesRepository
+import app.ownplay.mobile.feature.playback.domain.PlaybackPreferences
+import app.ownplay.mobile.feature.playback.domain.PlaybackPreferencesRepository
 import app.ownplay.mobile.feature.settings.domain.DisplayPreferences
 import app.ownplay.mobile.feature.settings.domain.DisplayPreferencesRepository
 import app.ownplay.mobile.feature.settings.domain.SourceRefreshSchedule
@@ -56,6 +60,8 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
         refreshScheduleRepository = services.refreshScheduleRepository,
         displayPreferencesRepository = services.displayPreferencesRepository,
         liveOrganizationRepository = services.liveOrganizationRepository,
+        playbackPreferencesRepository = services.playbackPreferencesRepository,
+        downloadPreferencesRepository = services.downloadPreferencesRepository,
         modifier = modifier,
     )
 }
@@ -66,6 +72,8 @@ private fun SettingsSourcesScreen(
     refreshScheduleRepository: SourceRefreshScheduleRepository,
     displayPreferencesRepository: DisplayPreferencesRepository,
     liveOrganizationRepository: LiveOrganizationRepository,
+    playbackPreferencesRepository: PlaybackPreferencesRepository,
+    downloadPreferencesRepository: DownloadPreferencesRepository,
     modifier: Modifier,
 ) {
     val sourcesFlow = remember(repository) { repository.observeSources() }
@@ -173,6 +181,20 @@ private fun SettingsSourcesScreen(
             LiveOrganizationSettingsSection(
                 source = activeSource,
                 repository = liveOrganizationRepository,
+                onMessage = { message = it },
+            )
+        }
+
+        item {
+            PlaybackSettingsSection(
+                repository = playbackPreferencesRepository,
+                onMessage = { message = it },
+            )
+        }
+
+        item {
+            DownloadSettingsSection(
+                repository = downloadPreferencesRepository,
                 onMessage = { message = it },
             )
         }
@@ -481,6 +503,124 @@ private fun LiveOrganizationSettingsSection(
 }
 
 @Composable
+private fun PlaybackSettingsSection(
+    repository: PlaybackPreferencesRepository,
+    onMessage: (String) -> Unit,
+) {
+    val preferences by repository.preferences.collectAsState(initial = PlaybackPreferences())
+    val scope = rememberCoroutineScope()
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = OwnPlayShapes.Medium,
+        color = OwnPlayColors.SurfaceRaised,
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Text("Playback", color = OwnPlayColors.TextPrimary, fontWeight = FontWeight.SemiBold)
+            Text(
+                if (preferences.automaticPictureInPicture) {
+                    "Automatic Picture-in-Picture is on."
+                } else {
+                    "Automatic Picture-in-Picture is off."
+                },
+                color = OwnPlayColors.TextSecondary,
+            )
+            Text(
+                "When enabled, eligible fullscreen playback can enter Picture-in-Picture when you leave OwnPlay.",
+                color = OwnPlayColors.TextMuted,
+            )
+            TextButton(
+                onClick = {
+                    val target = !preferences.automaticPictureInPicture
+                    scope.launch {
+                        onMessage(
+                            if (repository.setAutomaticPictureInPicture(target)) {
+                                if (target) {
+                                    "Automatic Picture-in-Picture enabled."
+                                } else {
+                                    "Automatic Picture-in-Picture disabled."
+                                }
+                            } else {
+                                "Could not update playback preference."
+                            },
+                        )
+                    }
+                },
+            ) {
+                Text(
+                    if (preferences.automaticPictureInPicture) {
+                        "Disable automatic PiP"
+                    } else {
+                        "Enable automatic PiP"
+                    },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun DownloadSettingsSection(
+    repository: DownloadPreferencesRepository,
+    onMessage: (String) -> Unit,
+) {
+    val preferences by repository.preferences.collectAsState(initial = DownloadPreferences())
+    val scope = rememberCoroutineScope()
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = OwnPlayShapes.Medium,
+        color = OwnPlayColors.SurfaceRaised,
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Text("Downloads", color = OwnPlayColors.TextPrimary, fontWeight = FontWeight.SemiBold)
+            Text(
+                if (preferences.unmeteredNetworkOnly) {
+                    "New and resumed downloads require an unmetered network."
+                } else {
+                    "New and resumed downloads can use any connected network."
+                },
+                color = OwnPlayColors.TextSecondary,
+            )
+            Text(
+                "Changing this does not rewrite work that is already running.",
+                color = OwnPlayColors.TextMuted,
+            )
+            TextButton(
+                onClick = {
+                    val target = !preferences.unmeteredNetworkOnly
+                    scope.launch {
+                        onMessage(
+                            if (repository.setUnmeteredNetworkOnly(target)) {
+                                if (target) {
+                                    "Unmetered network requirement enabled for new and resumed downloads."
+                                } else {
+                                    "Downloads may use any connected network."
+                                }
+                            } else {
+                                "Could not update download preference."
+                            },
+                        )
+                    }
+                },
+            ) {
+                Text(
+                    if (preferences.unmeteredNetworkOnly) {
+                        "Allow any connected network"
+                    } else {
+                        "Require unmetered network"
+                    },
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun SettingsNextSections() {
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -493,7 +633,7 @@ private fun SettingsNextSections() {
         ) {
             Text("Next settings sections", color = OwnPlayColors.TextPrimary, fontWeight = FontWeight.SemiBold)
             Text(
-                "Playback • Downloads • Backup & restore • About",
+                "Backup & restore • About",
                 color = OwnPlayColors.TextSecondary,
             )
         }

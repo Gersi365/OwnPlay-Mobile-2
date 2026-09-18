@@ -11,12 +11,14 @@ import androidx.activity.enableEdgeToEdge
 import androidx.lifecycle.lifecycleScope
 import app.ownplay.mobile.app.OwnPlayApp
 import app.ownplay.mobile.design.OwnPlayTheme
-import app.ownplay.mobile.feature.playback.domain.PlaybackPictureInPicturePolicy
+import app.ownplay.mobile.feature.playback.domain.PlaybackAutomaticPictureInPicturePolicy
+import app.ownplay.mobile.feature.playback.domain.PlaybackPreferences
 import app.ownplay.mobile.feature.playback.domain.PlaybackSessionState
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     private var latestPlaybackState = PlaybackSessionState()
+    private var playbackPreferences = PlaybackPreferences()
 
     private val ownPlayApplication: OwnPlayApplication
         get() = application as OwnPlayApplication
@@ -29,6 +31,12 @@ class MainActivity : ComponentActivity() {
             ownPlayApplication.services.playbackSessionController.state.collect { state ->
                 latestPlaybackState = state
                 updatePictureInPictureParams(state)
+            }
+        }
+        lifecycleScope.launch {
+            ownPlayApplication.services.playbackPreferencesRepository.preferences.collect { preferences ->
+                playbackPreferences = preferences
+                updatePictureInPictureParams(latestPlaybackState)
             }
         }
 
@@ -50,7 +58,7 @@ class MainActivity : ComponentActivity() {
         super.onUserLeaveHint()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) return
         if (isInPictureInPictureMode) return
-        if (!PlaybackPictureInPicturePolicy.isEligible(latestPlaybackState)) return
+        if (!PlaybackAutomaticPictureInPicturePolicy.isEligible(playbackPreferences, latestPlaybackState)) return
 
         if (enterPictureInPictureMode(buildPictureInPictureParams(latestPlaybackState))) {
             ownPlayApplication.services.playbackSessionController
@@ -83,7 +91,9 @@ class MainActivity : ComponentActivity() {
             .setAspectRatio(Rational(16, 9))
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            builder.setAutoEnterEnabled(PlaybackPictureInPicturePolicy.isEligible(state))
+            builder.setAutoEnterEnabled(
+                PlaybackAutomaticPictureInPicturePolicy.isEligible(playbackPreferences, state),
+            )
         }
 
         return builder.build()

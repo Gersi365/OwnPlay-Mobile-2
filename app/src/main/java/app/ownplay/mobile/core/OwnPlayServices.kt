@@ -8,6 +8,8 @@ import app.ownplay.mobile.data.security.KeystoreCredentialStore
 import app.ownplay.mobile.downloads.data.AndroidDownloadStorage
 import app.ownplay.mobile.downloads.data.DownloadAwareSourceRepository
 import app.ownplay.mobile.downloads.data.DownloadExecutor
+import app.ownplay.mobile.downloads.data.DataStoreDownloadPreferencesRepository
+import app.ownplay.mobile.downloads.data.DownloadPreferencesDataStore
 import app.ownplay.mobile.downloads.data.DownloadNotificationController
 import app.ownplay.mobile.downloads.data.ManagedSourceRemovalDownloadCoordinator
 import app.ownplay.mobile.downloads.data.OkHttpDownloadTransferClient
@@ -15,6 +17,7 @@ import app.ownplay.mobile.downloads.data.RoomDownloadRepository
 import app.ownplay.mobile.downloads.data.SourceBackedDownloadMediaResolver
 import app.ownplay.mobile.downloads.data.WorkManagedDownloadRepository
 import app.ownplay.mobile.downloads.data.WorkManagerDownloadScheduler
+import app.ownplay.mobile.downloads.domain.DownloadPreferencesRepository
 import app.ownplay.mobile.downloads.domain.DownloadRepository
 import app.ownplay.mobile.feature.library.data.DownloadAwareLibraryPlaybackResolver
 import app.ownplay.mobile.downloads.data.AndroidDownloadedMediaVerifier
@@ -33,7 +36,10 @@ import app.ownplay.mobile.feature.live.domain.LiveOrganizationRepository
 import app.ownplay.mobile.feature.playback.data.DefaultLivePlaybackMediaPreparer
 import app.ownplay.mobile.feature.playback.data.Media3PlaybackEngine
 import app.ownplay.mobile.feature.playback.data.Media3PlaybackEngineAdapter
+import app.ownplay.mobile.feature.playback.data.DataStorePlaybackPreferencesRepository
+import app.ownplay.mobile.feature.playback.data.PlaybackPreferencesDataStore
 import app.ownplay.mobile.feature.playback.data.SourceBackedLivePlaybackSourceResolver
+import app.ownplay.mobile.feature.playback.domain.PlaybackPreferencesRepository
 import app.ownplay.mobile.feature.playback.domain.PlaybackSessionController
 import app.ownplay.mobile.feature.settings.data.DataStoreDisplayPreferencesRepository
 import app.ownplay.mobile.feature.settings.data.DisplayPreferencesDataStore
@@ -61,6 +67,8 @@ class OwnPlayServices private constructor(
     val sourceRepository: SourceRepository,
     val refreshScheduleRepository: SourceRefreshScheduleRepository,
     val displayPreferencesRepository: DisplayPreferencesRepository,
+    val playbackPreferencesRepository: PlaybackPreferencesRepository,
+    val downloadPreferencesRepository: DownloadPreferencesRepository,
     val liveOrganizationRepository: LiveOrganizationRepository,
     val libraryRepository: LibraryRepository,
     val downloadRepository: DownloadRepository,
@@ -130,7 +138,13 @@ class OwnPlayServices private constructor(
             )
             val downloadStorage = AndroidDownloadStorage(applicationContext)
             val downloadNotifications = DownloadNotificationController(applicationContext)
-            val downloadScheduler = WorkManagerDownloadScheduler(applicationContext)
+            val downloadPreferencesRepository = DataStoreDownloadPreferencesRepository(
+                DownloadPreferencesDataStore(applicationContext),
+            )
+            val downloadScheduler = WorkManagerDownloadScheduler(
+                context = applicationContext,
+                preferencesRepository = downloadPreferencesRepository,
+            )
             val downloadRepository = WorkManagedDownloadRepository(
                 delegate = RoomDownloadRepository(downloadDao),
                 scheduler = downloadScheduler,
@@ -145,6 +159,9 @@ class OwnPlayServices private constructor(
             )
             val displayPreferencesRepository = DataStoreDisplayPreferencesRepository(
                 DisplayPreferencesDataStore(applicationContext),
+            )
+            val playbackPreferencesRepository = DataStorePlaybackPreferencesRepository(
+                PlaybackPreferencesDataStore(applicationContext),
             )
             val sourceRefreshScheduler = WorkManagerSourceRefreshScheduler(applicationContext)
             val refreshScheduleRepository = ManagedSourceRefreshScheduleRepository(
@@ -207,6 +224,8 @@ class OwnPlayServices private constructor(
                 sourceRepository = sourceRepository,
                 refreshScheduleRepository = refreshScheduleRepository,
                 displayPreferencesRepository = displayPreferencesRepository,
+                playbackPreferencesRepository = playbackPreferencesRepository,
+                downloadPreferencesRepository = downloadPreferencesRepository,
                 liveOrganizationRepository = liveOrganizationRepository,
                 libraryRepository = libraryRepository,
                 downloadRepository = downloadRepository,
