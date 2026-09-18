@@ -52,7 +52,7 @@ internal class OkHttpLibraryArtworkLoader(
         val payload = try {
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) return@use null
-                val body = response.body ?: return@use null
+                val body = response.body
                 val bytes = readBounded(body, maxResponseBytes) ?: return@use null
                 LibraryArtworkPayload(
                     cacheKey = cacheKey,

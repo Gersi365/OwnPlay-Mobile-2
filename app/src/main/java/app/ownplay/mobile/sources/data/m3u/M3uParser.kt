@@ -37,7 +37,7 @@ object M3uParser {
 
                 pending != null -> {
                     val metadata = pending
-                    if (metadata != null && isSupportedStreamLocator(line)) {
+                    if (isSupportedStreamLocator(line)) {
                         entries += M3uEntry(
                             name = metadata.name,
                             groupTitle = metadata.attributes["group-title"].normalizedOrNull(),

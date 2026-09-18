@@ -28,7 +28,7 @@ class OkHttpProviderTransport(
         try {
             client.newCall(request).execute().use { response ->
                 val body = response.body
-                val declaredLength = body?.contentLength() ?: 0L
+                val declaredLength = body.contentLength()
                 if (declaredLength > maxResponseBytes) {
                     throw ProviderTransportException(
                         ProviderTransportFailureCategory.RESPONSE_TOO_LARGE,
@@ -37,27 +37,23 @@ class OkHttpProviderTransport(
 
                 ProviderResponse(
                     statusCode = response.code,
-                    contentType = body?.contentType()?.toString(),
-                    body = if (body == null) {
-                        ""
-                    } else {
-                        body.byteStream().use { input ->
-                            val output = ByteArrayOutputStream()
-                            val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-                            var total = 0L
-                            while (true) {
-                                val read = input.read(buffer)
-                                if (read < 0) break
-                                total += read
-                                if (total > maxResponseBytes) {
-                                    throw ProviderTransportException(
-                                        ProviderTransportFailureCategory.RESPONSE_TOO_LARGE,
-                                    )
-                                }
-                                output.write(buffer, 0, read)
+                    contentType = body.contentType()?.toString(),
+                    body = body.byteStream().use { input ->
+                        val output = ByteArrayOutputStream()
+                        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                        var total = 0L
+                        while (true) {
+                            val read = input.read(buffer)
+                            if (read < 0) break
+                            total += read
+                            if (total > maxResponseBytes) {
+                                throw ProviderTransportException(
+                                    ProviderTransportFailureCategory.RESPONSE_TOO_LARGE,
+                                )
                             }
-                            output.toString(Charsets.UTF_8.name())
+                            output.write(buffer, 0, read)
                         }
+                        output.toString(Charsets.UTF_8.name())
                     },
                 )
             }

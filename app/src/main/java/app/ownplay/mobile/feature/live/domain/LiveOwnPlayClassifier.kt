@@ -143,7 +143,7 @@ object LiveOwnPlayClassifier {
 
     private val COUNTRY_DEFINITIONS: List<CountryDefinition> by lazy {
         val standard = Locale.getISOCountries().map { code ->
-            val locale = Locale("", code)
+            val locale = Locale.Builder().setRegion(code).build()
             val displayName = locale.getDisplayCountry(Locale.ENGLISH).ifBlank { code }
             val iso3 = runCatching { locale.getISO3Country() }.getOrNull().orEmpty()
             CountryDefinition(
