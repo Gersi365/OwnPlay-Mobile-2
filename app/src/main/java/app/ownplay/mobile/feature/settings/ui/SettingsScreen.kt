@@ -28,6 +28,10 @@ import androidx.compose.ui.unit.dp
 import app.ownplay.mobile.OwnPlayApplication
 import app.ownplay.mobile.design.OwnPlayColors
 import app.ownplay.mobile.design.OwnPlayShapes
+import app.ownplay.mobile.feature.live.domain.LiveOrganizationMode
+import app.ownplay.mobile.feature.live.domain.LiveOrganizationRepository
+import app.ownplay.mobile.feature.live.domain.OwnPlayLiveCatalogSnapshot
+import app.ownplay.mobile.feature.live.domain.OwnPlayLiveSemanticCategory
 import app.ownplay.mobile.feature.settings.domain.DisplayPreferences
 import app.ownplay.mobile.feature.settings.domain.DisplayPreferencesRepository
 import app.ownplay.mobile.feature.settings.domain.SourceRefreshSchedule
@@ -51,6 +55,7 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
         repository = services.sourceRepository,
         refreshScheduleRepository = services.refreshScheduleRepository,
         displayPreferencesRepository = services.displayPreferencesRepository,
+        liveOrganizationRepository = services.liveOrganizationRepository,
         modifier = modifier,
     )
 }
@@ -60,6 +65,7 @@ private fun SettingsSourcesScreen(
     repository: SourceRepository,
     refreshScheduleRepository: SourceRefreshScheduleRepository,
     displayPreferencesRepository: DisplayPreferencesRepository,
+    liveOrganizationRepository: LiveOrganizationRepository,
     modifier: Modifier,
 ) {
     val sourcesFlow = remember(repository) { repository.observeSources() }
@@ -159,6 +165,14 @@ private fun SettingsSourcesScreen(
         item {
             DisplayPreferencesSection(
                 repository = displayPreferencesRepository,
+                onMessage = { message = it },
+            )
+        }
+
+        item {
+            LiveOrganizationSettingsSection(
+                source = activeSource,
+                repository = liveOrganizationRepository,
                 onMessage = { message = it },
             )
         }
@@ -378,6 +392,95 @@ private fun DisplayPreferencesSection(
 }
 
 @Composable
+private fun LiveOrganizationSettingsSection(
+    source: SourceSummary?,
+    repository: LiveOrganizationRepository,
+    onMessage: (String) -> Unit,
+) {
+    val scope = rememberCoroutineScope()
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = OwnPlayShapes.Medium,
+        color = OwnPlayColors.SurfaceRaised,
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Text("Live organization", color = OwnPlayColors.TextPrimary, fontWeight = FontWeight.SemiBold)
+            if (source == null) {
+                Text("Add or select a source to configure Live organization.", color = OwnPlayColors.TextMuted)
+            } else {
+                val modeFlow = remember(repository, source.sourceId) { repository.observeMode(source.sourceId) }
+                val catalogFlow = remember(repository, source.sourceId) { repository.observeOwnPlayCatalog(source.sourceId) }
+                val mode by modeFlow.collectAsState(initial = LiveOrganizationMode.PROVIDER)
+                val catalog by catalogFlow.collectAsState(
+                    initial = OwnPlayLiveCatalogSnapshot(
+                        countries = emptyList(),
+                        semanticCategories = OwnPlayLiveSemanticCategory.canonicalOrder,
+                        channelIdsByPlacement = emptyMap(),
+                    ),
+                )
+                Text(
+                    "${source.displayName}: ${if (mode == LiveOrganizationMode.OWNPLAY) "OwnPlay" else "Provider"}",
+                    color = OwnPlayColors.TextSecondary,
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    TextButton(
+                        enabled = mode != LiveOrganizationMode.PROVIDER,
+                        onClick = {
+                            scope.launch {
+                                onMessage(
+                                    if (repository.setMode(source.sourceId, LiveOrganizationMode.PROVIDER)) {
+                                        "Live organization set to Provider."
+                                    } else {
+                                        "Could not update Live organization."
+                                    },
+                                )
+                            }
+                        },
+                    ) { Text("Provider") }
+                    TextButton(
+                        enabled = mode != LiveOrganizationMode.OWNPLAY,
+                        onClick = {
+                            scope.launch {
+                                onMessage(
+                                    if (repository.setMode(source.sourceId, LiveOrganizationMode.OWNPLAY)) {
+                                        "Live organization set to OwnPlay."
+                                    } else {
+                                        "Could not update Live organization."
+                                    },
+                                )
+                            }
+                        },
+                    ) { Text("OwnPlay") }
+                }
+                if (mode == LiveOrganizationMode.OWNPLAY) {
+                    Text(
+                        "Automatic organization: ${catalog.countries.size} country scopes • " +
+                            "${OwnPlayLiveSemanticCategory.canonicalOrder.size} fixed categories each.",
+                        color = OwnPlayColors.TextSecondary,
+                    )
+                    Text(
+                        "Manual placement corrections: ${catalog.manualPlacementChannelIds.size}.",
+                        color = OwnPlayColors.TextSecondary,
+                    )
+                    Text(
+                        "Review, Move and Reset individual channels from Live. Manual placement remains separate from provider organization.",
+                        color = OwnPlayColors.TextMuted,
+                    )
+                } else {
+                    Text(
+                        "Provider mode keeps provider categories and ordering. Switch to OwnPlay for country + fixed-category organization.",
+                        color = OwnPlayColors.TextMuted,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun SettingsNextSections() {
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -390,7 +493,7 @@ private fun SettingsNextSections() {
         ) {
             Text("Next settings sections", color = OwnPlayColors.TextPrimary, fontWeight = FontWeight.SemiBold)
             Text(
-                "Live organization • Playback • Downloads • Backup & restore • About",
+                "Playback • Downloads • Backup & restore • About",
                 color = OwnPlayColors.TextSecondary,
             )
         }
