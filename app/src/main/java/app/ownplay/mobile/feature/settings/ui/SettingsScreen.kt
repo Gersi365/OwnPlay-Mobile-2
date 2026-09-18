@@ -28,6 +28,8 @@ import androidx.compose.ui.unit.dp
 import app.ownplay.mobile.OwnPlayApplication
 import app.ownplay.mobile.design.OwnPlayColors
 import app.ownplay.mobile.design.OwnPlayShapes
+import app.ownplay.mobile.feature.settings.domain.SourceRefreshSchedule
+import app.ownplay.mobile.feature.settings.domain.SourceRefreshScheduleRepository
 import app.ownplay.mobile.sources.domain.SourceInput
 import app.ownplay.mobile.sources.domain.SourceMutationRejection
 import app.ownplay.mobile.sources.domain.SourceMutationResult
@@ -42,13 +44,18 @@ import kotlinx.coroutines.launch
 @Composable
 fun SettingsScreen(modifier: Modifier = Modifier) {
     val application = LocalContext.current.applicationContext as OwnPlayApplication
-    val repository = remember(application) { application.services.sourceRepository }
-    SettingsSourcesScreen(repository = repository, modifier = modifier)
+    val services = remember(application) { application.services }
+    SettingsSourcesScreen(
+        repository = services.sourceRepository,
+        refreshScheduleRepository = services.refreshScheduleRepository,
+        modifier = modifier,
+    )
 }
 
 @Composable
 private fun SettingsSourcesScreen(
     repository: SourceRepository,
+    refreshScheduleRepository: SourceRefreshScheduleRepository,
     modifier: Modifier,
 ) {
     val sourcesFlow = remember(repository) { repository.observeSources() }
@@ -135,6 +142,14 @@ private fun SettingsSourcesScreen(
                     onRemove = { removeSource = source },
                 )
             }
+        }
+
+        item {
+            RefreshScheduleSection(
+                source = activeSource,
+                repository = refreshScheduleRepository,
+                onMessage = { message = it },
+            )
         }
 
         item {
@@ -252,6 +267,59 @@ private fun SourceSettingsCard(
                 TextButton(enabled = !busy, onClick = onRefresh) { Text("Refresh") }
                 TextButton(enabled = !busy, onClick = onRename) { Text("Rename") }
                 TextButton(enabled = !busy, onClick = onRemove) { Text("Remove") }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RefreshScheduleSection(
+    source: SourceSummary?,
+    repository: SourceRefreshScheduleRepository,
+    onMessage: (String) -> Unit,
+) {
+    val scope = rememberCoroutineScope()
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = OwnPlayShapes.Medium,
+        color = OwnPlayColors.SurfaceRaised,
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Text("Refresh schedule", color = OwnPlayColors.TextPrimary, fontWeight = FontWeight.SemiBold)
+            if (source == null) {
+                Text("Add or select a source to configure automatic refresh.", color = OwnPlayColors.TextMuted)
+            } else {
+                val scheduleFlow = remember(repository, source.sourceId) {
+                    repository.observeSchedule(source.sourceId)
+                }
+                val schedule by scheduleFlow.collectAsState(initial = SourceRefreshSchedule.MANUAL)
+                Text(
+                    "${source.displayName}: ${schedule.displayName}",
+                    color = OwnPlayColors.TextSecondary,
+                )
+                SourceRefreshSchedule.entries.chunked(2).forEach { options ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        options.forEach { option ->
+                            TextButton(
+                                enabled = option != schedule,
+                                onClick = {
+                                    scope.launch {
+                                        onMessage(
+                                            if (repository.setSchedule(source.sourceId, option)) {
+                                                "Refresh schedule set to ${option.displayName}."
+                                            } else {
+                                                "Could not update refresh schedule."
+                                            },
+                                        )
+                                    }
+                                },
+                            ) { Text(option.displayName) }
+                        }
+                    }
+                }
             }
         }
     }

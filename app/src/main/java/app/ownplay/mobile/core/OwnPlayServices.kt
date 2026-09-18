@@ -35,6 +35,11 @@ import app.ownplay.mobile.feature.playback.data.Media3PlaybackEngine
 import app.ownplay.mobile.feature.playback.data.Media3PlaybackEngineAdapter
 import app.ownplay.mobile.feature.playback.data.SourceBackedLivePlaybackSourceResolver
 import app.ownplay.mobile.feature.playback.domain.PlaybackSessionController
+import app.ownplay.mobile.feature.settings.data.ManagedSourceRefreshScheduleRepository
+import app.ownplay.mobile.feature.settings.data.RefreshScheduleAwareSourceRepository
+import app.ownplay.mobile.feature.settings.data.SourceRefreshSchedulePreferences
+import app.ownplay.mobile.feature.settings.data.WorkManagerSourceRefreshScheduler
+import app.ownplay.mobile.feature.settings.domain.SourceRefreshScheduleRepository
 import app.ownplay.mobile.sources.data.DefaultSourceCatalogLoader
 import app.ownplay.mobile.sources.data.OkHttpProviderTransport
 import app.ownplay.mobile.sources.data.ProviderTransport
@@ -51,6 +56,7 @@ class OwnPlayServices private constructor(
     val activeSourcePreferences: ActiveSourcePreferences,
     val credentialStore: CredentialStore,
     val sourceRepository: SourceRepository,
+    val refreshScheduleRepository: SourceRefreshScheduleRepository,
     val liveOrganizationRepository: LiveOrganizationRepository,
     val libraryRepository: LibraryRepository,
     val downloadRepository: DownloadRepository,
@@ -133,6 +139,28 @@ class OwnPlayServices private constructor(
                 storage = downloadStorage,
                 notifications = downloadNotifications,
             )
+            val sourceRefreshScheduler = WorkManagerSourceRefreshScheduler(applicationContext)
+            val refreshScheduleRepository = ManagedSourceRefreshScheduleRepository(
+                store = SourceRefreshSchedulePreferences(applicationContext),
+                scheduler = sourceRefreshScheduler,
+                sourceExists = { sourceId -> sourceDao.get(sourceId.value)?.enabled == true },
+            )
+            val baseSourceRepository = SourceRepositoryImpl(
+                sourceDao = sourceDao,
+                refreshStateDao = refreshStateDao,
+                activeSourceStore = activeSourcePreferences,
+                credentialStore = credentialStore,
+                catalogLoader = catalogLoader,
+                catalogRefreshStore = catalogRefreshStore,
+            )
+            val downloadAwareSourceRepository = DownloadAwareSourceRepository(
+                delegate = baseSourceRepository,
+                removalCoordinator = sourceRemovalDownloadCoordinator,
+            )
+            val sourceRepository = RefreshScheduleAwareSourceRepository(
+                delegate = downloadAwareSourceRepository,
+                scheduleCleanup = refreshScheduleRepository,
+            )
             val downloadExecutor = DownloadExecutor(
                 repository = downloadRepository,
                 mediaResolver = SourceBackedDownloadMediaResolver(
@@ -169,17 +197,8 @@ class OwnPlayServices private constructor(
                 database = database,
                 activeSourcePreferences = activeSourcePreferences,
                 credentialStore = credentialStore,
-                sourceRepository = DownloadAwareSourceRepository(
-                    delegate = SourceRepositoryImpl(
-                        sourceDao = sourceDao,
-                        refreshStateDao = refreshStateDao,
-                        activeSourceStore = activeSourcePreferences,
-                        credentialStore = credentialStore,
-                        catalogLoader = catalogLoader,
-                        catalogRefreshStore = catalogRefreshStore,
-                    ),
-                    removalCoordinator = sourceRemovalDownloadCoordinator,
-                ),
+                sourceRepository = sourceRepository,
+                refreshScheduleRepository = refreshScheduleRepository,
                 liveOrganizationRepository = liveOrganizationRepository,
                 libraryRepository = libraryRepository,
                 downloadRepository = downloadRepository,
