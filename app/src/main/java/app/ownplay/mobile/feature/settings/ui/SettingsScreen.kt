@@ -1,5 +1,6 @@
 package app.ownplay.mobile.feature.settings.ui
 
+import android.content.pm.ApplicationInfo
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -197,6 +198,10 @@ private fun SettingsSourcesScreen(
                 repository = downloadPreferencesRepository,
                 onMessage = { message = it },
             )
+        }
+
+        item {
+            AboutSettingsSection()
         }
 
         item {
@@ -621,6 +626,44 @@ private fun DownloadSettingsSection(
 }
 
 @Composable
+private fun AboutSettingsSection() {
+    val context = LocalContext.current
+    val versionName = remember(context) {
+        runCatching {
+            context.packageManager.getPackageInfo(context.packageName, 0).versionName
+        }.getOrNull() ?: "Unknown"
+    }
+    val buildType = remember(context) {
+        if ((context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0) "debug" else "release"
+    }
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = OwnPlayShapes.Medium,
+        color = OwnPlayColors.SurfaceRaised,
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Text("About", color = OwnPlayColors.TextPrimary, fontWeight = FontWeight.SemiBold)
+            Text("OwnPlay", color = OwnPlayColors.TextPrimary, fontWeight = FontWeight.SemiBold)
+            Text(
+                "Version $versionName • $buildType",
+                color = OwnPlayColors.TextSecondary,
+            )
+            Text(
+                "Third-party software includes AndroidX / Media3, OkHttp, kotlinx.serialization and the FFmpeg audio decoder.",
+                color = OwnPlayColors.TextSecondary,
+            )
+            Text(
+                "FFmpeg license texts and provenance notices are bundled with the app source and packaged license assets.",
+                color = OwnPlayColors.TextMuted,
+            )
+        }
+    }
+}
+
+@Composable
 private fun SettingsNextSections() {
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -633,7 +676,7 @@ private fun SettingsNextSections() {
         ) {
             Text("Next settings sections", color = OwnPlayColors.TextPrimary, fontWeight = FontWeight.SemiBold)
             Text(
-                "Backup & restore • About",
+                "Backup & restore",
                 color = OwnPlayColors.TextSecondary,
             )
         }
