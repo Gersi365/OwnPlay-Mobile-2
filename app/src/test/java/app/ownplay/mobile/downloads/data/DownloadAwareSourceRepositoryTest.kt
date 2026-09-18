@@ -41,6 +41,21 @@ class DownloadAwareSourceRepositoryTest {
         assertTrue(coordinator.finalizedPlans.isEmpty())
     }
 
+
+    @Test
+    fun cleanupFailureAfterCommittedSourceRemovalDoesNotReportFalseFailure() = runBlocking {
+        val delegate = FakeSourceRepository(removeResult = true)
+        val coordinator = FakeRemovalCoordinator(
+            plan = SourceRemovalDownloadPlan(listOf(DownloadId("download:a"))),
+            throwOnFinalize = true,
+        )
+        val repository = DownloadAwareSourceRepository(delegate, coordinator)
+
+        assertTrue(repository.removeSource(SourceId("source-a")))
+        assertEquals(1, delegate.removeCalls)
+        assertEquals(1, coordinator.finalizeCalls)
+    }
+
     @Test
     fun failedSourceRemovalDoesNotFinalizeDownloadCleanup() = runBlocking {
         val delegate = FakeSourceRepository(removeResult = false)
@@ -55,9 +70,11 @@ class DownloadAwareSourceRepositoryTest {
 
 private class FakeRemovalCoordinator(
     private val plan: SourceRemovalDownloadPlan?,
+    private val throwOnFinalize: Boolean = false,
 ) : SourceRemovalDownloadCoordinator {
     val capturedSources = mutableListOf<SourceId>()
     val finalizedPlans = mutableListOf<SourceRemovalDownloadPlan>()
+    var finalizeCalls = 0
 
     override suspend fun capture(sourceId: SourceId): SourceRemovalDownloadPlan? {
         capturedSources += sourceId
@@ -65,6 +82,8 @@ private class FakeRemovalCoordinator(
     }
 
     override suspend fun finalize(plan: SourceRemovalDownloadPlan) {
+        finalizeCalls += 1
+        if (throwOnFinalize) error("cleanup failed")
         finalizedPlans += plan
     }
 }

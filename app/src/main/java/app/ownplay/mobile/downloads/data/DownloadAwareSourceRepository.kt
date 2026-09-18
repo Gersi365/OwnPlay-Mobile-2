@@ -43,7 +43,7 @@ internal class DownloadAwareSourceRepository(
     override suspend fun removeSource(sourceId: SourceId): Boolean {
         val plan = removalCoordinator.capture(sourceId) ?: return false
         if (!delegate.removeSource(sourceId)) return false
-        removalCoordinator.finalize(plan)
+        runCatching { removalCoordinator.finalize(plan) }
         return true
     }
 }
