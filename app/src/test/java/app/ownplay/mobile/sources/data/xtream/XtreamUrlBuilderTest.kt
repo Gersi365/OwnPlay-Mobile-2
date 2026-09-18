@@ -1,45 +1,52 @@
 package app.ownplay.mobile.sources.data.xtream
 
-import app.ownplay.mobile.sources.domain.SourceCredential
-import org.junit.Assert.assertFalse
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class XtreamUrlBuilderTest {
     @Test
-    fun normalizesPlayerApiSuffix() {
-        val normalized = XtreamUrlBuilder.normalizeBaseUrl("https://provider.test/panel/player_api.php")
-        assertTrue(normalized == "https://provider.test/panel")
+    fun `player api credentials and action are encoded deterministically`() {
+        val url = XtreamUrlBuilder.playerApi(
+            baseUrl = "https://example.com/",
+            username = "user name",
+            password = "p@ss&word",
+            action = "get_live_streams",
+            extraParameters = mapOf("category_id" to "10"),
+        )
+
+        assertEquals(
+            "https://example.com/player_api.php?username=user%20name&password=p%40ss%26word&action=get_live_streams&category_id=10",
+            url,
+        )
     }
 
     @Test
-    fun redactionRemovesCredentialsFromApiUrl() {
-        val credential = SourceCredential.Xtream("gersi@example.com", "secret value")
-        val url = XtreamUrlBuilder.apiUrl("https://provider.test", credential, "get_live_streams")
-        val redacted = XtreamUrlBuilder.redact(url)
+    fun `live stream path encodes credentials`() {
+        val url = XtreamUrlBuilder.liveStream(
+            baseUrl = "https://example.com",
+            username = "user/name",
+            password = "pass word",
+            streamId = "42",
+            extension = ".m3u8",
+        )
 
-        assertFalse(redacted.contains("gersi", ignoreCase = true))
-        assertFalse(redacted.contains("secret", ignoreCase = true))
-        assertTrue(redacted.contains("<redacted>"))
+        assertEquals(
+            "https://example.com/live/user%2Fname/pass%20word/42.m3u8",
+            url,
+        )
     }
 
     @Test
-    fun buildsExtensionSpecificLiveCandidates() {
-        val credential = SourceCredential.Xtream("user", "pass")
-        val ts = XtreamUrlBuilder.streamUrl("http://provider.test:8080", credential, "live", "42", "ts")
-        val hls = XtreamUrlBuilder.streamUrl("http://provider.test:8080", credential, "live", "42", "m3u8")
+    fun `builder rejects fragment from base url`() {
+        val failed = runCatching {
+            XtreamUrlBuilder.playerApi(
+                baseUrl = "https://example.com/#secret",
+                username = "u",
+                password = "p",
+            )
+        }.isFailure
 
-        assertTrue(ts.endsWith("/42.ts"))
-        assertTrue(hls.endsWith("/42.m3u8"))
-    }
-
-    @Test
-    fun redactionRemovesCredentialsFromStreamPath() {
-        val credential = SourceCredential.Xtream("user", "pass")
-        val url = XtreamUrlBuilder.streamUrl("https://provider.test", credential, "live", "42", "ts")
-        val redacted = XtreamUrlBuilder.redact(url)
-
-        assertFalse(redacted.contains("/user/pass/"))
-        assertTrue(redacted.contains("/<redacted>/<redacted>/"))
+        assertTrue(failed)
     }
 }

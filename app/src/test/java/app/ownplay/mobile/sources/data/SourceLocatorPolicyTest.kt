@@ -1,27 +1,24 @@
 package app.ownplay.mobile.sources.data
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Test
 
 class SourceLocatorPolicyTest {
     @Test
-    fun `m3u stored locator keeps only non-secret origin`() {
-        val stored = SourceLocatorPolicy.redactRemoteLocator(
-            "https://user:password@provider.test:8443/private/list.m3u?token=secret#fragment",
+    fun `connection label removes user info query and fragment`() {
+        assertEquals(
+            "https://example.com:8443/path",
+            SourceLocatorPolicy.connectionLabel(
+                "https://user:secret@example.com:8443/path?token=secret#fragment",
+            ),
         )
-
-        assertEquals("https://provider.test:8443", stored)
-        assertFalse(stored.contains("user"))
-        assertFalse(stored.contains("password"))
-        assertFalse(stored.contains("private"))
-        assertFalse(stored.contains("secret"))
     }
 
     @Test
-    fun `m3u remote validation preserves encrypted playback locator`() {
-        val remote = "https://provider.test/private/list.m3u?token=secret"
-
-        assertEquals(remote, SourceLocatorPolicy.validateM3uRemote(remote))
+    fun `invalid locator never echoes original input`() {
+        assertEquals(
+            "Configured source",
+            SourceLocatorPolicy.connectionLabel("not a valid url with secret"),
+        )
     }
 }

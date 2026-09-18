@@ -19,14 +19,7 @@ data class SourceEntity(
 @Entity(
     tableName = "provider_categories",
     primaryKeys = ["sourceId", "kind", "categoryKey"],
-    foreignKeys = [
-        ForeignKey(
-            entity = SourceEntity::class,
-            parentColumns = ["sourceId"],
-            childColumns = ["sourceId"],
-            onDelete = ForeignKey.CASCADE,
-        ),
-    ],
+    foreignKeys = [ForeignKey(entity = SourceEntity::class, parentColumns = ["sourceId"], childColumns = ["sourceId"], onDelete = ForeignKey.CASCADE)],
 )
 data class ProviderCategoryEntity(
     val sourceId: String,
@@ -42,14 +35,7 @@ data class ProviderCategoryEntity(
 @Entity(
     tableName = "category_personalization",
     primaryKeys = ["sourceId", "kind", "categoryKey"],
-    foreignKeys = [
-        ForeignKey(
-            entity = SourceEntity::class,
-            parentColumns = ["sourceId"],
-            childColumns = ["sourceId"],
-            onDelete = ForeignKey.CASCADE,
-        ),
-    ],
+    foreignKeys = [ForeignKey(entity = SourceEntity::class, parentColumns = ["sourceId"], childColumns = ["sourceId"], onDelete = ForeignKey.CASCADE)],
     indices = [Index("sourceId")],
 )
 data class CategoryPersonalizationEntity(
@@ -62,14 +48,7 @@ data class CategoryPersonalizationEntity(
 
 @Entity(
     tableName = "live_channels",
-    foreignKeys = [
-        ForeignKey(
-            entity = SourceEntity::class,
-            parentColumns = ["sourceId"],
-            childColumns = ["sourceId"],
-            onDelete = ForeignKey.CASCADE,
-        ),
-    ],
+    foreignKeys = [ForeignKey(entity = SourceEntity::class, parentColumns = ["sourceId"], childColumns = ["sourceId"], onDelete = ForeignKey.CASCADE)],
     indices = [Index("sourceId"), Index(value = ["sourceId", "categoryKey"])],
 )
 data class LiveChannelEntity(
@@ -90,14 +69,7 @@ data class LiveChannelEntity(
 
 @Entity(
     tableName = "channel_personalization",
-    foreignKeys = [
-        ForeignKey(
-            entity = LiveChannelEntity::class,
-            parentColumns = ["channelId"],
-            childColumns = ["channelId"],
-            onDelete = ForeignKey.CASCADE,
-        ),
-    ],
+    foreignKeys = [ForeignKey(entity = LiveChannelEntity::class, parentColumns = ["channelId"], childColumns = ["channelId"], onDelete = ForeignKey.CASCADE)],
 )
 data class ChannelPersonalizationEntity(
     @androidx.room.PrimaryKey val channelId: String,
@@ -110,14 +82,7 @@ data class ChannelPersonalizationEntity(
 
 @Entity(
     tableName = "custom_groups",
-    foreignKeys = [
-        ForeignKey(
-            entity = SourceEntity::class,
-            parentColumns = ["sourceId"],
-            childColumns = ["sourceId"],
-            onDelete = ForeignKey.CASCADE,
-        ),
-    ],
+    foreignKeys = [ForeignKey(entity = SourceEntity::class, parentColumns = ["sourceId"], childColumns = ["sourceId"], onDelete = ForeignKey.CASCADE)],
     indices = [Index("sourceId")],
 )
 data class CustomGroupEntity(
@@ -131,18 +96,8 @@ data class CustomGroupEntity(
     tableName = "custom_group_memberships",
     primaryKeys = ["groupId", "channelId"],
     foreignKeys = [
-        ForeignKey(
-            entity = CustomGroupEntity::class,
-            parentColumns = ["groupId"],
-            childColumns = ["groupId"],
-            onDelete = ForeignKey.CASCADE,
-        ),
-        ForeignKey(
-            entity = LiveChannelEntity::class,
-            parentColumns = ["channelId"],
-            childColumns = ["channelId"],
-            onDelete = ForeignKey.CASCADE,
-        ),
+        ForeignKey(entity = CustomGroupEntity::class, parentColumns = ["groupId"], childColumns = ["groupId"], onDelete = ForeignKey.CASCADE),
+        ForeignKey(entity = LiveChannelEntity::class, parentColumns = ["channelId"], childColumns = ["channelId"], onDelete = ForeignKey.CASCADE),
     ],
     indices = [Index("channelId")],
 )
@@ -154,14 +109,7 @@ data class CustomGroupMembershipEntity(
 
 @Entity(
     tableName = "movies",
-    foreignKeys = [
-        ForeignKey(
-            entity = SourceEntity::class,
-            parentColumns = ["sourceId"],
-            childColumns = ["sourceId"],
-            onDelete = ForeignKey.CASCADE,
-        ),
-    ],
+    foreignKeys = [ForeignKey(entity = SourceEntity::class, parentColumns = ["sourceId"], childColumns = ["sourceId"], onDelete = ForeignKey.CASCADE)],
     indices = [Index("sourceId"), Index(value = ["sourceId", "categoryKey"])],
 )
 data class MovieEntity(
@@ -181,14 +129,7 @@ data class MovieEntity(
 
 @Entity(
     tableName = "series",
-    foreignKeys = [
-        ForeignKey(
-            entity = SourceEntity::class,
-            parentColumns = ["sourceId"],
-            childColumns = ["sourceId"],
-            onDelete = ForeignKey.CASCADE,
-        ),
-    ],
+    foreignKeys = [ForeignKey(entity = SourceEntity::class, parentColumns = ["sourceId"], childColumns = ["sourceId"], onDelete = ForeignKey.CASCADE)],
     indices = [Index("sourceId"), Index(value = ["sourceId", "categoryKey"])],
 )
 data class SeriesEntity(
@@ -208,14 +149,7 @@ data class SeriesEntity(
 
 @Entity(
     tableName = "episodes",
-    foreignKeys = [
-        ForeignKey(
-            entity = SeriesEntity::class,
-            parentColumns = ["seriesId"],
-            childColumns = ["seriesId"],
-            onDelete = ForeignKey.CASCADE,
-        ),
-    ],
+    foreignKeys = [ForeignKey(entity = SeriesEntity::class, parentColumns = ["seriesId"], childColumns = ["seriesId"], onDelete = ForeignKey.CASCADE)],
     indices = [Index("seriesId"), Index(value = ["seriesId", "seasonNumber", "episodeNumber"])],
 )
 data class EpisodeEntity(
@@ -235,14 +169,7 @@ data class EpisodeEntity(
 @Entity(
     tableName = "media_favorites",
     primaryKeys = ["sourceId", "mediaKind", "contentId"],
-    foreignKeys = [
-        ForeignKey(
-            entity = SourceEntity::class,
-            parentColumns = ["sourceId"],
-            childColumns = ["sourceId"],
-            onDelete = ForeignKey.CASCADE,
-        ),
-    ],
+    foreignKeys = [ForeignKey(entity = SourceEntity::class, parentColumns = ["sourceId"], childColumns = ["sourceId"], onDelete = ForeignKey.CASCADE)],
 )
 data class MediaFavoriteEntity(
     val sourceId: String,
@@ -254,14 +181,7 @@ data class MediaFavoriteEntity(
 @Entity(
     tableName = "playback_progress",
     primaryKeys = ["sourceId", "mediaKind", "contentId"],
-    foreignKeys = [
-        ForeignKey(
-            entity = SourceEntity::class,
-            parentColumns = ["sourceId"],
-            childColumns = ["sourceId"],
-            onDelete = ForeignKey.CASCADE,
-        ),
-    ],
+    foreignKeys = [ForeignKey(entity = SourceEntity::class, parentColumns = ["sourceId"], childColumns = ["sourceId"], onDelete = ForeignKey.CASCADE)],
 )
 data class PlaybackProgressEntity(
     val sourceId: String,
@@ -275,14 +195,7 @@ data class PlaybackProgressEntity(
 
 @Entity(
     tableName = "downloads",
-    foreignKeys = [
-        ForeignKey(
-            entity = SourceEntity::class,
-            parentColumns = ["sourceId"],
-            childColumns = ["sourceId"],
-            onDelete = ForeignKey.CASCADE,
-        ),
-    ],
+    foreignKeys = [ForeignKey(entity = SourceEntity::class, parentColumns = ["sourceId"], childColumns = ["sourceId"], onDelete = ForeignKey.CASCADE)],
     indices = [Index("sourceId"), Index(value = ["sourceId", "mediaKind", "contentId"])],
 )
 data class DownloadEntity(
@@ -304,14 +217,7 @@ data class DownloadEntity(
 
 @Entity(
     tableName = "refresh_state",
-    foreignKeys = [
-        ForeignKey(
-            entity = SourceEntity::class,
-            parentColumns = ["sourceId"],
-            childColumns = ["sourceId"],
-            onDelete = ForeignKey.CASCADE,
-        ),
-    ],
+    foreignKeys = [ForeignKey(entity = SourceEntity::class, parentColumns = ["sourceId"], childColumns = ["sourceId"], onDelete = ForeignKey.CASCADE)],
 )
 data class RefreshStateEntity(
     @androidx.room.PrimaryKey val sourceId: String,

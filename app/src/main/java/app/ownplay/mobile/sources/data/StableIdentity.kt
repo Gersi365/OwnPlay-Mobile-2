@@ -1,53 +1,108 @@
 package app.ownplay.mobile.sources.data
 
+import app.ownplay.mobile.sources.domain.SourceId
+import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
-import java.util.Locale
 
 object StableIdentity {
-    fun categoryId(
-        sourceId: String,
+    fun providerCategory(
+        sourceId: SourceId,
         kind: String,
         providerKey: String,
-    ): String = hash("category", sourceId, kind.lowercase(Locale.US), providerKey)
+    ): String = typedId(
+        prefix = "category",
+        sourceId = sourceId,
+        providerType = "provider",
+        providerIdentity = "${kind.trim().uppercase()}:${providerKey.trim()}",
+    )
 
-    fun xtreamContentId(
-        sourceId: String,
-        kind: String,
-        providerKey: String,
-    ): String = hash("xtream", sourceId, kind.lowercase(Locale.US), providerKey)
+    fun xtreamLiveChannel(
+        sourceId: SourceId,
+        providerStreamId: String,
+    ): String = typedId(
+        prefix = "live",
+        sourceId = sourceId,
+        providerType = "xtream",
+        providerIdentity = providerStreamId,
+    )
 
-    fun m3uChannelId(
-        sourceId: String,
+    fun xtreamMovie(
+        sourceId: SourceId,
+        providerStreamId: String,
+    ): String = typedId(
+        prefix = "movie",
+        sourceId = sourceId,
+        providerType = "xtream",
+        providerIdentity = providerStreamId,
+    )
+
+    fun xtreamSeries(
+        sourceId: SourceId,
+        providerSeriesId: String,
+    ): String = typedId(
+        prefix = "series",
+        sourceId = sourceId,
+        providerType = "xtream",
+        providerIdentity = providerSeriesId,
+    )
+
+    fun xtreamEpisode(
+        sourceId: SourceId,
+        providerEpisodeId: String,
+    ): String = typedId(
+        prefix = "episode",
+        sourceId = sourceId,
+        providerType = "xtream",
+        providerIdentity = providerEpisodeId,
+    )
+
+    fun m3uLiveChannel(
+        sourceId: SourceId,
         tvgId: String?,
-        tvgIdIsUnique: Boolean,
-        normalizedStreamLocator: String,
-        fallbackName: String,
-        fallbackGroup: String?,
+        stableLocatorHint: String?,
+        normalizedName: String,
+        normalizedGroup: String?,
     ): String {
-        val stableTvgId = tvgId?.trim()?.takeIf { it.isNotEmpty() && tvgIdIsUnique }
-        if (stableTvgId != null) {
-            return hash("m3u", sourceId, "tvg-id", stableTvgId)
+        val identity = when {
+            !tvgId.isNullOrBlank() -> "tvg:${tvgId.trim().lowercase()}"
+            !stableLocatorHint.isNullOrBlank() -> "locator:${stableLocatorHint.trim()}"
+            else -> "metadata:${normalizedName.trim().lowercase()}|${normalizedGroup.orEmpty().trim().lowercase()}"
         }
-
-        if (normalizedStreamLocator.isNotBlank()) {
-            return hash("m3u", sourceId, "stream", normalizedStreamLocator)
-        }
-
-        return hash(
-            "m3u",
-            sourceId,
-            "compound",
-            fallbackName.trim().lowercase(Locale.US),
-            fallbackGroup.orEmpty().trim().lowercase(Locale.US),
+        return typedId(
+            prefix = "live",
+            sourceId = sourceId,
+            providerType = "m3u",
+            providerIdentity = identity,
         )
     }
 
-    private fun hash(vararg parts: String): String {
-        val digest = MessageDigest.getInstance("SHA-256")
-        val canonical = parts.joinToString(separator = "\u001f")
-        val bytes = digest.digest(canonical.toByteArray(Charsets.UTF_8))
-        return buildString(bytes.size * 2) {
-            bytes.forEach { byte -> append("%02x".format(byte.toInt() and 0xff)) }
+    private fun typedId(
+        prefix: String,
+        sourceId: SourceId,
+        providerType: String,
+        providerIdentity: String,
+    ): String {
+        require(providerIdentity.isNotBlank()) { "Provider identity must not be blank" }
+        val digest = digest(
+            sourceId.value,
+            providerType,
+            prefix,
+            providerIdentity.trim(),
+        )
+        return "$prefix-$digest"
+    }
+
+    private fun digest(vararg parts: String): String {
+        val messageDigest = MessageDigest.getInstance("SHA-256")
+        parts.forEach { part ->
+            val bytes = part.toByteArray(StandardCharsets.UTF_8)
+            messageDigest.update(bytes.size.toString().toByteArray(StandardCharsets.US_ASCII))
+            messageDigest.update(':'.code.toByte())
+            messageDigest.update(bytes)
+            messageDigest.update('|'.code.toByte())
+        }
+        return messageDigest.digest().joinToString(separator = "") { byte ->
+            "%02x".format(byte.toInt() and 0xff)
         }
     }
 }

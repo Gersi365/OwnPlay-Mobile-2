@@ -1,47 +1,46 @@
 package app.ownplay.mobile.sources.data
 
+import app.ownplay.mobile.sources.domain.SourceId
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Test
 
 class StableIdentityTest {
-    @Test
-    fun uniqueM3uTvgIdSurvivesRenameAndReorder() {
-        val first = StableIdentity.m3uChannelId(
-            sourceId = "source-a",
-            tvgId = "sports-1",
-            tvgIdIsUnique = true,
-            normalizedStreamLocator = "https://stream.test/old",
-            fallbackName = "Sports 1",
-            fallbackGroup = "Sports",
-        )
-        val renamed = StableIdentity.m3uChannelId(
-            sourceId = "source-a",
-            tvgId = "sports-1",
-            tvgIdIsUnique = true,
-            normalizedStreamLocator = "https://stream.test/new",
-            fallbackName = "Sports One HD",
-            fallbackGroup = "Premium",
-        )
+    private val sourceId = SourceId("source-1")
 
-        assertEquals(first, renamed)
+    @Test
+    fun `same xtream provider id produces same channel id`() {
+        assertEquals(
+            StableIdentity.xtreamLiveChannel(sourceId, "42"),
+            StableIdentity.xtreamLiveChannel(sourceId, "42"),
+        )
     }
 
     @Test
-    fun duplicateTvgIdFallsBackToStreamLocator() {
-        val first = StableIdentity.m3uChannelId(
-            "source-a", "duplicate", false, "https://stream.test/a", "A", "Group",
+    fun `different sources cannot collide for same provider id`() {
+        assertNotEquals(
+            StableIdentity.xtreamLiveChannel(SourceId("source-1"), "42"),
+            StableIdentity.xtreamLiveChannel(SourceId("source-2"), "42"),
         )
-        val second = StableIdentity.m3uChannelId(
-            "source-a", "duplicate", false, "https://stream.test/b", "B", "Group",
-        )
-        assertNotEquals(first, second)
     }
 
     @Test
-    fun xtreamIdentityIsSourceScoped() {
-        val first = StableIdentity.xtreamContentId("source-a", "live", "42")
-        val second = StableIdentity.xtreamContentId("source-b", "live", "42")
-        assertNotEquals(first, second)
+    fun `m3u tvg id wins over changing locator hint`() {
+        val first = StableIdentity.m3uLiveChannel(
+            sourceId = sourceId,
+            tvgId = "news.al",
+            stableLocatorHint = "locator-a",
+            normalizedName = "News",
+            normalizedGroup = "Albania",
+        )
+        val second = StableIdentity.m3uLiveChannel(
+            sourceId = sourceId,
+            tvgId = "news.al",
+            stableLocatorHint = "locator-b",
+            normalizedName = "News HD",
+            normalizedGroup = "Albania",
+        )
+
+        assertEquals(first, second)
     }
 }

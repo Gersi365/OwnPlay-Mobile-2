@@ -1,78 +1,22 @@
 package app.ownplay.mobile.sources.data.xtream
 
+data class XtreamConnection(
+    val baseUrl: String,
+    val username: String,
+    val password: String,
+) {
+    override fun toString(): String =
+        "XtreamConnection(baseUrl=<redacted>, username=<redacted>, password=<redacted>)"
+}
+
 data class XtreamAccountInfo(
-    val authenticated: Boolean,
-    val status: String?,
-    val expirationEpochSeconds: Long?,
+    val allowedOutputFormats: List<String>,
 )
 
 data class XtreamCategory(
-    val providerKey: String,
+    val providerCategoryId: String,
     val name: String,
     val providerOrder: Int,
-)
-
-data class XtreamLiveStream(
-    val streamId: String,
-    val categoryId: String?,
-    val name: String,
-    val epgChannelId: String?,
-    val streamIcon: String?,
-    val providerOrder: Int,
-)
-
-data class XtreamMovie(
-    val streamId: String,
-    val categoryId: String?,
-    val name: String,
-    val posterUrl: String?,
-    val extension: String?,
-    val rating: String?,
-    val providerOrder: Int,
-)
-
-data class XtreamSeries(
-    val seriesId: String,
-    val categoryId: String?,
-    val name: String,
-    val posterUrl: String?,
-    val backdropUrl: String?,
-    val description: String?,
-    val rating: String?,
-    val providerOrder: Int,
-)
-
-data class XtreamMediaInfo(
-    val title: String? = null,
-    val posterUrl: String? = null,
-    val backdropUrl: String? = null,
-    val plot: String? = null,
-    val releaseDate: String? = null,
-    val durationSeconds: Long? = null,
-    val rating: String? = null,
-    val genre: String? = null,
-    val director: String? = null,
-    val cast: String? = null,
-)
-
-data class XtreamVodInfo(
-    val streamId: String,
-    val metadata: XtreamMediaInfo,
-)
-
-data class XtreamEpisode(
-    val episodeId: String,
-    val seasonNumber: Int,
-    val episodeNumber: Int,
-    val title: String,
-    val durationSeconds: Long?,
-    val extension: String?,
-)
-
-data class XtreamSeriesInfo(
-    val seriesId: String,
-    val episodes: List<XtreamEpisode>,
-    val metadata: XtreamMediaInfo? = null,
 )
 
 data class XtreamEpgEntry(
@@ -81,7 +25,56 @@ data class XtreamEpgEntry(
     val endEpochSeconds: Long?,
 )
 
-sealed interface XtreamResult<out T> {
-    data class Success<T>(val value: T, val warningCode: String? = null) : XtreamResult<T>
-    data class Failure(val code: String) : XtreamResult<Nothing>
-}
+data class XtreamLiveStream(
+    val streamId: String,
+    val categoryId: String?,
+    val name: String,
+    val tvgId: String?,
+    val logoUrl: String?,
+    val containerExtension: String?,
+    val providerOrder: Int,
+)
+
+data class XtreamMovie(
+    val streamId: String,
+    val categoryId: String?,
+    val name: String,
+    val posterUrl: String?,
+    val containerExtension: String?,
+    val rating: String?,
+    val providerOrder: Int,
+)
+
+data class XtreamMovieDetail(
+    val name: String?,
+    val posterUrl: String?,
+    val backdropUrl: String?,
+    val plot: String?,
+    val releaseDate: String?,
+    val year: String?,
+    val runtimeMs: Long?,
+    val rating: String?,
+)
+
+data class XtreamSeries(
+    val seriesId: String,
+    val categoryId: String?,
+    val name: String,
+    val posterUrl: String?,
+    val description: String?,
+    val rating: String?,
+    val providerOrder: Int,
+)
+
+data class XtreamSeriesEpisode(
+    val providerEpisodeId: String,
+    val seasonNumber: Int,
+    val episodeNumber: Int,
+    val title: String,
+    val containerExtension: String?,
+    val durationMs: Long?,
+)
+
+data class XtreamSeriesDetail(
+    val episodes: List<XtreamSeriesEpisode>,
+)

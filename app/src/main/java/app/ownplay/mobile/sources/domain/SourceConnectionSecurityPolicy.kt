@@ -3,13 +3,71 @@ package app.ownplay.mobile.sources.domain
 import java.net.URI
 
 object SourceConnectionSecurityPolicy {
-    const val CLEAR_TEXT_WARNING =
-        "HTTP is supported for providers that do not offer HTTPS. Credentials and traffic are not protected by TLS, so use this connection only with a provider and network you trust."
+    private const val MAX_URL_LENGTH = 4_096
 
-    fun isCleartext(locator: String): Boolean = runCatching {
-        URI(locator.trim()).scheme.equals("http", ignoreCase = true)
-    }.getOrDefault(false)
+    fun normalizeXtreamBaseUrl(raw: String): ConnectionValidation {
+        val value = raw.trim()
+        if (value.isEmpty() || value.length > MAX_URL_LENGTH) {
+            return ConnectionValidation.Invalid(ConnectionRejection.INVALID_URL)
+        }
 
-    fun warning(locator: String): String? =
-        CLEAR_TEXT_WARNING.takeIf { isCleartext(locator) }
+        val uri = parse(value) ?: return ConnectionValidation.Invalid(ConnectionRejection.INVALID_URL)
+        if (!isSupportedScheme(uri.scheme) || uri.host.isNullOrBlank()) {
+            return ConnectionValidation.Invalid(ConnectionRejection.INVALID_URL)
+        }
+        if (uri.userInfo != null || uri.query != null || uri.fragment != null) {
+            return ConnectionValidation.Invalid(ConnectionRejection.EMBEDDED_SECRET_OR_QUERY)
+        }
+
+        val normalizedPath = uri.path
+            ?.trimEnd('/')
+            ?.takeUnless { it.isBlank() || it == "/" }
+            ?: ""
+
+        val normalized = URI(
+            uri.scheme.lowercase(),
+            null,
+            uri.host.lowercase(),
+            uri.port,
+            normalizedPath,
+            null,
+            null,
+        ).toASCIIString()
+
+        return ConnectionValidation.Valid(normalized)
+    }
+
+    fun normalizeRemoteMediaUrl(raw: String): ConnectionValidation {
+        val value = raw.trim()
+        if (value.isEmpty() || value.length > MAX_URL_LENGTH) {
+            return ConnectionValidation.Invalid(ConnectionRejection.INVALID_URL)
+        }
+
+        val uri = parse(value) ?: return ConnectionValidation.Invalid(ConnectionRejection.INVALID_URL)
+        if (!isSupportedScheme(uri.scheme) || uri.host.isNullOrBlank()) {
+            return ConnectionValidation.Invalid(ConnectionRejection.INVALID_URL)
+        }
+        if (uri.fragment != null) {
+            return ConnectionValidation.Invalid(ConnectionRejection.FRAGMENT_NOT_ALLOWED)
+        }
+
+        return ConnectionValidation.Valid(uri.normalize().toASCIIString())
+    }
+
+    private fun parse(value: String): URI? =
+        runCatching { URI(value) }.getOrNull()
+
+    private fun isSupportedScheme(value: String?): Boolean =
+        value.equals("https", ignoreCase = true) || value.equals("http", ignoreCase = true)
+}
+
+sealed interface ConnectionValidation {
+    data class Valid(val normalizedUrl: String) : ConnectionValidation
+    data class Invalid(val reason: ConnectionRejection) : ConnectionValidation
+}
+
+enum class ConnectionRejection {
+    INVALID_URL,
+    EMBEDDED_SECRET_OR_QUERY,
+    FRAGMENT_NOT_ALLOWED,
 }

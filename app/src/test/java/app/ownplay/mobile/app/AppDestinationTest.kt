@@ -5,10 +5,10 @@ import org.junit.Test
 
 class AppDestinationTest {
     @Test
-    fun primaryDestinationsStayInApprovedOrder() {
+    fun `primary navigation is live library settings`() {
         assertEquals(
             listOf("Live", "Library", "Settings"),
-            primaryDestinations.map(AppDestination::label),
+            AppDestination.entries.map { it.label },
         )
     }
 }

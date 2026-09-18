@@ -1,29 +1,23 @@
 package app.ownplay.mobile.sources.data
 
-import app.ownplay.mobile.sources.data.xtream.XtreamUrlBuilder
 import java.net.URI
-import java.util.Locale
 
 object SourceLocatorPolicy {
-    fun normalizeXtream(raw: String): String = XtreamUrlBuilder.normalizeBaseUrl(raw)
-
-    fun validateM3uRemote(raw: String): String {
-        val uri = URI(raw.trim())
-        require(uri.scheme.equals("http", ignoreCase = true) || uri.scheme.equals("https", ignoreCase = true))
-        require(!uri.host.isNullOrBlank())
-        return uri.toString()
+    fun connectionLabel(rawUrl: String): String {
+        val uri = runCatching { URI(rawUrl.trim()) }.getOrNull()
+            ?: return "Configured source"
+        val host = uri.host?.lowercase()?.takeIf(String::isNotBlank)
+            ?: return "Configured source"
+        val scheme = uri.scheme?.lowercase()?.takeIf(String::isNotBlank)
+            ?: return host
+        val port = uri.port.takeIf { it >= 0 }?.let { ":$it" }.orEmpty()
+        val path = uri.path
+            ?.trim()
+            ?.trimEnd('/')
+            ?.takeIf { it.isNotBlank() && it != "/" }
+            .orEmpty()
+        return "$scheme://$host$port$path"
     }
 
-    fun redactRemoteLocator(raw: String): String {
-        val uri = URI(validateM3uRemote(raw))
-        return URI(
-            uri.scheme.lowercase(Locale.US),
-            null,
-            uri.host,
-            uri.port,
-            null,
-            null,
-            null,
-        ).toString()
-    }
+    fun redact(rawUrl: String): String = connectionLabel(rawUrl)
 }

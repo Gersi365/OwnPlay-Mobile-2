@@ -1,231 +1,279 @@
 package app.ownplay.mobile.core
 
 import android.content.Context
-import androidx.work.WorkManager
 import app.ownplay.mobile.data.db.OwnPlayDatabase
 import app.ownplay.mobile.data.prefs.ActiveSourcePreferences
-import app.ownplay.mobile.data.prefs.LibraryVisibilityPreferences
-import app.ownplay.mobile.data.prefs.SettingsPreferences
 import app.ownplay.mobile.data.security.CredentialStore
 import app.ownplay.mobile.data.security.KeystoreCredentialStore
-import app.ownplay.mobile.design.OwnPlayRemoteImageLoader
-import app.ownplay.mobile.downloads.data.DownloadRepositoryImpl
-import app.ownplay.mobile.downloads.data.DownloadSourceRemovalCoordinator
-import app.ownplay.mobile.downloads.data.DownloadStreamResolver
+import app.ownplay.mobile.downloads.data.AndroidDownloadStorage
+import app.ownplay.mobile.downloads.data.DownloadAwareSourceRepository
+import app.ownplay.mobile.downloads.data.DownloadExecutor
+import app.ownplay.mobile.downloads.data.DataStoreDownloadPreferencesRepository
+import app.ownplay.mobile.downloads.data.DownloadPreferencesDataStore
+import app.ownplay.mobile.downloads.data.DownloadNotificationController
+import app.ownplay.mobile.downloads.data.DownloadNotificationPermissionPreferences
+import app.ownplay.mobile.downloads.data.ManagedSourceRemovalDownloadCoordinator
+import app.ownplay.mobile.downloads.data.OkHttpDownloadTransferClient
+import app.ownplay.mobile.downloads.data.RoomDownloadRepository
+import app.ownplay.mobile.downloads.data.SourceBackedDownloadMediaResolver
+import app.ownplay.mobile.downloads.data.WorkManagedDownloadRepository
+import app.ownplay.mobile.downloads.data.WorkManagerDownloadScheduler
+import app.ownplay.mobile.downloads.domain.DownloadPreferencesRepository
 import app.ownplay.mobile.downloads.domain.DownloadRepository
-import app.ownplay.mobile.feature.library.data.LibraryDownloadMetadataResolver
-import app.ownplay.mobile.feature.library.data.LibraryRepositoryImpl
+import app.ownplay.mobile.feature.library.data.DownloadAwareLibraryPlaybackResolver
+import app.ownplay.mobile.downloads.data.AndroidDownloadedMediaVerifier
+import app.ownplay.mobile.feature.library.data.LibraryArtworkLoader
+import app.ownplay.mobile.feature.library.data.LibraryPlaybackLocator
+import app.ownplay.mobile.feature.library.data.OkHttpLibraryArtworkLoader
+import app.ownplay.mobile.feature.library.data.RoomLibraryPlaybackProgressStore
+import app.ownplay.mobile.feature.library.data.RoomLibraryRepository
+import app.ownplay.mobile.feature.library.data.SourceBackedLibraryMovieDetailLoader
+import app.ownplay.mobile.feature.library.data.SourceBackedLibraryPlaybackLocator
+import app.ownplay.mobile.feature.library.data.SourceBackedLibrarySeriesDetailRefresher
 import app.ownplay.mobile.feature.library.domain.LibraryRepository
-import app.ownplay.mobile.feature.live.data.LiveOrganizationRepositoryImpl
-import app.ownplay.mobile.feature.live.data.LiveOwnPlayDiscoveryCoordinator
-import app.ownplay.mobile.feature.live.data.LiveRepositoryImpl
+import app.ownplay.mobile.feature.live.data.RoomLiveOrganizationRefreshStore
+import app.ownplay.mobile.feature.live.data.SourceBackedLiveGuideRepository
+import app.ownplay.mobile.feature.live.data.RoomLiveOrganizationRepository
+import app.ownplay.mobile.feature.live.domain.LiveGuideRepository
 import app.ownplay.mobile.feature.live.domain.LiveOrganizationRepository
-import app.ownplay.mobile.feature.live.domain.LiveRepository
-import app.ownplay.mobile.feature.settings.data.BackupRepositoryImpl
-import app.ownplay.mobile.feature.settings.data.ProviderRefreshScheduler
-import app.ownplay.mobile.feature.settings.domain.BackupRepository
-import app.ownplay.mobile.playback.Media3PlaybackController
-import app.ownplay.mobile.playback.PlaybackController
-import app.ownplay.mobile.sources.data.ProviderHttpTransport
-import app.ownplay.mobile.sources.data.SourceCatalogLoader
+import app.ownplay.mobile.feature.playback.data.DefaultLivePlaybackMediaPreparer
+import app.ownplay.mobile.feature.playback.data.Media3PlaybackEngine
+import app.ownplay.mobile.feature.playback.data.Media3PlaybackEngineAdapter
+import app.ownplay.mobile.feature.playback.data.DataStorePlaybackPreferencesRepository
+import app.ownplay.mobile.feature.playback.data.PlaybackPreferencesDataStore
+import app.ownplay.mobile.feature.playback.data.SourceBackedLivePlaybackSourceResolver
+import app.ownplay.mobile.feature.playback.domain.PlaybackPreferencesRepository
+import app.ownplay.mobile.feature.playback.domain.PlaybackSessionController
+import app.ownplay.mobile.feature.settings.data.DataStoreDisplayPreferencesRepository
+import app.ownplay.mobile.feature.settings.data.DisplayPreferencesDataStore
+import app.ownplay.mobile.feature.settings.data.ManagedSourceRefreshScheduleRepository
+import app.ownplay.mobile.feature.settings.data.RefreshScheduleAwareSourceRepository
+import app.ownplay.mobile.feature.settings.data.SourceRefreshSchedulePreferences
+import app.ownplay.mobile.feature.settings.data.WorkManagerSourceRefreshScheduler
+import app.ownplay.mobile.feature.settings.backup.data.BackupPreferenceGateway
+import app.ownplay.mobile.feature.settings.backup.data.RoomBackupRestoreRepository
+import app.ownplay.mobile.feature.settings.backup.domain.BackupRestoreRepository
+import app.ownplay.mobile.feature.settings.domain.DisplayPreferencesRepository
+import app.ownplay.mobile.feature.settings.domain.SourceRefreshScheduleRepository
+import app.ownplay.mobile.sources.data.DefaultSourceCatalogLoader
+import app.ownplay.mobile.sources.data.OkHttpProviderTransport
+import app.ownplay.mobile.sources.data.ProviderTransport
+import app.ownplay.mobile.sources.data.RoomCatalogRefreshStore
 import app.ownplay.mobile.sources.data.SourceRepositoryImpl
-import app.ownplay.mobile.sources.data.m3u.M3uParser
+import app.ownplay.mobile.sources.data.m3u.M3uClient
 import app.ownplay.mobile.sources.data.m3u.OkHttpM3uClient
 import app.ownplay.mobile.sources.data.xtream.OkHttpXtreamClient
 import app.ownplay.mobile.sources.data.xtream.XtreamClient
 import app.ownplay.mobile.sources.domain.SourceRepository
-import java.util.concurrent.TimeUnit
-import okhttp3.Dispatcher
-import okhttp3.OkHttpClient
 
 class OwnPlayServices private constructor(
-    context: Context,
+    val database: OwnPlayDatabase,
+    val activeSourcePreferences: ActiveSourcePreferences,
+    val credentialStore: CredentialStore,
+    val sourceRepository: SourceRepository,
+    val refreshScheduleRepository: SourceRefreshScheduleRepository,
+    val displayPreferencesRepository: DisplayPreferencesRepository,
+    val playbackPreferencesRepository: PlaybackPreferencesRepository,
+    val downloadPreferencesRepository: DownloadPreferencesRepository,
+    internal val downloadNotificationPermissionPreferences: DownloadNotificationPermissionPreferences,
+    val backupRestoreRepository: BackupRestoreRepository,
+    val liveOrganizationRepository: LiveOrganizationRepository,
+    val liveGuideRepository: LiveGuideRepository,
+    val libraryRepository: LibraryRepository,
+    val downloadRepository: DownloadRepository,
+    internal val downloadExecutor: DownloadExecutor,
+    internal val downloadNotifications: DownloadNotificationController,
+    internal val libraryPlaybackLocator: LibraryPlaybackLocator,
+    internal val libraryArtworkLoader: LibraryArtworkLoader,
+    val playbackSessionController: PlaybackSessionController,
+    val playbackEngine: Media3PlaybackEngine,
+    val providerTransport: ProviderTransport,
+    val m3uClient: M3uClient,
+    val xtreamClient: XtreamClient,
 ) {
-    private val applicationContext = context.applicationContext
-
-    val database: OwnPlayDatabase by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
-        OwnPlayDatabase.create(applicationContext)
-    }
-
-    val credentialStore: CredentialStore by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
-        KeystoreCredentialStore(applicationContext)
-    }
-
-    val playbackController: PlaybackController by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
-        Media3PlaybackController(applicationContext)
-    }
-
-    private val activeSourcePreferences: ActiveSourcePreferences by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
-        ActiveSourcePreferences(applicationContext)
-    }
-
-    val settingsPreferences: SettingsPreferences by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
-        SettingsPreferences(applicationContext)
-    }
-
-    val libraryVisibilityPreferences: LibraryVisibilityPreferences by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
-        LibraryVisibilityPreferences(applicationContext)
-    }
-
-    val backupRepository: BackupRepository by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
-        BackupRepositoryImpl(
-            context = applicationContext,
-            database = database,
-            sourceDao = database.sourceDao(),
-            backupDao = database.backupDao(),
-            activeSourcePreferences = activeSourcePreferences,
-            settingsPreferences = settingsPreferences,
-        )
-    }
-
-    val providerRefreshScheduler: ProviderRefreshScheduler by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
-        ProviderRefreshScheduler(applicationContext)
-    }
-
-    private val providerHttpDispatcher: Dispatcher by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
-        Dispatcher().apply {
-            maxRequests = MAX_PROVIDER_REQUESTS
-            maxRequestsPerHost = MAX_PROVIDER_REQUESTS_PER_HOST
-        }
-    }
-
-    private val downloadHttpDispatcher: Dispatcher by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
-        Dispatcher().apply {
-            maxRequests = MAX_DOWNLOAD_REQUESTS
-            maxRequestsPerHost = MAX_DOWNLOAD_REQUESTS_PER_HOST
-        }
-    }
-
-    private val imageHttpDispatcher: Dispatcher by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
-        Dispatcher().apply {
-            maxRequests = MAX_IMAGE_REQUESTS
-            maxRequestsPerHost = MAX_IMAGE_REQUESTS_PER_HOST
-        }
-    }
-
-    private val httpClient: OkHttpClient by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
-        OkHttpClient.Builder()
-            .dispatcher(providerHttpDispatcher)
-            .connectTimeout(15, TimeUnit.SECONDS)
-            .readTimeout(30, TimeUnit.SECONDS)
-            .callTimeout(45, TimeUnit.SECONDS)
-            .retryOnConnectionFailure(true)
-            .build()
-    }
-
-    private val downloadHttpClient: OkHttpClient by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
-        httpClient.newBuilder()
-            .dispatcher(downloadHttpDispatcher)
-            .readTimeout(60, TimeUnit.SECONDS)
-            .callTimeout(0, TimeUnit.MILLISECONDS)
-            .build()
-    }
-
-    private val imageHttpClient: OkHttpClient by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
-        httpClient.newBuilder()
-            .dispatcher(imageHttpDispatcher)
-            .connectTimeout(4, TimeUnit.SECONDS)
-            .readTimeout(5, TimeUnit.SECONDS)
-            .callTimeout(10, TimeUnit.SECONDS)
-            .build()
-    }
-
-    private val providerTransport: ProviderHttpTransport by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
-        ProviderHttpTransport(httpClient)
-    }
-
-    private val xtreamClient: XtreamClient by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
-        OkHttpXtreamClient(providerTransport)
-    }
-
-    init {
-        OwnPlayRemoteImageLoader.configure(imageHttpClient)
-    }
-
-    val sourceRepository: SourceRepository by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
-        val catalogLoader = SourceCatalogLoader(
-            xtreamClient = xtreamClient,
-            m3uClient = OkHttpM3uClient(providerTransport),
-            m3uParser = M3uParser(),
-        )
-        val delegate = SourceRepositoryImpl(
-            database = database,
-            sourceDao = database.sourceDao(),
-            catalogDao = database.catalogDao(),
-            activeSourcePreferences = activeSourcePreferences,
-            credentialStore = credentialStore,
-            catalogLoader = catalogLoader,
-        )
-        val liveDiscoveryCoordinator = LiveOwnPlayDiscoveryCoordinator(database)
-        val removalCoordinator = DownloadSourceRemovalCoordinator(
-            context = applicationContext,
-            downloadDao = database.downloadDao(),
-            workManager = WorkManager.getInstance(applicationContext),
-        )
-        CoordinatedSourceRepository(
-            delegate = delegate,
-            captureSourceDownloads = removalCoordinator::captureDownloads,
-            cleanupSourceDownloads = removalCoordinator::cleanup,
-            afterSuccessfulRefresh = { summary ->
-                liveDiscoveryCoordinator.refresh(summary.sourceId, summary.generation)
-            },
-        )
-    }
-
-    val liveOrganizationRepository: LiveOrganizationRepository by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
-        LiveOrganizationRepositoryImpl(database = database)
-    }
-
-    val liveRepository: LiveRepository by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
-        LiveRepositoryImpl(
-            database = database,
-            sourceRepository = sourceRepository,
-            sourceDao = database.sourceDao(),
-            catalogDao = database.catalogDao(),
-            credentialStore = credentialStore,
-            xtreamClient = xtreamClient,
-        )
-    }
-
-    val libraryRepository: LibraryRepository by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
-        LibraryRepositoryImpl(
-            database = database,
-            sourceRepository = sourceRepository,
-            sourceDao = database.sourceDao(),
-            catalogDao = database.catalogDao(),
-            libraryDao = database.libraryDao(),
-            credentialStore = credentialStore,
-            xtreamClient = xtreamClient,
-        )
-    }
-
-    val libraryDownloadMetadataResolver: LibraryDownloadMetadataResolver by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
-        LibraryDownloadMetadataResolver(database.libraryDao())
-    }
-
-    val downloadRepository: DownloadRepository by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
-        DownloadRepositoryImpl(
-            context = applicationContext,
-            downloadDao = database.downloadDao(),
-            libraryDao = database.libraryDao(),
-            streamResolver = DownloadStreamResolver(
-                sourceDao = database.sourceDao(),
-                libraryDao = database.libraryDao(),
-                credentialStore = credentialStore,
-            ),
-            workManager = WorkManager.getInstance(applicationContext),
-            httpClient = downloadHttpClient,
-        )
+    internal fun releasePlayback() {
+        playbackSessionController.release()
     }
 
     companion object {
-        private const val MAX_PROVIDER_REQUESTS = 12
-        private const val MAX_PROVIDER_REQUESTS_PER_HOST = 4
-        private const val MAX_DOWNLOAD_REQUESTS = 4
-        private const val MAX_DOWNLOAD_REQUESTS_PER_HOST = 2
-        private const val MAX_IMAGE_REQUESTS = 6
-        private const val MAX_IMAGE_REQUESTS_PER_HOST = 4
+        fun create(context: Context): OwnPlayServices {
+            val applicationContext = context.applicationContext
+            val database = OwnPlayDatabase.create(applicationContext)
+            val activeSourcePreferences = ActiveSourcePreferences(applicationContext)
+            val credentialStore = KeystoreCredentialStore(applicationContext)
+            val transport = OkHttpProviderTransport()
+            val m3uClient = OkHttpM3uClient(transport)
+            val xtreamClient = OkHttpXtreamClient(transport)
+            val sourceDao = database.sourceDao()
+            val refreshStateDao = database.refreshStateDao()
+            val liveOrganizationDao = database.liveOrganizationDao()
+            val libraryDao = database.libraryDao()
+            val downloadDao = database.downloadDao()
+            val catalogLoader = DefaultSourceCatalogLoader(
+                xtreamClient = xtreamClient,
+                m3uClient = m3uClient,
+            )
+            val liveOrganizationRefreshStore = RoomLiveOrganizationRefreshStore(liveOrganizationDao)
+            val catalogRefreshStore = RoomCatalogRefreshStore(
+                database = database,
+                refreshStateDao = refreshStateDao,
+                liveOrganizationRefreshStore = liveOrganizationRefreshStore,
+            )
+            val liveOrganizationRepository = RoomLiveOrganizationRepository(
+                database = database,
+                dao = liveOrganizationDao,
+            )
+            val liveGuideRepository = SourceBackedLiveGuideRepository(
+                sourceDao = sourceDao,
+                liveOrganizationDao = liveOrganizationDao,
+                credentialStore = credentialStore,
+                xtreamClient = xtreamClient,
+            )
+            val libraryDetailRefresher = SourceBackedLibrarySeriesDetailRefresher(
+                sourceDao = sourceDao,
+                libraryDao = libraryDao,
+                credentialStore = credentialStore,
+                xtreamClient = xtreamClient,
+            )
+            val libraryMovieDetailLoader = SourceBackedLibraryMovieDetailLoader(
+                sourceDao = sourceDao,
+                libraryDao = libraryDao,
+                credentialStore = credentialStore,
+                xtreamClient = xtreamClient,
+            )
+            val libraryRepository = RoomLibraryRepository(
+                dao = libraryDao,
+                detailRefresher = libraryDetailRefresher,
+                movieDetailLoader = libraryMovieDetailLoader,
+            )
+            val libraryPlaybackLocator = SourceBackedLibraryPlaybackLocator(
+                sourceDao = sourceDao,
+                libraryDao = libraryDao,
+                credentialStore = credentialStore,
+            )
+            val downloadStorage = AndroidDownloadStorage(applicationContext)
+            val downloadNotifications = DownloadNotificationController(applicationContext)
+            val downloadPreferencesStore = DownloadPreferencesDataStore(applicationContext)
+            val downloadPreferencesRepository = DataStoreDownloadPreferencesRepository(
+                downloadPreferencesStore,
+            )
+            val downloadNotificationPermissionPreferences =
+                DownloadNotificationPermissionPreferences(applicationContext)
+            val downloadScheduler = WorkManagerDownloadScheduler(
+                context = applicationContext,
+                preferencesRepository = downloadPreferencesRepository,
+            )
+            val downloadedMediaVerifier = AndroidDownloadedMediaVerifier(applicationContext)
+            val downloadRepository = WorkManagedDownloadRepository(
+                delegate = RoomDownloadRepository(downloadDao),
+                scheduler = downloadScheduler,
+                storage = downloadStorage,
+                notifications = downloadNotifications,
+                availabilityProbe = downloadedMediaVerifier,
+            )
+            val sourceRemovalDownloadCoordinator = ManagedSourceRemovalDownloadCoordinator(
+                downloadDao = downloadDao,
+                scheduler = downloadScheduler,
+                storage = downloadStorage,
+                notifications = downloadNotifications,
+            )
+            val displayPreferencesStore = DisplayPreferencesDataStore(applicationContext)
+            val displayPreferencesRepository = DataStoreDisplayPreferencesRepository(displayPreferencesStore)
+            val playbackPreferencesStore = PlaybackPreferencesDataStore(applicationContext)
+            val playbackPreferencesRepository = DataStorePlaybackPreferencesRepository(playbackPreferencesStore)
+            val sourceRefreshScheduler = WorkManagerSourceRefreshScheduler(applicationContext)
+            val sourceRefreshStore = SourceRefreshSchedulePreferences(applicationContext)
+            val refreshScheduleRepository = ManagedSourceRefreshScheduleRepository(
+                store = sourceRefreshStore,
+                scheduler = sourceRefreshScheduler,
+                sourceExists = { sourceId -> sourceDao.get(sourceId.value)?.enabled == true },
+            )
+            val baseSourceRepository = SourceRepositoryImpl(
+                sourceDao = sourceDao,
+                refreshStateDao = refreshStateDao,
+                activeSourceStore = activeSourcePreferences,
+                credentialStore = credentialStore,
+                catalogLoader = catalogLoader,
+                catalogRefreshStore = catalogRefreshStore,
+            )
+            val downloadAwareSourceRepository = DownloadAwareSourceRepository(
+                delegate = baseSourceRepository,
+                removalCoordinator = sourceRemovalDownloadCoordinator,
+            )
+            val sourceRepository = RefreshScheduleAwareSourceRepository(
+                delegate = downloadAwareSourceRepository,
+                scheduleCleanup = refreshScheduleRepository,
+            )
+            val backupRestoreRepository = RoomBackupRestoreRepository(
+                database = database,
+                sourceDao = sourceDao,
+                backupDao = database.backupDao(),
+                preferences = BackupPreferenceGateway(
+                    activeSourceStore = activeSourcePreferences,
+                    displayRepository = displayPreferencesRepository,
+                    playbackRepository = playbackPreferencesRepository,
+                    downloadRepository = downloadPreferencesRepository,
+                    refreshStore = sourceRefreshStore,
+                    refreshScheduler = sourceRefreshScheduler,
+                ),
+            )
+            val downloadExecutor = DownloadExecutor(
+                repository = downloadRepository,
+                mediaResolver = SourceBackedDownloadMediaResolver(
+                    libraryDao = libraryDao,
+                    libraryPlaybackLocator = libraryPlaybackLocator,
+                ),
+                storage = downloadStorage,
+                transferClient = OkHttpDownloadTransferClient(),
+            )
+            val libraryMediaResolver = DownloadAwareLibraryPlaybackResolver(
+                onlineResolver = libraryPlaybackLocator,
+                downloadRepository = downloadRepository,
+                verifier = downloadedMediaVerifier,
+            )
+            val libraryArtworkLoader = OkHttpLibraryArtworkLoader()
+            val libraryPlaybackProgressStore = RoomLibraryPlaybackProgressStore(libraryDao)
+            val playbackSourceResolver = SourceBackedLivePlaybackSourceResolver(
+                sourceDao = sourceDao,
+                liveOrganizationDao = liveOrganizationDao,
+                credentialStore = credentialStore,
+            )
+            val playbackEngine = Media3PlaybackEngine(applicationContext)
+            val playbackEngineAdapter = Media3PlaybackEngineAdapter(playbackEngine)
+            val playbackSessionController = PlaybackSessionController(
+                sourceResolver = playbackSourceResolver,
+                mediaPreparer = DefaultLivePlaybackMediaPreparer(),
+                playbackEngine = playbackEngineAdapter,
+                libraryMediaResolver = libraryMediaResolver,
+                playbackProgressEngine = playbackEngineAdapter,
+                libraryProgressStore = libraryPlaybackProgressStore,
+            )
 
-        fun create(context: Context): OwnPlayServices = OwnPlayServices(context)
+            return OwnPlayServices(
+                database = database,
+                activeSourcePreferences = activeSourcePreferences,
+                credentialStore = credentialStore,
+                sourceRepository = sourceRepository,
+                refreshScheduleRepository = refreshScheduleRepository,
+                displayPreferencesRepository = displayPreferencesRepository,
+                playbackPreferencesRepository = playbackPreferencesRepository,
+                downloadPreferencesRepository = downloadPreferencesRepository,
+                downloadNotificationPermissionPreferences = downloadNotificationPermissionPreferences,
+                backupRestoreRepository = backupRestoreRepository,
+                liveOrganizationRepository = liveOrganizationRepository,
+                liveGuideRepository = liveGuideRepository,
+                libraryRepository = libraryRepository,
+                downloadRepository = downloadRepository,
+                downloadExecutor = downloadExecutor,
+                downloadNotifications = downloadNotifications,
+                libraryPlaybackLocator = libraryPlaybackLocator,
+                libraryArtworkLoader = libraryArtworkLoader,
+                playbackSessionController = playbackSessionController,
+                playbackEngine = playbackEngine,
+                providerTransport = transport,
+                m3uClient = m3uClient,
+                xtreamClient = xtreamClient,
+            )
+        }
     }
 }

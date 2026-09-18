@@ -1,11 +1,32 @@
 package app.ownplay.mobile.data.security
 
-import app.ownplay.mobile.sources.domain.SourceCredential
+import app.ownplay.mobile.sources.domain.SourceId
 
-interface CredentialStore {
-    suspend fun put(sourceId: String, credential: SourceCredential)
-    suspend fun get(sourceId: String): SourceCredential?
-    suspend fun remove(sourceId: String)
+sealed interface SourceSecret {
+    class Xtream(
+        val username: String,
+        val password: String,
+    ) : SourceSecret {
+        override fun toString(): String = "Xtream(username=<redacted>, password=<redacted>)"
+    }
+
+    class M3uRemote(
+        val playlistUrl: String,
+        val epgUrl: String?,
+    ) : SourceSecret {
+        override fun toString(): String = "M3uRemote(playlistUrl=<redacted>, epgUrl=<redacted>)"
+    }
 }
 
-class CredentialStoreException : Exception("Secure credential operation failed.")
+interface CredentialStore {
+    suspend fun put(sourceId: SourceId, secret: SourceSecret)
+
+    suspend fun get(sourceId: SourceId): SourceSecret?
+
+    suspend fun delete(sourceId: SourceId)
+}
+
+class CredentialStoreException(
+    message: String,
+    cause: Throwable? = null,
+) : IllegalStateException(message, cause)

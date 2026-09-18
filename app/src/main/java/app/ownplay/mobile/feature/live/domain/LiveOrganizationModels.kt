@@ -1,5 +1,6 @@
 package app.ownplay.mobile.feature.live.domain
 
+import app.ownplay.mobile.sources.domain.SourceId
 import kotlinx.coroutines.flow.Flow
 
 enum class LiveOrganizationMode {
@@ -7,183 +8,148 @@ enum class LiveOrganizationMode {
     OWNPLAY,
 }
 
-enum class LiveOrganizationOrigin {
-    PROVIDER,
-    AUTO,
-    MANUAL,
+object ProviderLiveOrganizationContract {
+    const val UNCATEGORIZED_CATEGORY_ID = "__provider_uncategorized__"
+    const val UNCATEGORIZED_DISPLAY_NAME = "Uncategorized"
 }
 
-enum class LiveClassificationConfidence {
-    LOW,
-    MEDIUM,
-    HIGH,
-}
+enum class OwnPlayLiveSemanticCategory(val displayName: String) {
+    GENERAL("General"),
+    NEWS("News"),
+    SPORTS("Sports"),
+    MOVIES("Movies"),
+    SERIES("Series"),
+    KIDS("Kids"),
+    MUSIC("Music"),
+    DOCUMENTARIES("Documentaries"),
+    ;
 
-data class LiveCategoryScope(
-    val sourceId: String,
-    val mode: LiveOrganizationMode,
-    val parentCategoryId: String? = null,
-) {
-    init {
-        require(sourceId.isNotBlank()) { "sourceId must not be blank" }
+    companion object {
+        val canonicalOrder: List<OwnPlayLiveSemanticCategory> = entries.toList()
     }
 }
 
-data class LiveChannelMembershipScope(
-    val sourceId: String,
-    val mode: LiveOrganizationMode,
+data class ProviderLiveCategory(
     val categoryId: String,
-) {
-    init {
-        require(sourceId.isNotBlank()) { "sourceId must not be blank" }
-        require(categoryId.isNotBlank()) { "categoryId must not be blank" }
-    }
-}
-
-data class LiveOrganizationCategory(
-    val sourceId: String,
-    val mode: LiveOrganizationMode,
-    val categoryId: String,
-    val parentCategoryId: String? = null,
     val displayName: String,
-    val semanticKey: String? = null,
-    val origin: LiveOrganizationOrigin,
-    val hidden: Boolean = false,
-    val manualOrder: Int? = null,
-) {
-    init {
-        require(sourceId.isNotBlank()) { "sourceId must not be blank" }
-        require(categoryId.isNotBlank()) { "categoryId must not be blank" }
-        require(displayName.isNotBlank()) { "displayName must not be blank" }
-        require(LiveOrganizationScopePolicy.originMatchesMode(mode, origin)) {
-            "origin does not match organization mode"
-        }
-    }
-
-    val scope: LiveCategoryScope
-        get() = LiveCategoryScope(sourceId, mode, parentCategoryId)
-}
-
-data class LiveCategoryPersonalizationKey(
-    val sourceId: String,
-    val mode: LiveOrganizationMode,
-    val categoryId: String,
-) {
-    init {
-        require(sourceId.isNotBlank()) { "sourceId must not be blank" }
-        require(categoryId.isNotBlank()) { "categoryId must not be blank" }
-    }
-}
-
-data class LiveChannelMembership(
-    val sourceId: String,
-    val mode: LiveOrganizationMode,
-    val categoryId: String,
-    val channelId: String,
-    val included: Boolean = true,
-    val origin: LiveOrganizationOrigin,
-    val confidence: LiveClassificationConfidence? = null,
-    val evidenceKeys: Set<String> = emptySet(),
-    val hidden: Boolean = false,
-    val manualOrder: Int? = null,
-) {
-    init {
-        require(sourceId.isNotBlank()) { "sourceId must not be blank" }
-        require(categoryId.isNotBlank()) { "categoryId must not be blank" }
-        require(channelId.isNotBlank()) { "channelId must not be blank" }
-        require(LiveOrganizationScopePolicy.originMatchesMode(mode, origin)) {
-            "origin does not match organization mode"
-        }
-    }
-
-    val scope: LiveChannelMembershipScope
-        get() = LiveChannelMembershipScope(sourceId, mode, categoryId)
-}
-
-data class LiveChannelMembershipPersonalizationKey(
-    val sourceId: String,
-    val mode: LiveOrganizationMode,
-    val categoryId: String,
-    val channelId: String,
-) {
-    init {
-        require(sourceId.isNotBlank()) { "sourceId must not be blank" }
-        require(categoryId.isNotBlank()) { "categoryId must not be blank" }
-        require(channelId.isNotBlank()) { "channelId must not be blank" }
-    }
-}
-
-data class LiveOrganizationSnapshot(
-    val sourceId: String,
-    val activeMode: LiveOrganizationMode = LiveOrganizationMode.PROVIDER,
-    val categories: List<LiveOrganizationCategory> = emptyList(),
-    val memberships: List<LiveChannelMembership> = emptyList(),
+    val providerOrder: Int,
 )
 
-object LiveOrganizationScopePolicy {
-    const val PROVIDER_UNCATEGORIZED_CATEGORY_ID = "__provider_uncategorized__"
+data class LiveOrganizationChannel(
+    val channelId: String,
+    val name: String,
+    val tvgName: String?,
+    val providerCategoryId: String?,
+    val providerOrder: Int,
+    val logoUrl: String? = null,
+    val localName: String? = null,
+)
 
-    fun providerCategoryId(providerCategoryKey: String?): String =
-        providerCategoryKey?.trim()?.takeIf(String::isNotEmpty)
-            ?: PROVIDER_UNCATEGORIZED_CATEGORY_ID
+data class OwnPlayCountryScope(
+    val countryId: String,
+    val displayName: String,
+    val providerOrder: Int,
+    val isNeutralScope: Boolean = false,
+)
 
-    fun originMatchesMode(
-        mode: LiveOrganizationMode,
-        origin: LiveOrganizationOrigin,
-    ): Boolean = when (mode) {
-        LiveOrganizationMode.PROVIDER -> origin == LiveOrganizationOrigin.PROVIDER
-        LiveOrganizationMode.OWNPLAY -> origin != LiveOrganizationOrigin.PROVIDER
-    }
+data class OwnPlayLivePlacement(
+    val countryId: String,
+    val semanticCategory: OwnPlayLiveSemanticCategory,
+)
 
-    fun canReorderCategories(
-        scope: LiveCategoryScope,
-        categories: List<LiveOrganizationCategory>,
-    ): Boolean = categories.isNotEmpty() &&
-        categories.all { it.scope == scope } &&
-        categories.map { it.categoryId }.distinct().size == categories.size
+data class AutomaticLiveOrganization(
+    val countries: List<OwnPlayCountryScope>,
+    val placementByChannelId: Map<String, OwnPlayLivePlacement>,
+)
 
-    fun canReorderChannels(
-        scope: LiveChannelMembershipScope,
-        memberships: List<LiveChannelMembership>,
-    ): Boolean = memberships.isNotEmpty() &&
-        memberships.all { it.scope == scope && it.included } &&
-        memberships.map { it.channelId }.distinct().size == memberships.size
-}
+data class ProviderLiveCatalogSnapshot(
+    val categories: List<ProviderLiveCategory>,
+    val channels: List<LiveOrganizationChannel>,
+)
+
+data class ProviderLiveManagementCategory(
+    val categoryId: String,
+    val displayName: String,
+    val providerOrder: Int,
+    val hidden: Boolean,
+    val manualOrder: Int?,
+)
+
+data class ProviderLiveManagementChannel(
+    val channelId: String,
+    val categoryId: String,
+    val name: String,
+    val tvgName: String?,
+    val logoUrl: String?,
+    val providerOrder: Int,
+    val hidden: Boolean,
+    val manualOrder: Int?,
+)
+
+data class ProviderLiveManagementSnapshot(
+    val categories: List<ProviderLiveManagementCategory>,
+    val channels: List<ProviderLiveManagementChannel>,
+)
+
+data class OwnPlayLiveCatalogSnapshot(
+    val countries: List<OwnPlayCountryScope>,
+    val semanticCategories: List<OwnPlayLiveSemanticCategory>,
+    val channelIdsByPlacement: Map<OwnPlayLivePlacement, List<String>>,
+    val manualPlacementChannelIds: Set<String> = emptySet(),
+    val channels: List<LiveOrganizationChannel> = emptyList(),
+)
 
 interface LiveOrganizationRepository {
-    fun observeOrganization(sourceId: String): Flow<LiveOrganizationSnapshot>
+    fun observeMode(sourceId: SourceId): Flow<LiveOrganizationMode>
 
-    suspend fun setActiveMode(sourceId: String, mode: LiveOrganizationMode)
+    fun observeProviderCatalog(sourceId: SourceId): Flow<ProviderLiveCatalogSnapshot>
 
-    suspend fun createOwnPlayCategory(
-        sourceId: String,
-        parentCategoryId: String?,
-        displayName: String,
-    )
+    fun observeProviderManagement(sourceId: SourceId): Flow<ProviderLiveManagementSnapshot>
 
-    suspend fun editOwnPlayMemberships(
-        sourceId: String,
-        targetCategoryId: String,
-        channelIds: List<String>,
-        mode: LiveOwnPlayMembershipEditMode,
-    )
+    fun observeOwnPlayCatalog(sourceId: SourceId): Flow<OwnPlayLiveCatalogSnapshot>
 
-    suspend fun setOwnPlayChannelTreatment(
-        sourceId: String,
-        targetCategoryId: String,
-        channelIds: List<String>,
-        treatment: LiveOwnPlayChannelTreatment,
-    )
+    fun observeFavoriteChannelIds(sourceId: SourceId): Flow<Set<String>>
 
-    suspend fun setCategoryHidden(key: LiveCategoryPersonalizationKey, hidden: Boolean)
+    suspend fun setMode(sourceId: SourceId, mode: LiveOrganizationMode): Boolean
 
-    suspend fun setCategoryOrder(scope: LiveCategoryScope, orderedCategoryIds: List<String>)
+    suspend fun setFavorite(sourceId: SourceId, channelId: String, favorite: Boolean): Boolean
 
-    suspend fun resetCategoryOrder(scope: LiveCategoryScope)
+    suspend fun setProviderCategoryHidden(
+        sourceId: SourceId,
+        categoryId: String,
+        hidden: Boolean,
+    ): Boolean
 
-    suspend fun setChannelHidden(key: LiveChannelMembershipPersonalizationKey, hidden: Boolean)
+    suspend fun setProviderCategoryOrder(
+        sourceId: SourceId,
+        orderedCategoryIds: List<String>,
+    ): Boolean
 
-    suspend fun setChannelOrder(scope: LiveChannelMembershipScope, orderedChannelIds: List<String>)
+    suspend fun resetProviderCategoryOrder(sourceId: SourceId): Boolean
 
-    suspend fun resetChannelOrder(scope: LiveChannelMembershipScope)
+    suspend fun setProviderChannelHidden(
+        sourceId: SourceId,
+        categoryId: String,
+        channelId: String,
+        hidden: Boolean,
+    ): Boolean
+
+    suspend fun setProviderChannelOrder(
+        sourceId: SourceId,
+        categoryId: String,
+        orderedChannelIds: List<String>,
+    ): Boolean
+
+    suspend fun resetProviderChannelOrder(
+        sourceId: SourceId,
+        categoryId: String,
+    ): Boolean
+
+    suspend fun moveChannel(
+        sourceId: SourceId,
+        channelId: String,
+        placement: OwnPlayLivePlacement,
+    ): Boolean
+
+    suspend fun resetChannelToAutomatic(sourceId: SourceId, channelId: String): Boolean
 }

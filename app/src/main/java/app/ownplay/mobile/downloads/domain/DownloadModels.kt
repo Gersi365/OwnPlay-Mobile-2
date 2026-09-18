@@ -1,113 +1,119 @@
 package app.ownplay.mobile.downloads.domain
 
-import app.ownplay.mobile.feature.library.domain.LibraryMediaKind
-import app.ownplay.mobile.feature.library.domain.LibraryMediaMetadata
-import app.ownplay.mobile.feature.library.domain.LibraryPlaybackResolution
-import app.ownplay.mobile.feature.library.domain.LibraryStartMode
+import app.ownplay.mobile.sources.domain.SourceId
 import kotlinx.coroutines.flow.Flow
 
-enum class DownloadState {
+@JvmInline
+value class DownloadId(val value: String) {
+    init {
+        require(value.isNotBlank()) { "DownloadId must not be blank" }
+    }
+}
+
+enum class DownloadMediaKind {
+    MOVIE,
+    EPISODE,
+}
+
+enum class DownloadStatus {
     QUEUED,
     DOWNLOADING,
     PAUSED,
-    FAILED,
     COMPLETED,
+    FAILED,
+    CANCELED,
+    UNKNOWN,
 }
 
-enum class DownloadAction {
-    DOWNLOAD,
-    PAUSE,
-    RESUME,
-    RETRY,
-    REMOVE,
-    PLAY_OFFLINE,
-    RESUME_OFFLINE,
+enum class DownloadFailureCode {
+    NETWORK,
+    TIMEOUT,
+    SOURCE_UNAVAILABLE,
+    STORAGE,
+    INTEGRITY,
+    UNKNOWN,
 }
 
-enum class DownloadTransition {
-    CREATE_QUEUED,
-    MARK_PAUSED,
-    MARK_QUEUED,
-    REMOVE,
-    PLAY_OFFLINE,
-}
-
-enum class OfflineAvailability {
-    AVAILABLE,
-    MISSING,
-    INCOMPLETE,
+data class DownloadRequest(
+    val sourceId: SourceId,
+    val mediaKind: DownloadMediaKind,
+    val contentId: String,
+    val title: String,
+    val expectedBytes: Long? = null,
+) {
+    init {
+        require(contentId.isNotBlank()) { "Download content id must not be blank" }
+        require(title.isNotBlank()) { "Download title must not be blank" }
+        require(expectedBytes == null || expectedBytes > 0L) {
+            "Expected download size must be positive when present"
+        }
+    }
 }
 
 data class DownloadItem(
-    val downloadId: String,
-    val sourceId: String,
-    val mediaKind: LibraryMediaKind,
+    val downloadId: DownloadId,
+    val sourceId: SourceId,
+    val mediaKind: DownloadMediaKind,
     val contentId: String,
     val title: String,
-    val state: DownloadState,
+    val status: DownloadStatus,
     val bytesDownloaded: Long,
     val totalBytes: Long?,
-    val createdAt: Long,
-    val updatedAt: Long,
-    val resumePositionMs: Long?,
-    val metadata: LibraryMediaMetadata? = null,
-) {
-    val progressFraction: Float?
-        get() = totalBytes
-            ?.takeIf { total -> total > 0L }
-            ?.let { total -> (bytesDownloaded.toDouble() / total.toDouble()).coerceIn(0.0, 1.0).toFloat() }
-}
-
-internal data class DownloadCleanupTarget(
-    val downloadId: String,
     val localReference: String?,
-)
-
-sealed interface DownloadOperationResult {
-    data class Success(val item: DownloadItem? = null) : DownloadOperationResult
-
-    data class Failure(
-        val code: String,
-        val safeMessage: String,
-    ) : DownloadOperationResult
-}
-
-enum class DownloadWorkResult {
-    SUCCESS,
-    RETRY,
-    FAILURE,
-    NO_OP,
+    val verifiedBytes: Long?,
+    val sha256: String?,
+    val failureCode: DownloadFailureCode?,
+    val createdAtEpochMs: Long,
+    val updatedAtEpochMs: Long,
+) {
+    init {
+        require(contentId.isNotBlank()) { "Download content id must not be blank" }
+        require(title.isNotBlank()) { "Download title must not be blank" }
+        require(bytesDownloaded >= 0L) { "Downloaded bytes must not be negative" }
+        require(totalBytes == null || totalBytes > 0L) { "Total bytes must be positive when present" }
+        require(totalBytes == null || bytesDownloaded <= totalBytes) {
+            "Downloaded bytes must not exceed total bytes"
+        }
+        require(verifiedBytes == null || verifiedBytes > 0L) {
+            "Verified bytes must be positive when present"
+        }
+    }
 }
 
 interface DownloadRepository {
-    fun observeDownloads(): Flow<List<DownloadItem>>
+    fun observeDownloads(sourceId: SourceId): Flow<List<DownloadItem>>
 
-    suspend fun requestDownload(
-        sourceId: String,
-        mediaKind: LibraryMediaKind,
-        contentId: String,
-        title: String,
-    ): DownloadOperationResult
+    fun observeDownload(downloadId: DownloadId): Flow<DownloadItem?>
 
-    suspend fun pause(downloadId: String): DownloadOperationResult
+    suspend fun get(downloadId: DownloadId): DownloadItem?
 
-    suspend fun resume(downloadId: String): DownloadOperationResult
+    suspend fun enqueue(request: DownloadRequest): DownloadItem
 
-    suspend fun retry(downloadId: String): DownloadOperationResult
+    suspend fun markDownloading(downloadId: DownloadId): Boolean
 
-    suspend fun remove(downloadId: String): DownloadOperationResult
+    suspend fun updateProgress(
+        downloadId: DownloadId,
+        bytesDownloaded: Long,
+        totalBytes: Long?,
+    ): Boolean
 
-    suspend fun resolveOfflinePlayback(
-        downloadId: String,
-        startMode: LibraryStartMode,
-    ): LibraryPlaybackResolution
+    suspend fun pause(downloadId: DownloadId): Boolean
 
-    suspend fun saveMetadata(downloadId: String, metadata: LibraryMediaMetadata) = Unit
+    suspend fun resume(downloadId: DownloadId): Boolean
 
-    suspend fun offlineAvailability(downloadId: String): OfflineAvailability = OfflineAvailability.INCOMPLETE
+    suspend fun cancel(downloadId: DownloadId): Boolean
 
-    suspend fun redownload(downloadId: String): DownloadOperationResult =
-        DownloadOperationResult.Failure("REDOWNLOAD_UNSUPPORTED", "This download cannot be restarted.")
+    suspend fun complete(
+        downloadId: DownloadId,
+        localReference: String,
+        verifiedBytes: Long,
+        sha256: String? = null,
+    ): Boolean
 
-    suspend fun executeWork(downloadId: String): DownloadWorkResult
+    suspend fun fail(
+        downloadId: DownloadId,
+        failureCode: DownloadFailureCode,
+    ): Boolean
+
+    suspend fun remove(downloadId: DownloadId): Boolean
 }

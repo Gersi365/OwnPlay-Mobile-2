@@ -1,24 +1,22 @@
 package app.ownplay.mobile.data.security
 
-import app.ownplay.mobile.sources.domain.SourceCredential
+object CredentialInputPolicy {
+    private const val MAX_DISPLAY_NAME_LENGTH = 120
+    private const val MAX_CREDENTIAL_LENGTH = 512
 
-internal object CredentialInputPolicy {
-    const val MAX_FIELD_BYTES = 16 * 1024
-
-    fun requireSupportedSize(credential: SourceCredential) {
-        when (credential) {
-            is SourceCredential.Xtream -> {
-                requireFieldSize(credential.username)
-                requireFieldSize(credential.password)
-            }
-
-            is SourceCredential.M3uRemoteLocator -> requireFieldSize(credential.locator)
+    fun normalizeDisplayName(raw: String): String? {
+        val value = raw.trim()
+        if (value.isEmpty() || value.length > MAX_DISPLAY_NAME_LENGTH || value.hasControlCharacters()) {
+            return null
         }
+        return value
     }
 
-    private fun requireFieldSize(value: String) {
-        require(value.toByteArray(Charsets.UTF_8).size <= MAX_FIELD_BYTES) {
-            "Credential field exceeds the supported size."
-        }
-    }
+    fun isValidCredential(raw: String): Boolean =
+        raw.isNotBlank() &&
+            raw.length <= MAX_CREDENTIAL_LENGTH &&
+            !raw.hasControlCharacters()
+
+    private fun String.hasControlCharacters(): Boolean =
+        any(Char::isISOControl)
 }

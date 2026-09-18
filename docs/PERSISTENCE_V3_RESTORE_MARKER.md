@@ -1,0 +1,1 @@
+Room v3 compatibility restoration is intentionally sourced from the last validated pre-rebuild schema implementation at base commit `126b749cce8d90acd81edfd473ad0ca3941db3d4`. The database model/migrations are compatibility infrastructure; rebuilt feature logic must not depend on legacy presentation/runtime code.

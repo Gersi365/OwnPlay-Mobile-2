@@ -5,402 +5,107 @@ import androidx.room.Query
 import androidx.room.Upsert
 import kotlinx.coroutines.flow.Flow
 
-data class ProviderLiveOrganizationCategoryView(
-    val sourceId: String,
-    val categoryId: String,
-    val displayName: String,
-    val hidden: Boolean,
-    val manualOrder: Int?,
-)
-
-data class ProviderLiveOrganizationMembershipView(
-    val sourceId: String,
-    val categoryId: String,
-    val channelId: String,
-    val hidden: Boolean,
-    val manualOrder: Int?,
-)
-
-data class OwnPlayLiveOrganizationCategoryView(
-    val sourceId: String,
-    val categoryId: String,
-    val parentCategoryId: String?,
-    val displayName: String,
-    val semanticKey: String?,
-    val origin: String,
-    val hidden: Boolean,
-    val manualOrder: Int?,
-)
-
-data class ManualOwnPlayMembershipKeyView(
-    val categoryId: String,
-    val channelId: String,
-)
-
-data class OwnPlayLiveOrganizationMembershipView(
-    val sourceId: String,
-    val categoryId: String,
-    val channelId: String,
-    val included: Boolean,
-    val origin: String,
-    val confidence: String?,
-    val evidenceJson: String?,
-    val hidden: Boolean,
-    val manualOrder: Int?,
-)
-
 @Dao
 interface LiveOrganizationDao {
     @Query("SELECT * FROM live_organization_preferences WHERE sourceId = :sourceId LIMIT 1")
     fun observePreference(sourceId: String): Flow<LiveOrganizationPreferenceEntity?>
-
-    @Query("SELECT * FROM live_organization_preferences WHERE sourceId = :sourceId LIMIT 1")
-    suspend fun getPreference(sourceId: String): LiveOrganizationPreferenceEntity?
 
     @Upsert
     suspend fun upsertPreference(row: LiveOrganizationPreferenceEntity)
 
     @Query(
         """
-        SELECT
-            c.sourceId AS sourceId,
-            c.categoryKey AS categoryId,
-            c.name AS displayName,
-            COALESCE(p.hidden, 0) AS hidden,
-            p.manualOrder AS manualOrder
-        FROM provider_categories AS c
-        LEFT JOIN live_category_scope_personalization AS p
-          ON p.sourceId = c.sourceId
-         AND p.organizationMode = 'PROVIDER'
-         AND p.categoryId = c.categoryKey
-        WHERE c.sourceId = :sourceId
-          AND c.kind = 'LIVE'
-          AND c.available = 1
-        ORDER BY
-            CASE WHEN p.manualOrder IS NULL THEN 1 ELSE 0 END,
-            COALESCE(p.manualOrder, c.providerOrder),
-            c.providerOrder,
-            c.name COLLATE NOCASE,
-            c.categoryKey
-        """,
-    )
-    fun observeProviderCategories(sourceId: String): Flow<List<ProviderLiveOrganizationCategoryView>>
-
-    @Query(
-        """
-        SELECT
-            c.sourceId AS sourceId,
-            COALESCE(c.categoryKey, :uncategorizedCategoryId) AS categoryId,
-            c.channelId AS channelId,
-            COALESCE(p.hidden, 0) AS hidden,
-            p.manualOrder AS manualOrder
-        FROM live_channels AS c
-        LEFT JOIN live_channel_membership_personalization AS p
-          ON p.sourceId = c.sourceId
-         AND p.organizationMode = 'PROVIDER'
-         AND p.categoryId = COALESCE(c.categoryKey, :uncategorizedCategoryId)
-         AND p.channelId = c.channelId
-        WHERE c.sourceId = :sourceId
-          AND c.available = 1
-        ORDER BY
-            categoryId,
-            CASE WHEN p.manualOrder IS NULL THEN 1 ELSE 0 END,
-            COALESCE(p.manualOrder, c.providerOrder),
-            c.providerOrder,
-            c.name COLLATE NOCASE,
-            c.channelId
-        """,
-    )
-    fun observeProviderMemberships(
-        sourceId: String,
-        uncategorizedCategoryId: String,
-    ): Flow<List<ProviderLiveOrganizationMembershipView>>
-
-    @Query(
-        """
-        SELECT
-            c.sourceId AS sourceId,
-            c.categoryId AS categoryId,
-            c.parentCategoryId AS parentCategoryId,
-            c.displayName AS displayName,
-            c.semanticKey AS semanticKey,
-            c.origin AS origin,
-            COALESCE(p.hidden, 0) AS hidden,
-            p.manualOrder AS manualOrder
-        FROM ownplay_live_categories AS c
-        LEFT JOIN live_category_scope_personalization AS p
-          ON p.sourceId = c.sourceId
-         AND p.organizationMode = 'OWNPLAY'
-         AND p.categoryId = c.categoryId
-        WHERE c.sourceId = :sourceId
-          AND c.available = 1
-        ORDER BY
-            c.parentCategoryId,
-            CASE WHEN p.manualOrder IS NULL THEN 1 ELSE 0 END,
-            p.manualOrder,
-            c.displayName COLLATE NOCASE,
-            c.categoryId
-        """,
-    )
-    fun observeOwnPlayCategoryViews(sourceId: String): Flow<List<OwnPlayLiveOrganizationCategoryView>>
-
-    @Query(
-        """
-        SELECT
-            m.sourceId AS sourceId,
-            m.categoryId AS categoryId,
-            m.channelId AS channelId,
-            m.included AS included,
-            m.origin AS origin,
-            m.confidence AS confidence,
-            m.evidenceJson AS evidenceJson,
-            COALESCE(p.hidden, 0) AS hidden,
-            p.manualOrder AS manualOrder
-        FROM ownplay_live_channel_memberships AS m
-        INNER JOIN live_channels AS c ON c.channelId = m.channelId
-        LEFT JOIN live_channel_membership_personalization AS p
-          ON p.sourceId = m.sourceId
-         AND p.organizationMode = 'OWNPLAY'
-         AND p.categoryId = m.categoryId
-         AND p.channelId = m.channelId
-        WHERE m.sourceId = :sourceId
-          AND m.available = 1
-          AND c.available = 1
-        ORDER BY
-            m.categoryId,
-            CASE WHEN p.manualOrder IS NULL THEN 1 ELSE 0 END,
-            COALESCE(p.manualOrder, c.providerOrder),
-            c.providerOrder,
-            c.name COLLATE NOCASE,
-            m.channelId
-        """,
-    )
-    fun observeOwnPlayMembershipViews(sourceId: String): Flow<List<OwnPlayLiveOrganizationMembershipView>>
-
-    @Query(
-        """
-        SELECT * FROM live_category_scope_personalization
+        SELECT * FROM provider_categories
         WHERE sourceId = :sourceId
-          AND organizationMode = :organizationMode
-          AND categoryId = :categoryId
-        LIMIT 1
+          AND kind = 'LIVE'
+          AND available = 1
+        ORDER BY providerOrder, categoryKey
         """,
     )
-    suspend fun getCategoryPersonalization(
-        sourceId: String,
-        organizationMode: String,
-        categoryId: String,
-    ): LiveCategoryScopePersonalizationEntity?
+    fun observeProviderLiveCategories(sourceId: String): Flow<List<ProviderCategoryEntity>>
 
-    @Upsert
-    suspend fun upsertCategoryPersonalization(row: LiveCategoryScopePersonalizationEntity)
+    @Query(
+        """
+        SELECT * FROM live_channels
+        WHERE sourceId = :sourceId
+          AND available = 1
+        ORDER BY providerOrder, channelId
+        """,
+    )
+    fun observeLiveChannels(sourceId: String): Flow<List<LiveChannelEntity>>
+
+    @Query(
+        """
+        SELECT p.channelId
+        FROM channel_personalization AS p
+        INNER JOIN live_channels AS c ON c.channelId = p.channelId
+        WHERE c.sourceId = :sourceId
+          AND c.available = 1
+          AND p.favorite = 1
+        ORDER BY c.providerOrder, c.channelId
+        """,
+    )
+    fun observeFavoriteChannelIds(sourceId: String): Flow<List<String>>
+
+    @Query(
+        """
+        SELECT p.*
+        FROM channel_personalization AS p
+        INNER JOIN live_channels AS c ON c.channelId = p.channelId
+        WHERE c.sourceId = :sourceId
+          AND c.available = 1
+        ORDER BY c.providerOrder, c.channelId
+        """,
+    )
+    fun observeChannelPersonalization(sourceId: String): Flow<List<ChannelPersonalizationEntity>>
+
+    @Query(
+        """
+        SELECT * FROM ownplay_live_categories
+        WHERE sourceId = :sourceId
+        ORDER BY categoryId
+        """,
+    )
+    fun observeOwnPlayCategoriesForCompatibility(sourceId: String): Flow<List<OwnPlayLiveCategoryEntity>>
 
     @Query(
         """
         SELECT * FROM live_channel_membership_personalization
         WHERE sourceId = :sourceId
-          AND organizationMode = :organizationMode
-          AND categoryId = :categoryId
-          AND channelId = :channelId
-        LIMIT 1
+          AND organizationMode = 'OWNPLAY_OVERRIDE'
+        ORDER BY channelId, categoryId
         """,
     )
-    suspend fun getChannelMembershipPersonalization(
-        sourceId: String,
-        organizationMode: String,
-        categoryId: String,
-        channelId: String,
-    ): LiveChannelMembershipPersonalizationEntity?
-
-    @Upsert
-    suspend fun upsertChannelMembershipPersonalization(row: LiveChannelMembershipPersonalizationEntity)
-
-    @Query(
-        """
-        SELECT categoryKey FROM provider_categories
-        WHERE sourceId = :sourceId AND kind = 'LIVE' AND available = 1
-        ORDER BY providerOrder, name COLLATE NOCASE, categoryKey
-        """,
-    )
-    suspend fun getProviderCategoryIds(sourceId: String): List<String>
-
-    @Query(
-        """
-        SELECT categoryId FROM ownplay_live_categories
-        WHERE sourceId = :sourceId
-          AND available = 1
-          AND ((:parentCategoryId IS NULL AND parentCategoryId IS NULL) OR parentCategoryId = :parentCategoryId)
-        ORDER BY displayName COLLATE NOCASE, categoryId
-        """,
-    )
-    suspend fun getOwnPlaySiblingCategoryIds(sourceId: String, parentCategoryId: String?): List<String>
-
-    @Query(
-        """
-        SELECT COUNT(*) FROM provider_categories
-        WHERE sourceId = :sourceId
-          AND kind = 'LIVE'
-          AND categoryKey = :categoryId
-          AND available = 1
-        """,
-    )
-    suspend fun countProviderCategory(sourceId: String, categoryId: String): Int
-
-    @Query(
-        """
-        SELECT COUNT(*) FROM ownplay_live_categories
-        WHERE sourceId = :sourceId
-          AND categoryId = :categoryId
-          AND available = 1
-        """,
-    )
-    suspend fun countOwnPlayCategory(sourceId: String, categoryId: String): Int
-
-    @Query("SELECT COUNT(*) FROM ownplay_live_categories WHERE sourceId = :sourceId AND available = 1")
-    suspend fun countOwnPlayCategories(sourceId: String): Int
-
-    @Query(
-        """
-        SELECT channelId FROM live_channels
-        WHERE sourceId = :sourceId
-          AND available = 1
-          AND ((:categoryId = :uncategorizedCategoryId AND categoryKey IS NULL) OR categoryKey = :categoryId)
-        ORDER BY providerOrder, name COLLATE NOCASE, channelId
-        """,
-    )
-    suspend fun getProviderChannelIds(
-        sourceId: String,
-        categoryId: String,
-        uncategorizedCategoryId: String,
-    ): List<String>
-
-    @Query(
-        """
-        SELECT m.channelId
-        FROM ownplay_live_channel_memberships AS m
-        INNER JOIN live_channels AS c ON c.channelId = m.channelId
-        WHERE m.sourceId = :sourceId
-          AND m.categoryId = :categoryId
-          AND m.included = 1
-          AND m.available = 1
-          AND c.available = 1
-        ORDER BY c.providerOrder, c.name COLLATE NOCASE, m.channelId
-        """,
-    )
-    suspend fun getOwnPlayChannelIds(sourceId: String, categoryId: String): List<String>
-
-    @Query(
-        """
-        SELECT COUNT(*) FROM live_channels
-        WHERE channelId = :channelId
-          AND sourceId = :sourceId
-          AND available = 1
-          AND ((:categoryId = :uncategorizedCategoryId AND categoryKey IS NULL) OR categoryKey = :categoryId)
-        """,
-    )
-    suspend fun countProviderChannelMembership(
-        sourceId: String,
-        categoryId: String,
-        channelId: String,
-        uncategorizedCategoryId: String,
-    ): Int
-
-    @Query(
-        """
-        SELECT COUNT(*)
-        FROM ownplay_live_channel_memberships AS m
-        INNER JOIN live_channels AS c ON c.channelId = m.channelId
-        WHERE m.sourceId = :sourceId
-          AND m.categoryId = :categoryId
-          AND m.channelId = :channelId
-          AND m.included = 1
-          AND m.available = 1
-          AND c.available = 1
-        """,
-    )
-    suspend fun countOwnPlayChannelMembership(sourceId: String, categoryId: String, channelId: String): Int
-
-    @Query(
-        """
-        SELECT * FROM ownplay_live_categories
-        WHERE sourceId = :sourceId AND available = 1
-        ORDER BY parentCategoryId, categoryId
-        """,
-    )
-    fun observeOwnPlayCategories(sourceId: String): Flow<List<OwnPlayLiveCategoryEntity>>
-
-    @Query(
-        """
-        SELECT * FROM ownplay_live_channel_memberships
-        WHERE sourceId = :sourceId AND available = 1
-        ORDER BY categoryId, channelId
-        """,
-    )
-    fun observeOwnPlayMemberships(sourceId: String): Flow<List<OwnPlayLiveChannelMembershipEntity>>
-
-    @Query(
-        """
-        SELECT * FROM ownplay_live_categories
-        WHERE sourceId = :sourceId AND available = 1
-        ORDER BY parentCategoryId, categoryId
-        """,
-    )
-    suspend fun getOwnPlayCategoriesForEdit(sourceId: String): List<OwnPlayLiveCategoryEntity>
+    fun observeManualPlacementOverrides(sourceId: String): Flow<List<LiveChannelMembershipPersonalizationEntity>>
 
     @Query(
         """
         SELECT * FROM ownplay_live_channel_memberships
         WHERE sourceId = :sourceId
-          AND channelId IN (:channelIds)
-        ORDER BY categoryId, channelId
+          AND origin = 'MANUAL'
+          AND included = 1
+          AND available = 1
+        ORDER BY channelId, categoryId
         """,
     )
-    suspend fun getOwnPlayMembershipsForChannels(
-        sourceId: String,
-        channelIds: List<String>,
-    ): List<OwnPlayLiveChannelMembershipEntity>
+    fun observeLegacyManualMemberships(sourceId: String): Flow<List<OwnPlayLiveChannelMembershipEntity>>
 
     @Query(
         """
-        SELECT * FROM ownplay_live_channel_memberships
-        WHERE sourceId = :sourceId AND origin = 'MANUAL'
-        ORDER BY categoryId, channelId
+        SELECT DISTINCT channelId FROM ownplay_live_channel_memberships
+        WHERE sourceId = :sourceId
+          AND origin = 'MANUAL'
+          AND included = 1
+          AND available = 1
         """,
     )
-    suspend fun getManualOwnPlayMemberships(sourceId: String): List<OwnPlayLiveChannelMembershipEntity>
+    suspend fun getLegacyManualChannelIds(sourceId: String): List<String>
 
     @Upsert
     suspend fun upsertOwnPlayCategories(rows: List<OwnPlayLiveCategoryEntity>)
 
     @Upsert
     suspend fun upsertOwnPlayMemberships(rows: List<OwnPlayLiveChannelMembershipEntity>)
-
-    @Query(
-        """
-        SELECT categoryId FROM ownplay_live_categories
-        WHERE sourceId = :sourceId AND origin = 'MANUAL'
-        """,
-    )
-    suspend fun getManualOwnPlayCategoryIds(sourceId: String): List<String>
-
-    @Query(
-        """
-        SELECT categoryId, channelId FROM ownplay_live_channel_memberships
-        WHERE sourceId = :sourceId AND origin = 'MANUAL'
-        """,
-    )
-    suspend fun getManualOwnPlayMembershipKeys(sourceId: String): List<ManualOwnPlayMembershipKeyView>
-
-    @Query(
-        """
-        UPDATE ownplay_live_channel_memberships
-        SET available = 0
-        WHERE sourceId = :sourceId
-          AND origin = 'AUTO'
-          AND lastSeenGeneration != :generation
-        """,
-    )
-    suspend fun markMissingAutoOwnPlayMembershipsUnavailable(sourceId: String, generation: Long)
 
     @Query(
         """
@@ -411,5 +116,175 @@ interface LiveOrganizationDao {
           AND lastSeenGeneration != :generation
         """,
     )
-    suspend fun markMissingAutoOwnPlayCategoriesUnavailable(sourceId: String, generation: Long)
+    suspend fun markMissingAutomaticCategoriesUnavailable(sourceId: String, generation: Long)
+
+    @Query(
+        """
+        UPDATE ownplay_live_channel_memberships
+        SET available = 0
+        WHERE sourceId = :sourceId
+          AND origin = 'AUTO'
+          AND lastSeenGeneration != :generation
+        """,
+    )
+    suspend fun markMissingAutomaticMembershipsUnavailable(sourceId: String, generation: Long)
+
+    @Query("SELECT COUNT(*) FROM sources WHERE sourceId = :sourceId")
+    suspend fun countSource(sourceId: String): Int
+
+    @Query(
+        """
+        SELECT * FROM live_channels
+        WHERE sourceId = :sourceId
+          AND channelId = :channelId
+          AND available = 1
+        LIMIT 1
+        """,
+    )
+    suspend fun getAvailableChannel(sourceId: String, channelId: String): LiveChannelEntity?
+
+    @Query("SELECT * FROM channel_personalization WHERE channelId = :channelId LIMIT 1")
+    suspend fun getChannelPersonalization(channelId: String): ChannelPersonalizationEntity?
+
+    @Upsert
+    suspend fun upsertChannelPersonalization(row: ChannelPersonalizationEntity)
+
+    @Query(
+        """
+        SELECT * FROM ownplay_live_categories
+        WHERE sourceId = :sourceId
+          AND categoryId = :categoryId
+          AND available = 1
+        LIMIT 1
+        """,
+    )
+    suspend fun getAvailableOwnPlayCategory(sourceId: String, categoryId: String): OwnPlayLiveCategoryEntity?
+
+    @Query(
+        """
+        DELETE FROM live_channel_membership_personalization
+        WHERE sourceId = :sourceId
+          AND organizationMode = 'OWNPLAY_OVERRIDE'
+          AND channelId = :channelId
+        """,
+    )
+    suspend fun deleteManualPlacementOverrides(sourceId: String, channelId: String): Int
+
+    @Upsert
+    suspend fun upsertManualPlacementOverride(row: LiveChannelMembershipPersonalizationEntity)
+
+    @Query(
+        """
+        UPDATE ownplay_live_channel_memberships
+        SET available = 0
+        WHERE sourceId = :sourceId
+          AND channelId = :channelId
+          AND origin = 'MANUAL'
+          AND available = 1
+        """,
+    )
+    suspend fun clearLegacyManualMemberships(sourceId: String, channelId: String): Int
+
+    @Query(
+        """
+        SELECT * FROM live_category_scope_personalization
+        WHERE sourceId = :sourceId
+          AND organizationMode = 'PROVIDER'
+        ORDER BY categoryId
+        """,
+    )
+    fun observeProviderCategoryPersonalization(
+        sourceId: String,
+    ): Flow<List<LiveCategoryScopePersonalizationEntity>>
+
+    @Query(
+        """
+        SELECT * FROM live_channel_membership_personalization
+        WHERE sourceId = :sourceId
+          AND organizationMode = 'PROVIDER'
+        ORDER BY categoryId, channelId
+        """,
+    )
+    fun observeProviderChannelPersonalization(
+        sourceId: String,
+    ): Flow<List<LiveChannelMembershipPersonalizationEntity>>
+
+    @Query(
+        """
+        SELECT * FROM live_category_scope_personalization
+        WHERE sourceId = :sourceId
+          AND organizationMode = 'PROVIDER'
+          AND categoryId = :categoryId
+        LIMIT 1
+        """,
+    )
+    suspend fun getProviderCategoryPersonalization(
+        sourceId: String,
+        categoryId: String,
+    ): LiveCategoryScopePersonalizationEntity?
+
+    @Upsert
+    suspend fun upsertProviderCategoryPersonalization(
+        row: LiveCategoryScopePersonalizationEntity,
+    )
+
+    @Query(
+        """
+        SELECT * FROM live_channel_membership_personalization
+        WHERE sourceId = :sourceId
+          AND organizationMode = 'PROVIDER'
+          AND categoryId = :categoryId
+          AND channelId = :channelId
+        LIMIT 1
+        """,
+    )
+    suspend fun getProviderChannelPersonalization(
+        sourceId: String,
+        categoryId: String,
+        channelId: String,
+    ): LiveChannelMembershipPersonalizationEntity?
+
+    @Upsert
+    suspend fun upsertProviderChannelPersonalization(
+        row: LiveChannelMembershipPersonalizationEntity,
+    )
+
+    @Query(
+        """
+        SELECT categoryKey FROM provider_categories
+        WHERE sourceId = :sourceId
+          AND kind = 'LIVE'
+          AND available = 1
+        ORDER BY providerOrder, categoryKey
+        """,
+    )
+    suspend fun getProviderLiveCategoryIds(sourceId: String): List<String>
+
+    @Query(
+        """
+        SELECT COUNT(*) FROM live_channels
+        WHERE sourceId = :sourceId
+          AND available = 1
+          AND categoryKey IS NULL
+        """,
+    )
+    suspend fun countProviderUncategorizedChannels(sourceId: String): Int
+
+    @Query(
+        """
+        SELECT channelId FROM live_channels
+        WHERE sourceId = :sourceId
+          AND available = 1
+          AND (
+            (:categoryId = :uncategorizedCategoryId AND categoryKey IS NULL)
+            OR categoryKey = :categoryId
+          )
+        ORDER BY providerOrder, channelId
+        """,
+    )
+    suspend fun getProviderChannelIds(
+        sourceId: String,
+        categoryId: String,
+        uncategorizedCategoryId: String,
+    ): List<String>
 }

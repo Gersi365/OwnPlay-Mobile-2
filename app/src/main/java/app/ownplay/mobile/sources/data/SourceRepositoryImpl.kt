@@ -1,509 +1,510 @@
 package app.ownplay.mobile.sources.data
 
-import androidx.room.withTransaction
-import app.ownplay.mobile.data.db.CatalogDao
-import app.ownplay.mobile.data.db.LiveChannelEntity
-import app.ownplay.mobile.data.db.MovieEntity
-import app.ownplay.mobile.data.db.OwnPlayDatabase
-import app.ownplay.mobile.data.db.ProviderCategoryEntity
+import app.ownplay.mobile.data.db.RefreshStateDao
 import app.ownplay.mobile.data.db.RefreshStateEntity
-import app.ownplay.mobile.data.db.SeriesEntity
 import app.ownplay.mobile.data.db.SourceDao
 import app.ownplay.mobile.data.db.SourceEntity
-import app.ownplay.mobile.data.prefs.ActiveSourcePreferences
+import app.ownplay.mobile.data.prefs.ActiveSourceSelectionStore
+import app.ownplay.mobile.data.security.CredentialInputPolicy
 import app.ownplay.mobile.data.security.CredentialStore
-import app.ownplay.mobile.sources.domain.NewSource
-import app.ownplay.mobile.sources.domain.RefreshStatus
-import app.ownplay.mobile.sources.domain.RefreshSummary
-import app.ownplay.mobile.sources.domain.Source
-import app.ownplay.mobile.sources.domain.SourceConnectionUpdate
-import app.ownplay.mobile.sources.domain.SourceCredential
-import app.ownplay.mobile.sources.domain.SourceError
-import app.ownplay.mobile.sources.domain.SourceRefreshFailurePolicy
+import app.ownplay.mobile.data.security.SourceSecret
+import app.ownplay.mobile.sources.domain.ConnectionValidation
+import app.ownplay.mobile.sources.domain.SourceConnectionSecurityPolicy
+import app.ownplay.mobile.sources.domain.SourceId
+import app.ownplay.mobile.sources.domain.SourceInput
+import app.ownplay.mobile.sources.domain.SourceMutationRejection
+import app.ownplay.mobile.sources.domain.SourceMutationResult
+import app.ownplay.mobile.sources.domain.SourceRefreshFailureCategory
+import app.ownplay.mobile.sources.domain.SourceReconnectInput
+import app.ownplay.mobile.sources.domain.SourceRefreshResult
 import app.ownplay.mobile.sources.domain.SourceRepository
-import app.ownplay.mobile.sources.domain.SourceResult
-import app.ownplay.mobile.sources.domain.SourceSelectionPolicy
+import app.ownplay.mobile.sources.domain.SourceSummary
 import app.ownplay.mobile.sources.domain.SourceType
-import app.ownplay.mobile.sources.domain.SourceUpdate
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
 class SourceRepositoryImpl(
-    private val database: OwnPlayDatabase,
     private val sourceDao: SourceDao,
-    private val catalogDao: CatalogDao,
-    private val activeSourcePreferences: ActiveSourcePreferences,
+    private val refreshStateDao: RefreshStateDao,
+    private val activeSourceStore: ActiveSourceSelectionStore,
     private val credentialStore: CredentialStore,
     private val catalogLoader: SourceCatalogLoader,
+    private val catalogRefreshStore: CatalogRefreshStore,
     private val nowMillis: () -> Long = System::currentTimeMillis,
-    private val newSourceId: () -> String = { UUID.randomUUID().toString() },
+    private val newSourceId: () -> SourceId = { SourceId(UUID.randomUUID().toString()) },
 ) : SourceRepository {
-    // Reconciliation marks missing rows unavailable by generation; overlapping refreshes must not race.
     private val refreshMutex = Mutex()
 
-    override fun observeSources(): Flow<List<Source>> = sourceDao.observeAll().map { rows ->
-        rows.map { entity -> entity.toDomain() }
+    override fun observeSources(): Flow<List<SourceSummary>> = combine(
+        sourceDao.observeAll(),
+        refreshStateDao.observeAll(),
+    ) { sources, refreshStates ->
+        val lastSuccessBySource = refreshStates.associate { it.sourceId to it.lastSuccess }
+        sources.map { source ->
+            source.toSummary(lastSuccessBySource[source.sourceId])
+        }
     }
 
-    override fun observeActiveSource(): Flow<Source?> = combine(
+    override fun observeActiveSource(): Flow<SourceSummary?> = combine(
         observeSources(),
-        activeSourcePreferences.selectedSourceId,
-    ) { sources, persistedId ->
-        SourceSelectionPolicy.resolve(persistedId, sources)
+        activeSourceStore.selectedSourceId,
+    ) { sources, selectedSourceId ->
+        sources.firstOrNull { source ->
+            source.enabled && source.sourceId.value == selectedSourceId
+        } ?: sources.firstOrNull { source -> source.enabled }
     }
 
-    override suspend fun addSource(input: NewSource): SourceResult<Source> {
-        val displayName = input.displayName.trim()
-        if (displayName.isBlank()) return failure("INVALID_NAME", "Source name is required.")
+    override suspend fun addSource(input: SourceInput): SourceMutationResult {
+        val displayName = CredentialInputPolicy.normalizeDisplayName(input.displayName)
+            ?: return SourceMutationResult.Rejected(SourceMutationRejection.INVALID_NAME)
+        val prepared = prepare(input)
+            ?: return when (input) {
+                is SourceInput.Xtream -> if (
+                    !CredentialInputPolicy.isValidCredential(input.username) ||
+                    !CredentialInputPolicy.isValidCredential(input.password)
+                ) {
+                    SourceMutationResult.Rejected(SourceMutationRejection.INVALID_CREDENTIALS)
+                } else {
+                    SourceMutationResult.Rejected(SourceMutationRejection.INVALID_CONNECTION)
+                }
 
+                is SourceInput.M3u -> SourceMutationResult.Rejected(SourceMutationRejection.INVALID_CONNECTION)
+            }
+
+        val existingSources = try {
+            sourceDao.getAll()
+        } catch (_: Exception) {
+            return SourceMutationResult.Rejected(SourceMutationRejection.STORAGE_FAILURE)
+        }
+        if (existingSources.any { row ->
+                row.type == prepared.type.name && row.baseLocator == prepared.safeLocator
+            }
+        ) {
+            return SourceMutationResult.Rejected(SourceMutationRejection.DUPLICATE_SOURCE)
+        }
+
+        val priorSelectedSourceId = try {
+            activeSourceStore.currentSelectedSourceId()
+        } catch (_: Exception) {
+            return SourceMutationResult.Rejected(SourceMutationRejection.STORAGE_FAILURE)
+        }
         val sourceId = newSourceId()
         val timestamp = nowMillis()
-        val prepared = try {
-            when (input) {
-                is NewSource.Xtream -> PreparedSource(
-                    entity = SourceEntity(
-                        sourceId = sourceId,
-                        displayName = displayName,
-                        type = SourceType.XTREAM.name,
-                        baseLocator = SourceLocatorPolicy.normalizeXtream(input.baseUrl),
-                        credentialReference = sourceId,
-                        enabled = true,
-                        createdAt = timestamp,
-                        updatedAt = timestamp,
-                    ),
-                    credential = input.credential,
-                )
-
-                is NewSource.M3u -> {
-                    val remote = SourceLocatorPolicy.validateM3uRemote(input.credential.locator)
-                    PreparedSource(
-                        entity = SourceEntity(
-                            sourceId = sourceId,
-                            displayName = displayName,
-                            type = SourceType.M3U.name,
-                            baseLocator = SourceLocatorPolicy.redactRemoteLocator(remote),
-                            credentialReference = sourceId,
-                            enabled = true,
-                            createdAt = timestamp,
-                            updatedAt = timestamp,
-                        ),
-                        credential = SourceCredential.M3uRemoteLocator(remote),
-                    )
-                }
-            }
-        } catch (_: Exception) {
-            return failure("INVALID_LOCATOR", "Source address is invalid.")
-        }
+        val entity = SourceEntity(
+            sourceId = sourceId.value,
+            displayName = displayName,
+            type = prepared.type.name,
+            baseLocator = prepared.safeLocator,
+            credentialReference = sourceId.value,
+            enabled = true,
+            createdAt = timestamp,
+            updatedAt = timestamp,
+        )
 
         return try {
-            val priorSelectedSourceId = activeSourcePreferences.currentSelectedSourceId()
-            credentialStore.put(sourceId, prepared.credential)
+            credentialStore.put(sourceId, prepared.secret)
             try {
-                sourceDao.insert(prepared.entity)
-                if (priorSelectedSourceId == null) {
-                    try {
-                        activeSourcePreferences.setSelectedSourceId(sourceId)
-                    } catch (exception: Exception) {
-                        runCatching { sourceDao.delete(sourceId) }
-                        runCatching { credentialStore.remove(sourceId) }
-                        throw exception
-                    }
-                }
+                sourceDao.insert(entity)
             } catch (exception: Exception) {
-                runCatching { credentialStore.remove(sourceId) }
+                runCatching { credentialStore.delete(sourceId) }
                 throw exception
             }
-            SourceResult.Success(prepared.entity.toDomain())
-        } catch (_: Exception) {
-            failure("SOURCE_ADD_FAILED", "Source could not be saved.")
-        }
-    }
 
-    override suspend fun updateSource(input: SourceUpdate): SourceResult<Unit> {
-        val existing = sourceDao.get(input.sourceId)
-            ?: return failure("SOURCE_NOT_FOUND", "Source was not found.")
-        val priorCredential = try {
-            credentialStore.get(existing.sourceId)
-        } catch (_: Exception) {
-            return failure("CREDENTIAL_READ_FAILED", "Secure source credentials could not be read.")
-        }
-
-        var replacementCredential: SourceCredential? = null
-        val updated = try {
-            var baseLocator = existing.baseLocator
-            when (val connection = input.connection) {
-                null -> Unit
-                is SourceConnectionUpdate.Xtream -> {
-                    if (existing.type != SourceType.XTREAM.name) {
-                        return failure("SOURCE_TYPE_MISMATCH", "Source type cannot be changed.")
-                    }
-                    connection.baseUrl?.let { baseLocator = SourceLocatorPolicy.normalizeXtream(it) }
-                    replacementCredential = connection.credential
-                }
-
-                is SourceConnectionUpdate.M3u -> {
-                    if (existing.type != SourceType.M3U.name) {
-                        return failure("SOURCE_TYPE_MISMATCH", "Source type cannot be changed.")
-                    }
-                    val remote = SourceLocatorPolicy.validateM3uRemote(connection.credential.locator)
-                    baseLocator = SourceLocatorPolicy.redactRemoteLocator(remote)
-                    replacementCredential = SourceCredential.M3uRemoteLocator(remote)
-                }
-            }
-            existing.copy(
-                displayName = input.displayName?.trim()?.takeIf(String::isNotBlank) ?: existing.displayName,
-                enabled = input.enabled ?: existing.enabled,
-                baseLocator = baseLocator,
-                credentialReference = if (replacementCredential != null) existing.sourceId else existing.credentialReference,
-                updatedAt = nowMillis(),
-            )
-        } catch (_: Exception) {
-            return failure("INVALID_SOURCE_UPDATE", "Source changes are invalid.")
-        }
-
-        return try {
-            replacementCredential?.let { credentialStore.put(existing.sourceId, it) }
-            try {
-                sourceDao.update(updated)
-            } catch (exception: Exception) {
-                if (replacementCredential != null) {
-                    if (priorCredential != null) {
-                        runCatching { credentialStore.put(existing.sourceId, priorCredential) }
-                    } else {
-                        runCatching { credentialStore.remove(existing.sourceId) }
-                    }
-                }
-                throw exception
-            }
-            SourceResult.Success(Unit)
-        } catch (_: Exception) {
-            failure("SOURCE_UPDATE_FAILED", "Source changes could not be saved.")
-        }
-    }
-
-    override suspend fun removeSource(sourceId: String): SourceResult<Unit> {
-        val existing = sourceDao.get(sourceId)
-            ?: return failure("SOURCE_NOT_FOUND", "Source was not found.")
-        val priorCredential = try {
-            credentialStore.get(sourceId)
-        } catch (_: Exception) {
-            return failure("CREDENTIAL_READ_FAILED", "Secure source credentials could not be read.")
-        }
-
-        return try {
-            val priorSelectedSourceId = activeSourcePreferences.currentSelectedSourceId()
-            val removingActiveSource = priorSelectedSourceId == sourceId
-            if (removingActiveSource) {
-                val remaining = sourceDao.getAll()
-                    .filterNot { entity -> entity.sourceId == sourceId }
-                    .map { entity -> entity.toDomain() }
-                val fallback = SourceSelectionPolicy.resolve(null, remaining)
-                activeSourcePreferences.setSelectedSourceId(fallback?.sourceId)
-            }
-
-            try {
-                credentialStore.remove(sourceId)
+            if (existingSources.isEmpty() && priorSelectedSourceId == null) {
                 try {
-                    sourceDao.delete(sourceId)
+                    activeSourceStore.setSelectedSourceId(sourceId.value)
                 } catch (exception: Exception) {
-                    if (priorCredential != null) runCatching { credentialStore.put(sourceId, priorCredential) }
+                    runCatching { sourceDao.delete(sourceId.value) }
+                    runCatching { credentialStore.delete(sourceId) }
                     throw exception
                 }
+            }
+            SourceMutationResult.Success(sourceId)
+        } catch (_: Exception) {
+            SourceMutationResult.Rejected(SourceMutationRejection.STORAGE_FAILURE)
+        }
+    }
+
+    override suspend fun reconnectSource(
+        sourceId: SourceId,
+        input: SourceReconnectInput,
+    ): SourceMutationResult {
+        val source = try {
+            sourceDao.get(sourceId.value)
+        } catch (_: Exception) {
+            return SourceMutationResult.Rejected(SourceMutationRejection.STORAGE_FAILURE)
+        } ?: return SourceMutationResult.Rejected(SourceMutationRejection.STORAGE_FAILURE)
+        if (source.enabled) {
+            return SourceMutationResult.Rejected(SourceMutationRejection.INVALID_CONNECTION)
+        }
+
+        val prepared = prepareReconnect(source.displayName, input)
+            ?: return when (input) {
+                is SourceReconnectInput.Xtream -> if (
+                    !CredentialInputPolicy.isValidCredential(input.username) ||
+                    !CredentialInputPolicy.isValidCredential(input.password)
+                ) {
+                    SourceMutationResult.Rejected(SourceMutationRejection.INVALID_CREDENTIALS)
+                } else {
+                    SourceMutationResult.Rejected(SourceMutationRejection.INVALID_CONNECTION)
+                }
+
+                is SourceReconnectInput.M3u ->
+                    SourceMutationResult.Rejected(SourceMutationRejection.INVALID_CONNECTION)
+            }
+        if (source.type != prepared.type.name || source.baseLocator != prepared.safeLocator) {
+            return SourceMutationResult.Rejected(SourceMutationRejection.INVALID_CONNECTION)
+        }
+
+        val previousSecret = try {
+            credentialStore.get(sourceId)
+        } catch (_: Exception) {
+            return SourceMutationResult.Rejected(SourceMutationRejection.STORAGE_FAILURE)
+        }
+        return try {
+            credentialStore.put(sourceId, prepared.secret)
+            try {
+                sourceDao.update(
+                    source.copy(
+                        credentialReference = sourceId.value,
+                        enabled = true,
+                        updatedAt = nowMillis(),
+                    ),
+                )
             } catch (exception: Exception) {
-                if (removingActiveSource) {
-                    runCatching { activeSourcePreferences.setSelectedSourceId(sourceId) }
+                runCatching {
+                    if (previousSecret == null) credentialStore.delete(sourceId)
+                    else credentialStore.put(sourceId, previousSecret)
                 }
                 throw exception
             }
-            SourceResult.Success(Unit)
+            SourceMutationResult.Success(sourceId)
         } catch (_: Exception) {
-            failure("SOURCE_REMOVE_FAILED", "Source could not be removed.")
+            SourceMutationResult.Rejected(SourceMutationRejection.STORAGE_FAILURE)
         }
     }
 
-    override suspend fun selectSource(sourceId: String?): SourceResult<Unit> {
-        if (sourceId != null) {
-            val source = sourceDao.get(sourceId)?.toDomain()
-                ?: return failure("SOURCE_NOT_FOUND", "Source was not found.")
-            if (!source.enabled) return failure("SOURCE_DISABLED", "Disabled sources cannot be selected.")
-            if (source.requiresCredentials) {
-                return failure("CREDENTIAL_MISSING", "Reconnect this source before selecting it.")
-            }
-        }
-        return try {
-            activeSourcePreferences.setSelectedSourceId(sourceId)
-            SourceResult.Success(Unit)
+    override suspend fun setActiveSource(sourceId: SourceId): Boolean {
+        val source = try {
+            sourceDao.get(sourceId.value)
         } catch (_: Exception) {
-            failure("SOURCE_SELECTION_FAILED", "Source selection could not be saved.")
+            return false
+        } ?: return false
+        if (!source.enabled) return false
+
+        return try {
+            activeSourceStore.setSelectedSourceId(sourceId.value)
+            true
+        } catch (_: Exception) {
+            false
         }
     }
 
-    override suspend fun refresh(sourceId: String): SourceResult<RefreshSummary> = refreshMutex.withLock {
-        val source = sourceDao.get(sourceId)?.toDomain()
-            ?: return failure("SOURCE_NOT_FOUND", "Source was not found.")
-        if (!source.enabled) return failure("SOURCE_DISABLED", "Enable this source before refreshing it.")
-        val credential = try {
-            credentialStore.get(sourceId)
-        } catch (cancelled: CancellationException) {
-            throw cancelled
+    override suspend fun renameSource(
+        sourceId: SourceId,
+        displayName: String,
+    ): SourceMutationResult {
+        val normalizedName = CredentialInputPolicy.normalizeDisplayName(displayName)
+            ?: return SourceMutationResult.Rejected(SourceMutationRejection.INVALID_NAME)
+        val source = try {
+            sourceDao.get(sourceId.value)
         } catch (_: Exception) {
-            return failure("CREDENTIAL_READ_FAILED", "Secure source credentials could not be read.")
-        } ?: return failure("CREDENTIAL_MISSING", "Source credentials are unavailable.")
-
-        val attemptAt = nowMillis()
-        val payload = try {
-            catalogLoader.load(source, credential)
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (_: Exception) {
-            return recordFailedRefresh(sourceId, attemptAt, "REFRESH_UNEXPECTED")
+            return SourceMutationResult.Rejected(SourceMutationRejection.STORAGE_FAILURE)
+        } ?: return SourceMutationResult.Rejected(SourceMutationRejection.STORAGE_FAILURE)
+        if (source.displayName == normalizedName) {
+            return SourceMutationResult.Success(sourceId)
         }
-        val previous = database.refreshStateDao().get(sourceId)
-        val plan = RefreshPolicy.plan(previous?.generation ?: 0, payload)
-
-        if (plan.successfulSections.isEmpty()) {
-            runCatching {
-                database.refreshStateDao().upsert(
-                    RefreshStateEntity(
-                        sourceId = sourceId,
-                        generation = plan.generation,
-                        state = "FAILED",
-                        lastAttempt = attemptAt,
-                        lastSuccess = previous?.lastSuccess,
-                        errorCode = plan.errorCode ?: "REFRESH_FAILED",
-                    ),
-                )
-            }
-            return SourceResult.Failure(SourceRefreshFailurePolicy.present(plan.errorCode))
-        }
-
         return try {
-            val completedAt = nowMillis()
-            database.withTransaction {
-                persistSuccessfulSections(sourceId, plan.generation, payload, plan, source.type)
-                database.refreshStateDao().upsert(
-                    RefreshStateEntity(
-                        sourceId = sourceId,
-                        generation = plan.generation,
-                        state = plan.state,
-                        lastAttempt = attemptAt,
-                        lastSuccess = completedAt,
-                        errorCode = plan.errorCode,
-                    ),
-                )
-            }
-            SourceResult.Success(
-                RefreshSummary(
-                    sourceId = sourceId,
-                    status = if (plan.state == "PARTIAL") RefreshStatus.PARTIAL else RefreshStatus.SUCCESS,
-                    generation = plan.generation,
-                    liveCategories = payload.liveCategories.successSize(),
-                    liveChannels = payload.liveChannels.successSize(),
-                    vodCategories = payload.vodCategories.successSize(),
-                    movies = payload.movies.successSize(),
-                    seriesCategories = payload.seriesCategories.successSize(),
-                    series = payload.series.successSize(),
-                    warnings = payload.errorCodes(),
+            sourceDao.update(
+                source.copy(
+                    displayName = normalizedName,
+                    updatedAt = nowMillis(),
                 ),
             )
-        } catch (cancelled: CancellationException) {
-            throw cancelled
+            SourceMutationResult.Success(sourceId)
         } catch (_: Exception) {
-            failure("REFRESH_PERSIST_FAILED", "Source refresh data could not be committed.")
+            SourceMutationResult.Rejected(SourceMutationRejection.STORAGE_FAILURE)
         }
     }
 
-    private suspend fun persistSuccessfulSections(
-        sourceId: String,
-        generation: Long,
-        payload: ProviderRefreshPayload,
-        plan: RefreshPlan,
-        sourceType: SourceType,
-    ) {
-        val successful = plan.successfulSections
-        if (CatalogSection.LIVE_CATEGORIES in successful) {
-            val rows = payload.liveCategories.value.orEmpty().map { it.toEntity(sourceId, "LIVE", generation) }
-            catalogDao.upsertCategories(rows)
-            if (CatalogSection.LIVE_CATEGORIES in plan.authoritativeSections) {
-                catalogDao.markMissingCategoriesUnavailable(sourceId, "LIVE", generation)
+    override suspend fun refreshSource(sourceId: SourceId): SourceRefreshResult =
+        refreshMutex.withLock {
+            val source = try {
+                sourceDao.get(sourceId.value)
+            } catch (_: Exception) {
+                return@withLock storageFailure()
+            } ?: return@withLock SourceRefreshResult.Failure(
+                category = SourceRefreshFailureCategory.UNKNOWN,
+                safeMessage = "Source is unavailable.",
+            )
+            if (!source.enabled) {
+                return@withLock SourceRefreshResult.Failure(
+                    category = SourceRefreshFailureCategory.UNKNOWN,
+                    safeMessage = "Source is disabled.",
+                )
             }
-        }
-        if (CatalogSection.LIVE_CHANNELS in successful) {
-            val preserveCategory = payload.liveCategories.status != SectionStatus.SUCCESS ||
-                payload.liveChannels.status == SectionStatus.PARTIAL
-            val previous = if (sourceType == SourceType.M3U || preserveCategory) {
-                catalogDao.getLiveChannelsForRefresh(sourceId)
-            } else emptyList()
-            val incoming = if (sourceType == SourceType.M3U) {
-                M3uIdentityReconciliation.reconcile(sourceId, payload.liveChannels.value.orEmpty(), previous.map {
-                    PersistedM3uIdentity(it.channelId, it.tvgId, it.streamLocator, it.available)
-                })
-            } else payload.liveChannels.value.orEmpty()
-            val previousById = previous.associateBy { it.channelId }
-            val rows = incoming.map { record ->
-                val entity = record.toEntity(sourceId, generation)
-                if (preserveCategory && entity.categoryKey == null) {
-                    entity.copy(categoryKey = previousById[entity.channelId]?.categoryKey)
-                } else entity
-            }
-            catalogDao.upsertLiveChannels(rows)
-            if (CatalogSection.LIVE_CHANNELS in plan.authoritativeSections) {
-                catalogDao.markMissingLiveUnavailable(sourceId, generation)
-            }
-        }
-        if (CatalogSection.VOD_CATEGORIES in successful) {
-            val rows = payload.vodCategories.value.orEmpty().map { it.toEntity(sourceId, "MOVIE", generation) }
-            catalogDao.upsertCategories(rows)
-            if (CatalogSection.VOD_CATEGORIES in plan.authoritativeSections) {
-                catalogDao.markMissingCategoriesUnavailable(sourceId, "MOVIE", generation)
-            }
-        }
-        if (CatalogSection.MOVIES in successful) {
-            val preserveCategory = payload.vodCategories.status != SectionStatus.SUCCESS ||
-                payload.movies.status == SectionStatus.PARTIAL
-            val priorCategories = if (preserveCategory) {
-                catalogDao.getMoviesForRefresh(sourceId).associate { it.movieId to it.categoryKey }
-            } else emptyMap()
-            val rows = payload.movies.value.orEmpty().map { record ->
-                val entity = record.toEntity(sourceId, generation)
-                if (preserveCategory && entity.categoryKey == null) {
-                    entity.copy(categoryKey = priorCategories[entity.movieId])
-                } else entity
-            }
-            catalogDao.upsertMovies(rows)
-            if (CatalogSection.MOVIES in plan.authoritativeSections) {
-                catalogDao.markMissingMoviesUnavailable(sourceId, generation)
-            }
-        }
-        if (CatalogSection.SERIES_CATEGORIES in successful) {
-            val rows = payload.seriesCategories.value.orEmpty().map { it.toEntity(sourceId, "SERIES", generation) }
-            catalogDao.upsertCategories(rows)
-            if (CatalogSection.SERIES_CATEGORIES in plan.authoritativeSections) {
-                catalogDao.markMissingCategoriesUnavailable(sourceId, "SERIES", generation)
-            }
-        }
-        if (CatalogSection.SERIES in successful) {
-            val preserveCategory = payload.seriesCategories.status != SectionStatus.SUCCESS ||
-                payload.series.status == SectionStatus.PARTIAL
-            val priorCategories = if (preserveCategory) {
-                catalogDao.getSeriesForRefresh(sourceId).associate { it.seriesId to it.categoryKey }
-            } else emptyMap()
-            val rows = payload.series.value.orEmpty().map { record ->
-                val entity = record.toEntity(sourceId, generation)
-                if (preserveCategory && entity.categoryKey == null) {
-                    entity.copy(categoryKey = priorCategories[entity.seriesId])
-                } else entity
-            }
-            catalogDao.upsertSeries(rows)
-            if (CatalogSection.SERIES in plan.authoritativeSections) {
-                catalogDao.markMissingSeriesUnavailable(sourceId, generation)
-            }
-        }
-    }
 
-    private suspend fun recordFailedRefresh(
-        sourceId: String,
-        attemptAt: Long,
-        code: String,
-    ): SourceResult<RefreshSummary> {
-        val previous = database.refreshStateDao().get(sourceId)
-        runCatching {
-            database.refreshStateDao().upsert(
-                RefreshStateEntity(
+            val sourceType = try {
+                SourceType.valueOf(source.type)
+            } catch (_: Exception) {
+                return@withLock SourceRefreshResult.Failure(
+                    category = SourceRefreshFailureCategory.UNKNOWN,
+                    safeMessage = "Source type is unavailable.",
+                )
+            }
+
+            val secret = try {
+                credentialStore.get(sourceId)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                return@withLock storageFailure()
+            } ?: return@withLock SourceRefreshResult.Failure(
+                category = SourceRefreshFailureCategory.AUTHENTICATION,
+                safeMessage = "Source credentials are unavailable.",
+            )
+
+            val previous = try {
+                refreshStateDao.get(sourceId.value)
+            } catch (_: Exception) {
+                return@withLock storageFailure()
+            }
+            val attemptAt = nowMillis()
+            val generation = (previous?.generation ?: 0L) + 1L
+
+            val snapshot = try {
+                catalogLoader.load(
                     sourceId = sourceId,
-                    generation = previous?.generation ?: 0,
+                    sourceType = sourceType,
+                    baseLocator = source.baseLocator,
+                    secret = secret,
+                )
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: CatalogLoadException) {
+                return@withLock recordRefreshFailure(
+                    sourceId = sourceId,
+                    previous = previous,
+                    attemptAt = attemptAt,
+                    category = error.category,
+                )
+            } catch (_: Exception) {
+                return@withLock recordRefreshFailure(
+                    sourceId = sourceId,
+                    previous = previous,
+                    attemptAt = attemptAt,
+                    category = SourceRefreshFailureCategory.UNKNOWN,
+                )
+            }
+
+            return@withLock try {
+                catalogRefreshStore.commitSuccessfulRefresh(
+                    sourceId = sourceId,
+                    sourceType = sourceType,
+                    generation = generation,
+                    snapshot = snapshot,
+                    attemptAtEpochMs = attemptAt,
+                    completedAtEpochMs = nowMillis(),
+                )
+                SourceRefreshResult.Success
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                recordRefreshFailure(
+                    sourceId = sourceId,
+                    previous = previous,
+                    attemptAt = attemptAt,
+                    category = SourceRefreshFailureCategory.STORAGE,
+                )
+            }
+        }
+
+    override suspend fun removeSource(sourceId: SourceId): Boolean {
+        val existing = try {
+            sourceDao.get(sourceId.value)
+        } catch (_: Exception) {
+            return false
+        } ?: return false
+        val priorSelectedSourceId = try {
+            activeSourceStore.currentSelectedSourceId()
+        } catch (_: Exception) {
+            return false
+        }
+        val sources = try {
+            sourceDao.getAll()
+        } catch (_: Exception) {
+            return false
+        }
+        val priorSecret = try {
+            credentialStore.get(sourceId)
+        } catch (_: Exception) {
+            return false
+        }
+
+        val removingPersistedActiveSource = priorSelectedSourceId == existing.sourceId
+        val fallbackSourceId = if (removingPersistedActiveSource) {
+            sources.firstOrNull { row ->
+                row.sourceId != existing.sourceId && row.enabled
+            }?.sourceId
+        } else {
+            priorSelectedSourceId
+        }
+        var activeSelectionChanged = false
+
+        return try {
+            if (removingPersistedActiveSource) {
+                activeSourceStore.setSelectedSourceId(fallbackSourceId)
+                activeSelectionChanged = true
+            }
+            credentialStore.delete(sourceId)
+            check(sourceDao.delete(sourceId.value) == 1) {
+                "Source row was not deleted"
+            }
+            true
+        } catch (_: Exception) {
+            priorSecret?.let { secret ->
+                runCatching { credentialStore.put(sourceId, secret) }
+            }
+            if (activeSelectionChanged) {
+                runCatching { activeSourceStore.setSelectedSourceId(priorSelectedSourceId) }
+            }
+            false
+        }
+    }
+
+    private suspend fun recordRefreshFailure(
+        sourceId: SourceId,
+        previous: RefreshStateEntity?,
+        attemptAt: Long,
+        category: SourceRefreshFailureCategory,
+    ): SourceRefreshResult {
+        return try {
+            refreshStateDao.upsert(
+                RefreshStateEntity(
+                    sourceId = sourceId.value,
+                    generation = previous?.generation ?: 0L,
                     state = "FAILED",
                     lastAttempt = attemptAt,
                     lastSuccess = previous?.lastSuccess,
-                    errorCode = code,
+                    errorCode = category.name,
                 ),
             )
+            SourceRefreshResult.Failure(
+                category = category,
+                safeMessage = category.safeMessage(),
+            )
+        } catch (_: Exception) {
+            storageFailure()
         }
-        return SourceResult.Failure(SourceRefreshFailurePolicy.present(code))
     }
 
-    private fun ProviderCategoryRecord.toEntity(sourceId: String, kind: String, generation: Long) =
-        ProviderCategoryEntity(
-            sourceId = sourceId,
-            kind = kind,
-            categoryKey = categoryId,
-            providerKey = providerKey,
-            name = name,
-            providerOrder = providerOrder,
-            available = true,
-            lastSeenGeneration = generation,
+    private fun SourceRefreshFailureCategory.safeMessage(): String = when (this) {
+        SourceRefreshFailureCategory.AUTHENTICATION -> "Source authentication failed."
+        SourceRefreshFailureCategory.NETWORK -> "Source network request failed."
+        SourceRefreshFailureCategory.TIMEOUT -> "Source request timed out."
+        SourceRefreshFailureCategory.INVALID_PAYLOAD -> "Source returned invalid catalog data."
+        SourceRefreshFailureCategory.PROVIDER -> "Source provider rejected the refresh."
+        SourceRefreshFailureCategory.TRANSIENT_PROVIDER -> "Source provider is temporarily unavailable."
+        SourceRefreshFailureCategory.STORAGE -> "Source refresh could not be saved."
+        SourceRefreshFailureCategory.UNKNOWN -> "Source refresh failed."
+    }
+
+    private fun storageFailure(): SourceRefreshResult.Failure = SourceRefreshResult.Failure(
+        category = SourceRefreshFailureCategory.STORAGE,
+        safeMessage = SourceRefreshFailureCategory.STORAGE.safeMessage(),
+    )
+
+    private fun prepareReconnect(
+        displayName: String,
+        input: SourceReconnectInput,
+    ): PreparedSource? = when (input) {
+        is SourceReconnectInput.Xtream -> prepare(
+            SourceInput.Xtream(
+                displayName = displayName,
+                serverUrl = input.serverUrl,
+                username = input.username,
+                password = input.password,
+            ),
         )
 
-    private fun ProviderLiveChannelRecord.toEntity(sourceId: String, generation: Long) = LiveChannelEntity(
-        channelId = channelId,
-        sourceId = sourceId,
-        providerKey = providerKey,
-        providerStreamId = providerStreamId,
-        categoryKey = categoryKey,
-        name = name,
-        tvgId = tvgId,
-        tvgName = tvgName,
-        logoUrl = logoUrl,
-        streamLocator = streamLocator,
-        providerOrder = providerOrder,
-        available = true,
-        lastSeenGeneration = generation,
-    )
+        is SourceReconnectInput.M3u -> prepare(
+            SourceInput.M3u(
+                displayName = displayName,
+                playlistUrl = input.playlistUrl,
+                epgUrl = input.epgUrl,
+            ),
+        )
+    }
 
-    private fun ProviderMovieRecord.toEntity(sourceId: String, generation: Long) = MovieEntity(
-        movieId = movieId,
-        sourceId = sourceId,
-        providerStreamId = providerStreamId,
-        categoryKey = categoryKey,
-        name = name,
-        posterUrl = posterUrl,
-        backdropUrl = backdropUrl,
-        extension = extension,
-        rating = rating,
-        providerOrder = providerOrder,
-        available = true,
-        lastSeenGeneration = generation,
-    )
+    private fun prepare(input: SourceInput): PreparedSource? {
+        return when (input) {
+            is SourceInput.Xtream -> {
+                if (
+                    !CredentialInputPolicy.isValidCredential(input.username) ||
+                    !CredentialInputPolicy.isValidCredential(input.password)
+                ) {
+                    null
+                } else {
+                    val normalizedBaseUrl = SourceConnectionSecurityPolicy
+                        .normalizeXtreamBaseUrl(input.serverUrl)
+                        .normalizedUrlOrNull()
+                        ?: return null
+                    PreparedSource(
+                        type = SourceType.XTREAM,
+                        safeLocator = normalizedBaseUrl,
+                        secret = SourceSecret.Xtream(
+                            username = input.username,
+                            password = input.password,
+                        ),
+                    )
+                }
+            }
 
-    private fun ProviderSeriesRecord.toEntity(sourceId: String, generation: Long) = SeriesEntity(
-        seriesId = seriesId,
-        sourceId = sourceId,
-        providerSeriesId = providerSeriesId,
-        categoryKey = categoryKey,
-        name = name,
-        posterUrl = posterUrl,
-        backdropUrl = backdropUrl,
-        description = description,
-        rating = rating,
-        providerOrder = providerOrder,
-        available = true,
-        lastSeenGeneration = generation,
-    )
+            is SourceInput.M3u -> {
+                val playlistUrl = SourceConnectionSecurityPolicy
+                    .normalizeRemoteMediaUrl(input.playlistUrl)
+                    .normalizedUrlOrNull()
+                    ?: return null
+                val epgUrl = input.epgUrl
+                    ?.takeIf(String::isNotBlank)
+                    ?.let { raw ->
+                        SourceConnectionSecurityPolicy
+                            .normalizeRemoteMediaUrl(raw)
+                            .normalizedUrlOrNull()
+                            ?: return null
+                    }
+                PreparedSource(
+                    type = SourceType.M3U,
+                    safeLocator = SourceLocatorPolicy.redact(playlistUrl),
+                    secret = SourceSecret.M3uRemote(
+                        playlistUrl = playlistUrl,
+                        epgUrl = epgUrl,
+                    ),
+                )
+            }
+        }
+    }
 
-    private fun SourceEntity.toDomain() = Source(
-        sourceId = sourceId,
-        displayName = displayName,
-        type = SourceType.valueOf(type),
-        baseLocator = baseLocator,
-        enabled = enabled,
-        createdAt = createdAt,
-        updatedAt = updatedAt,
-        requiresCredentials = credentialReference == null,
-    )
+    private fun SourceEntity.toSummary(lastSuccessfulRefreshAtEpochMs: Long?): SourceSummary =
+        SourceSummary(
+            sourceId = SourceId(sourceId),
+            type = SourceType.valueOf(type),
+            displayName = displayName,
+            connectionLabel = SourceLocatorPolicy.connectionLabel(baseLocator),
+            enabled = enabled,
+            lastSuccessfulRefreshAtEpochMs = lastSuccessfulRefreshAtEpochMs,
+        )
 
-    private fun <T> RemoteSection<List<T>>.successSize(): Int =
-        if (status == SectionStatus.SUCCESS || status == SectionStatus.PARTIAL) value?.size ?: 0 else 0
-
-    private fun <T> failure(code: String, message: String): SourceResult<T> =
-        SourceResult.Failure(SourceError(code = code, safeMessage = message))
+    private fun ConnectionValidation.normalizedUrlOrNull(): String? =
+        (this as? ConnectionValidation.Valid)?.normalizedUrl
 
     private data class PreparedSource(
-        val entity: SourceEntity,
-        val credential: SourceCredential,
+        val type: SourceType,
+        val safeLocator: String,
+        val secret: SourceSecret,
     )
 }

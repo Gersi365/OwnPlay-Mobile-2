@@ -19,11 +19,8 @@ object XtreamEpgTextPolicy {
 
     private fun decodeBase64Candidate(value: String): String? {
         val compact = value.filterNot(Char::isWhitespace)
-        if (compact.length < 8 || compact.length % 4 == 1 || !base64Shape.matches(compact)) {
-            return null
-        }
-        val padding = (4 - compact.length % 4) % 4
-        val padded = compact + "=".repeat(padding)
+        if (compact.length < 8 || compact.length % 4 == 1 || !base64Shape.matches(compact)) return null
+        val padded = compact + "=".repeat((4 - compact.length % 4) % 4)
         return sequenceOf(Base64.getDecoder(), Base64.getUrlDecoder())
             .mapNotNull { decoder -> runCatching { decoder.decode(padded) }.getOrNull() }
             .mapNotNull(::decodeUtf8Strict)
@@ -55,14 +52,12 @@ object XtreamEpgTextPolicy {
             .replace("&#39;", "'", ignoreCase = true)
             .replace("&lt;", "<", ignoreCase = true)
             .replace("&gt;", ">", ignoreCase = true)
-
         result = decimalEntity.replace(result) { match ->
             codePoint(match.groupValues[1].toIntOrNull(), match.value)
         }
-        result = hexadecimalEntity.replace(result) { match ->
+        return hexadecimalEntity.replace(result) { match ->
             codePoint(match.groupValues[1].toIntOrNull(16), match.value)
         }
-        return result
     }
 
     private fun codePoint(value: Int?, fallback: String): String {

@@ -1,82 +1,121 @@
 package app.ownplay.mobile.sources.data.xtream
 
-import app.ownplay.mobile.sources.domain.SourceCredential
-import java.net.URI
+import app.ownplay.mobile.sources.domain.ConnectionValidation
+import app.ownplay.mobile.sources.domain.SourceConnectionSecurityPolicy
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
-import java.util.Locale
 
 object XtreamUrlBuilder {
-    fun normalizeBaseUrl(raw: String): String {
-        val uri = URI(raw.trim())
-        require(uri.scheme.equals("http", ignoreCase = true) || uri.scheme.equals("https", ignoreCase = true))
-        require(!uri.host.isNullOrBlank())
-        require(uri.userInfo == null) { "User info must be supplied as credentials, not in the base URL." }
-        require(uri.rawQuery == null) { "Query parameters are not allowed in the Xtream base URL." }
-
-        val path = uri.path.orEmpty()
-            .removeSuffix("/")
-            .removeSuffix("/player_api.php")
-            .removeSuffix("player_api.php")
-            .removeSuffix("/")
-        return URI(
-            uri.scheme.lowercase(Locale.US),
-            null,
-            uri.host,
-            uri.port,
-            path.ifBlank { null },
-            null,
-            null,
-        ).toString().removeSuffix("/")
-    }
-
-    fun apiUrl(
+    fun playerApi(
         baseUrl: String,
-        credential: SourceCredential.Xtream,
+        username: String,
+        password: String,
         action: String? = null,
-        extra: Map<String, String> = emptyMap(),
+        extraParameters: Map<String, String> = emptyMap(),
     ): String {
-        val normalized = normalizeBaseUrl(baseUrl)
-        val params = linkedMapOf(
-            "username" to credential.username,
-            "password" to credential.password,
-        )
-        if (!action.isNullOrBlank()) params["action"] = action
-        params.putAll(extra)
-        val query = params.entries.joinToString("&") { (key, value) ->
-            "${encode(key)}=${encode(value)}"
+        val normalized = when (
+            val result = SourceConnectionSecurityPolicy.normalizeXtreamBaseUrl(baseUrl)
+        ) {
+            is ConnectionValidation.Valid -> result.normalizedUrl
+            is ConnectionValidation.Invalid -> error("Invalid Xtream base URL")
         }
-        return "$normalized/player_api.php?$query"
+
+        val parameters = buildList {
+            add("username" to username)
+            add("password" to password)
+            if (!action.isNullOrBlank()) {
+                add("action" to action)
+            }
+            extraParameters
+                .toSortedMap()
+                .forEach { (key, value) -> add(key to value) }
+        }
+
+        return buildString {
+            append(normalized)
+            append("/player_api.php?")
+            append(
+                parameters.joinToString("&") { (key, value) ->
+                    "${encode(key)}=${encode(value)}"
+                },
+            )
+        }
     }
 
-    fun streamUrl(
+    fun liveStream(
         baseUrl: String,
-        credential: SourceCredential.Xtream,
-        kind: String,
-        providerId: String,
-        extension: String? = null,
-    ): String {
-        val normalized = normalizeBaseUrl(baseUrl)
-        val safeKind = when (kind.lowercase(Locale.US)) {
-            "live" -> "live"
-            "movie" -> "movie"
-            "series" -> "series"
-            else -> error("Unsupported Xtream stream kind")
-        }
-        val suffix = extension?.trim()?.removePrefix(".")?.takeIf { it.isNotBlank() }?.let { ".$it" }.orEmpty()
-        return "$normalized/$safeKind/${encodePath(credential.username)}/${encodePath(credential.password)}/${encodePath(providerId)}$suffix"
-    }
+        username: String,
+        password: String,
+        streamId: String,
+        extension: String,
+    ): String = streamUrl(
+        baseUrl = baseUrl,
+        pathType = "live",
+        username = username,
+        password = password,
+        streamId = streamId,
+        extension = extension,
+    )
 
-    fun redact(url: String): String = url
-        .replace(Regex("(?i)(username|password|token)=([^&]*)")) { match ->
-            "${match.groupValues[1]}=<redacted>"
+    fun movieStream(
+        baseUrl: String,
+        username: String,
+        password: String,
+        streamId: String,
+        extension: String,
+    ): String = streamUrl(
+        baseUrl = baseUrl,
+        pathType = "movie",
+        username = username,
+        password = password,
+        streamId = streamId,
+        extension = extension,
+    )
+
+    fun seriesStream(
+        baseUrl: String,
+        username: String,
+        password: String,
+        episodeId: String,
+        extension: String,
+    ): String = streamUrl(
+        baseUrl = baseUrl,
+        pathType = "series",
+        username = username,
+        password = password,
+        streamId = episodeId,
+        extension = extension,
+    )
+
+    private fun streamUrl(
+        baseUrl: String,
+        pathType: String,
+        username: String,
+        password: String,
+        streamId: String,
+        extension: String,
+    ): String {
+        val normalized = when (
+            val result = SourceConnectionSecurityPolicy.normalizeXtreamBaseUrl(baseUrl)
+        ) {
+            is ConnectionValidation.Valid -> result.normalizedUrl
+            is ConnectionValidation.Invalid -> error("Invalid Xtream base URL")
         }
-        .replace(Regex("(?i)/(live|movie|series)/[^/]+/[^/]+/")) { match ->
-            "/${match.groupValues[1]}/<redacted>/<redacted>/"
-        }
+
+        require(streamId.isNotBlank()) { "Stream id must not be blank" }
+        val safeExtension = extension
+            .trim()
+            .removePrefix(".")
+            .lowercase()
+            .takeIf { it.matches(Regex("[a-z0-9]{1,12}")) }
+            ?: error("Invalid stream extension")
+
+        return "$normalized/$pathType/${encodePath(username)}/${encodePath(password)}/${encodePath(streamId)}.$safeExtension"
+    }
 
     private fun encode(value: String): String =
         URLEncoder.encode(value, StandardCharsets.UTF_8.name())
+            .replace("+", "%20")
 
-    private fun encodePath(value: String): String = encode(value).replace("+", "%20")
+    private fun encodePath(value: String): String = encode(value)
 }

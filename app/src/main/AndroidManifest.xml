@@ -7,9 +7,6 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
-    <uses-permission
-        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
-        android:maxSdkVersion="28" />
 
     <application
         android:name=".OwnPlayApplication"
@@ -20,17 +17,6 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.OwnPlay"
         android:usesCleartextTraffic="true">
-        <activity
-            android:name=".MainActivity"
-            android:configChanges="orientation|screenLayout|screenSize|smallestScreenSize"
-            android:screenOrientation="portrait"
-            android:exported="true"
-            android:supportsPictureInPicture="true">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity>
 
         <receiver
             android:name=".downloads.data.DownloadNotificationActionReceiver"
@@ -40,6 +26,19 @@
             android:name="androidx.work.impl.foreground.SystemForegroundService"
             android:foregroundServiceType="dataSync"
             tools:node="merge" />
+
+        <activity
+            android:name=".MainActivity"
+            android:configChanges="orientation|screenLayout|screenSize|smallestScreenSize"
+            android:exported="true"
+            android:supportsPictureInPicture="true">
+
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
     </application>
 
 </manifest>

@@ -1,559 +1,562 @@
 package app.ownplay.mobile.feature.live.data
 
 import androidx.room.withTransaction
-import app.ownplay.mobile.data.db.CatalogDao
-import app.ownplay.mobile.data.db.CategoryPersonalizationEntity
 import app.ownplay.mobile.data.db.ChannelPersonalizationEntity
 import app.ownplay.mobile.data.db.LiveCategoryScopePersonalizationEntity
+import app.ownplay.mobile.data.db.LiveChannelEntity
 import app.ownplay.mobile.data.db.LiveChannelMembershipPersonalizationEntity
 import app.ownplay.mobile.data.db.LiveOrganizationDao
 import app.ownplay.mobile.data.db.LiveOrganizationPreferenceEntity
 import app.ownplay.mobile.data.db.OwnPlayDatabase
 import app.ownplay.mobile.data.db.OwnPlayLiveCategoryEntity
 import app.ownplay.mobile.data.db.OwnPlayLiveChannelMembershipEntity
-import app.ownplay.mobile.data.db.SourceDao
-import app.ownplay.mobile.feature.live.domain.LiveCategoryPersonalizationKey
-import app.ownplay.mobile.feature.live.domain.LiveCategoryScope
-import app.ownplay.mobile.feature.live.domain.LiveChannelMembership
-import app.ownplay.mobile.feature.live.domain.LiveChannelMembershipPersonalizationKey
-import app.ownplay.mobile.feature.live.domain.LiveChannelMembershipScope
-import app.ownplay.mobile.feature.live.domain.LiveClassificationConfidence
-import app.ownplay.mobile.feature.live.domain.LiveOrganizationCategory
-import app.ownplay.mobile.feature.live.domain.LiveOrganizationEvidencePolicy
+import app.ownplay.mobile.data.db.ProviderCategoryEntity
+import app.ownplay.mobile.feature.live.domain.LiveOrganizationChannel
 import app.ownplay.mobile.feature.live.domain.LiveOrganizationMode
-import app.ownplay.mobile.feature.live.domain.LiveOrganizationOrigin
+import app.ownplay.mobile.feature.live.domain.LiveOrganizationOrdering
 import app.ownplay.mobile.feature.live.domain.LiveOrganizationRepository
-import app.ownplay.mobile.feature.live.domain.LiveOrganizationScopePolicy
-import app.ownplay.mobile.feature.live.domain.LiveOrganizationSnapshot
-import app.ownplay.mobile.feature.live.domain.LiveOwnPlayChannelTreatment
-import app.ownplay.mobile.feature.live.domain.LiveOwnPlayManualEditPlan
-import app.ownplay.mobile.feature.live.domain.LiveOwnPlayManualEditPolicy
-import app.ownplay.mobile.feature.live.domain.LiveOwnPlayMembershipEditMode
-import java.util.Locale
-import java.util.UUID
+import app.ownplay.mobile.feature.live.domain.LiveOwnPlayClassifier
+import app.ownplay.mobile.feature.live.domain.OwnPlayCountryScope
+import app.ownplay.mobile.feature.live.domain.OwnPlayLiveCatalogSnapshot
+import app.ownplay.mobile.feature.live.domain.OwnPlayLivePlacement
+import app.ownplay.mobile.feature.live.domain.OwnPlayLiveSemanticCategory
+import app.ownplay.mobile.feature.live.domain.ProviderLiveCatalogSnapshot
+import app.ownplay.mobile.feature.live.domain.ProviderLiveCategory
+import app.ownplay.mobile.feature.live.domain.ProviderLiveManagementCategory
+import app.ownplay.mobile.feature.live.domain.ProviderLiveManagementChannel
+import app.ownplay.mobile.feature.live.domain.ProviderLiveManagementSnapshot
+import app.ownplay.mobile.feature.live.domain.ProviderLiveOrganizationContract
+import app.ownplay.mobile.sources.domain.SourceId
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
 
-class LiveOrganizationRepositoryImpl(
+class RoomLiveOrganizationRepository(
     private val database: OwnPlayDatabase,
-    private val sourceDao: SourceDao = database.sourceDao(),
-    private val catalogDao: CatalogDao = database.catalogDao(),
-    private val organizationDao: LiveOrganizationDao = database.liveOrganizationDao(),
+    private val dao: LiveOrganizationDao,
 ) : LiveOrganizationRepository {
-    override fun observeOrganization(sourceId: String): Flow<LiveOrganizationSnapshot> {
-        require(sourceId.isNotBlank()) { "sourceId must not be blank" }
-        return combine(
-            organizationDao.observePreference(sourceId),
-            organizationDao.observeProviderCategories(sourceId),
-            organizationDao.observeProviderMemberships(
-                sourceId,
-                LiveOrganizationScopePolicy.PROVIDER_UNCATEGORIZED_CATEGORY_ID,
-            ),
-            organizationDao.observeOwnPlayCategoryViews(sourceId),
-            organizationDao.observeOwnPlayMembershipViews(sourceId),
-        ) { preference, providerCategories, providerMemberships, ownPlayCategories, ownPlayMemberships ->
-            LiveOrganizationSnapshot(
-                sourceId = sourceId,
-                activeMode = preference?.activeMode.toOrganizationMode(),
-                categories = buildList {
-                    providerCategories.forEach { row ->
-                        add(
-                            LiveOrganizationCategory(
-                                sourceId = row.sourceId,
-                                mode = LiveOrganizationMode.PROVIDER,
-                                categoryId = row.categoryId,
-                                displayName = row.displayName,
-                                origin = LiveOrganizationOrigin.PROVIDER,
-                                hidden = row.hidden,
-                                manualOrder = row.manualOrder,
-                            ),
-                        )
-                    }
-                    ownPlayCategories.forEach { row ->
-                        add(
-                            LiveOrganizationCategory(
-                                sourceId = row.sourceId,
-                                mode = LiveOrganizationMode.OWNPLAY,
-                                categoryId = row.categoryId,
-                                parentCategoryId = row.parentCategoryId,
-                                displayName = row.displayName,
-                                semanticKey = row.semanticKey,
-                                origin = row.origin.toOwnPlayOrigin(),
-                                hidden = row.hidden,
-                                manualOrder = row.manualOrder,
-                            ),
-                        )
-                    }
+    override fun observeMode(sourceId: SourceId): Flow<LiveOrganizationMode> =
+        dao.observePreference(sourceId.value).map { row ->
+            row?.activeMode
+                ?.let { value -> runCatching { LiveOrganizationMode.valueOf(value) }.getOrNull() }
+                ?: LiveOrganizationMode.PROVIDER
+        }
+
+    override fun observeProviderCatalog(sourceId: SourceId): Flow<ProviderLiveCatalogSnapshot> =
+        observeProviderManagement(sourceId)
+            .map(::visibleProviderCatalog)
+            .flowOn(Dispatchers.Default)
+
+    override fun observeProviderManagement(
+        sourceId: SourceId,
+    ): Flow<ProviderLiveManagementSnapshot> =
+        combine(
+            dao.observeProviderLiveCategories(sourceId.value),
+            dao.observeLiveChannels(sourceId.value),
+            dao.observeProviderCategoryPersonalization(sourceId.value),
+            dao.observeProviderChannelPersonalization(sourceId.value),
+        ) { categoryRows, channelRows, categoryPersonalization, channelPersonalization ->
+            buildProviderManagementSnapshot(
+                categoryRows = categoryRows,
+                channelRows = channelRows,
+                categoryPersonalization = categoryPersonalization,
+                channelPersonalization = channelPersonalization,
+            )
+        }.flowOn(Dispatchers.Default)
+
+    private fun observeRawProviderCatalog(
+        sourceId: SourceId,
+    ): Flow<ProviderLiveCatalogSnapshot> =
+        combine(
+            dao.observeProviderLiveCategories(sourceId.value),
+            dao.observeLiveChannels(sourceId.value),
+            dao.observeChannelPersonalization(sourceId.value),
+        ) { categoryRows, channelRows, channelPersonalization ->
+            val personalizationByChannelId = channelPersonalization.associateBy { it.channelId }
+            ProviderLiveCatalogSnapshot(
+                categories = categoryRows.map { row ->
+                    ProviderLiveCategory(
+                        categoryId = row.categoryKey,
+                        displayName = row.name,
+                        providerOrder = row.providerOrder,
+                    )
                 },
-                memberships = buildList {
-                    providerMemberships.forEach { row ->
-                        add(
-                            LiveChannelMembership(
-                                sourceId = row.sourceId,
-                                mode = LiveOrganizationMode.PROVIDER,
-                                categoryId = row.categoryId,
-                                channelId = row.channelId,
-                                origin = LiveOrganizationOrigin.PROVIDER,
-                                hidden = row.hidden,
-                                manualOrder = row.manualOrder,
-                            ),
-                        )
-                    }
-                    ownPlayMemberships.forEach { row ->
-                        add(
-                            LiveChannelMembership(
-                                sourceId = row.sourceId,
-                                mode = LiveOrganizationMode.OWNPLAY,
-                                categoryId = row.categoryId,
-                                channelId = row.channelId,
-                                included = row.included,
-                                origin = row.origin.toOwnPlayOrigin(),
-                                confidence = row.confidence.toClassificationConfidence(),
-                                evidenceKeys = LiveOrganizationEvidencePolicy.decodeJsonArray(row.evidenceJson),
-                                hidden = row.hidden,
-                                manualOrder = row.manualOrder,
-                            ),
-                        )
-                    }
+                channels = channelRows.map { row ->
+                    val personalization = personalizationByChannelId[row.channelId]
+                    LiveOrganizationChannel(
+                        channelId = row.channelId,
+                        name = row.name,
+                        tvgName = row.tvgName,
+                        providerCategoryId = row.categoryKey,
+                        providerOrder = row.providerOrder,
+                        logoUrl = personalization?.localLogo?.trim()?.takeIf(String::isNotEmpty) ?: row.logoUrl,
+                        localName = personalization?.localName?.trim()?.takeIf(String::isNotEmpty),
+                    )
                 },
             )
+        }.flowOn(Dispatchers.Default)
+
+    override fun observeOwnPlayCatalog(sourceId: SourceId): Flow<OwnPlayLiveCatalogSnapshot> =
+        combine(
+            observeRawProviderCatalog(sourceId),
+            dao.observeOwnPlayCategoriesForCompatibility(sourceId.value),
+            dao.observeManualPlacementOverrides(sourceId.value),
+            dao.observeLegacyManualMemberships(sourceId.value),
+        ) { provider, persistedCategories, overrides, legacyManualMemberships ->
+            buildOwnPlaySnapshot(
+                provider = provider,
+                persistedCategories = persistedCategories,
+                overrides = overrides,
+                legacyManualMemberships = legacyManualMemberships,
+            )
+        }.flowOn(Dispatchers.Default)
+
+    override fun observeFavoriteChannelIds(sourceId: SourceId): Flow<Set<String>> =
+        dao.observeFavoriteChannelIds(sourceId.value).map { rows -> rows.toSet() }
+
+    override suspend fun setFavorite(
+        sourceId: SourceId,
+        channelId: String,
+        favorite: Boolean,
+    ): Boolean = try {
+        database.withTransaction {
+            val channel = dao.getAvailableChannel(sourceId.value, channelId)
+                ?: return@withTransaction false
+            val current = dao.getChannelPersonalization(channel.channelId)
+            dao.upsertChannelPersonalization(
+                (current ?: ChannelPersonalizationEntity(channelId = channel.channelId))
+                    .copy(favorite = favorite),
+            )
+            true
         }
+    } catch (_: Exception) {
+        false
     }
 
-    override suspend fun setActiveMode(sourceId: String, mode: LiveOrganizationMode) {
-        if (sourceId.isBlank()) return
+    override suspend fun setMode(sourceId: SourceId, mode: LiveOrganizationMode): Boolean = try {
         database.withTransaction {
-            if (sourceDao.get(sourceId) == null) return@withTransaction
-            if (
-                mode == LiveOrganizationMode.OWNPLAY &&
-                organizationDao.countOwnPlayCategories(sourceId) == 0
-            ) {
-                return@withTransaction
-            }
-            organizationDao.upsertPreference(
+            if (dao.countSource(sourceId.value) == 0) return@withTransaction false
+            dao.upsertPreference(
                 LiveOrganizationPreferenceEntity(
-                    sourceId = sourceId,
+                    sourceId = sourceId.value,
                     activeMode = mode.name,
                 ),
             )
+            true
         }
+    } catch (_: Exception) {
+        false
     }
 
-    override suspend fun createOwnPlayCategory(
-        sourceId: String,
-        parentCategoryId: String?,
-        displayName: String,
-    ) {
-        val normalizedSourceId = sourceId.trim()
-        val normalizedParentId = parentCategoryId?.trim()?.takeIf(String::isNotEmpty)
-        val normalizedName = displayName.trim().replace(Regex("\\s+"), " ")
-        if (normalizedSourceId.isEmpty() || normalizedName.isEmpty() || normalizedName.length > MAX_MANUAL_CATEGORY_NAME_LENGTH) return
+    override suspend fun setProviderCategoryHidden(
+        sourceId: SourceId,
+        categoryId: String,
+        hidden: Boolean,
+    ): Boolean = try {
         database.withTransaction {
-            if (sourceDao.get(normalizedSourceId) == null) return@withTransaction
-            val categories = organizationDao.getOwnPlayCategoriesForEdit(normalizedSourceId)
-            if (
-                normalizedParentId != null &&
-                categories.none { row -> row.available && row.categoryId == normalizedParentId }
-            ) {
-                return@withTransaction
-            }
-            val duplicateName = categories.any { row ->
-                row.available &&
-                    row.parentCategoryId == normalizedParentId &&
-                    row.displayName.trim().lowercase(Locale.ROOT) == normalizedName.lowercase(Locale.ROOT)
-            }
-            if (duplicateName) return@withTransaction
-            val generation = database.refreshStateDao().get(normalizedSourceId)?.generation ?: 0L
-            organizationDao.upsertOwnPlayCategories(
-                listOf(
-                    OwnPlayLiveCategoryEntity(
-                        sourceId = normalizedSourceId,
-                        categoryId = "$MANUAL_CATEGORY_PREFIX${UUID.randomUUID()}",
-                        parentCategoryId = normalizedParentId,
-                        displayName = normalizedName,
-                        semanticKey = null,
-                        origin = LiveOrganizationOrigin.MANUAL.name,
-                        available = true,
-                        lastSeenGeneration = generation,
-                    ),
-                ),
-            )
-        }
-    }
-
-    override suspend fun editOwnPlayMemberships(
-        sourceId: String,
-        targetCategoryId: String,
-        channelIds: List<String>,
-        mode: LiveOwnPlayMembershipEditMode,
-    ) {
-        editOwnPlay(sourceId, targetCategoryId, channelIds) { snapshot, validChannelIds ->
-            LiveOwnPlayManualEditPolicy.membershipPlan(
-                snapshot = snapshot,
-                targetCategoryId = targetCategoryId,
-                channelIds = validChannelIds,
-                mode = mode,
-            )
-        }
-    }
-
-    override suspend fun setOwnPlayChannelTreatment(
-        sourceId: String,
-        targetCategoryId: String,
-        channelIds: List<String>,
-        treatment: LiveOwnPlayChannelTreatment,
-    ) {
-        editOwnPlay(sourceId, targetCategoryId, channelIds) { snapshot, validChannelIds ->
-            LiveOwnPlayManualEditPolicy.treatmentPlan(
-                snapshot = snapshot,
-                targetCategoryId = targetCategoryId,
-                channelIds = validChannelIds,
-                treatment = treatment,
-            )
-        }
-    }
-
-    override suspend fun setCategoryHidden(key: LiveCategoryPersonalizationKey, hidden: Boolean) {
-        database.withTransaction {
-            if (!categoryExists(key)) return@withTransaction
-            val current = organizationDao.getCategoryPersonalization(
-                key.sourceId,
-                key.mode.name,
-                key.categoryId,
-            )
-            organizationDao.upsertCategoryPersonalization(
+            val categoryIds = providerCategoryIds(sourceId)
+            if (categoryId !in categoryIds) return@withTransaction false
+            val current = dao.getProviderCategoryPersonalization(sourceId.value, categoryId)
+            dao.upsertProviderCategoryPersonalization(
                 (current ?: LiveCategoryScopePersonalizationEntity(
-                    sourceId = key.sourceId,
-                    organizationMode = key.mode.name,
-                    categoryId = key.categoryId,
+                    sourceId = sourceId.value,
+                    organizationMode = LiveOrganizationMode.PROVIDER.name,
+                    categoryId = categoryId,
                 )).copy(hidden = hidden),
             )
-            if (key.mode == LiveOrganizationMode.PROVIDER) {
-                mirrorProviderCategoryHidden(key.sourceId, key.categoryId, hidden)
-            }
+            true
         }
+    } catch (_: Exception) {
+        false
     }
 
-    override suspend fun setCategoryOrder(scope: LiveCategoryScope, orderedCategoryIds: List<String>) {
-        val ordered = validatedOrder(orderedCategoryIds) ?: return
+    override suspend fun setProviderCategoryOrder(
+        sourceId: SourceId,
+        orderedCategoryIds: List<String>,
+    ): Boolean = try {
         database.withTransaction {
-            val allowedIds = categoryIds(scope).toSet()
-            if (!allowedIds.containsAll(ordered)) return@withTransaction
+            val ordered = orderedCategoryIds.filter(String::isNotBlank).distinct()
+            val available = providerCategoryIds(sourceId)
+            if (ordered.size != available.size || ordered.toSet() != available.toSet()) {
+                return@withTransaction false
+            }
             ordered.forEachIndexed { index, categoryId ->
-                val current = organizationDao.getCategoryPersonalization(
-                    scope.sourceId,
-                    scope.mode.name,
-                    categoryId,
-                )
-                organizationDao.upsertCategoryPersonalization(
+                val current = dao.getProviderCategoryPersonalization(sourceId.value, categoryId)
+                dao.upsertProviderCategoryPersonalization(
                     (current ?: LiveCategoryScopePersonalizationEntity(
-                        sourceId = scope.sourceId,
-                        organizationMode = scope.mode.name,
+                        sourceId = sourceId.value,
+                        organizationMode = LiveOrganizationMode.PROVIDER.name,
                         categoryId = categoryId,
                     )).copy(manualOrder = index),
                 )
-                if (scope.mode == LiveOrganizationMode.PROVIDER) {
-                    mirrorProviderCategoryOrder(scope.sourceId, categoryId, index)
-                }
             }
+            true
         }
+    } catch (_: Exception) {
+        false
     }
 
-    override suspend fun resetCategoryOrder(scope: LiveCategoryScope) {
+    override suspend fun resetProviderCategoryOrder(sourceId: SourceId): Boolean = try {
         database.withTransaction {
-            categoryIds(scope).forEach { categoryId ->
-                val current = organizationDao.getCategoryPersonalization(
-                    scope.sourceId,
-                    scope.mode.name,
-                    categoryId,
-                )
+            val available = providerCategoryIds(sourceId)
+            if (available.isEmpty()) return@withTransaction false
+            available.forEach { categoryId ->
+                val current = dao.getProviderCategoryPersonalization(sourceId.value, categoryId)
                 if (current?.manualOrder != null) {
-                    organizationDao.upsertCategoryPersonalization(current.copy(manualOrder = null))
-                }
-                if (scope.mode == LiveOrganizationMode.PROVIDER) {
-                    mirrorProviderCategoryOrder(scope.sourceId, categoryId, null)
+                    dao.upsertProviderCategoryPersonalization(current.copy(manualOrder = null))
                 }
             }
+            true
         }
+    } catch (_: Exception) {
+        false
     }
 
-    override suspend fun setChannelHidden(
-        key: LiveChannelMembershipPersonalizationKey,
+    override suspend fun setProviderChannelHidden(
+        sourceId: SourceId,
+        categoryId: String,
+        channelId: String,
         hidden: Boolean,
-    ) {
+    ): Boolean = try {
         database.withTransaction {
-            if (!channelMembershipExists(key)) return@withTransaction
-            val current = organizationDao.getChannelMembershipPersonalization(
-                key.sourceId,
-                key.mode.name,
-                key.categoryId,
-                key.channelId,
+            val channelIds = providerChannelIds(sourceId, categoryId)
+            if (channelId !in channelIds) return@withTransaction false
+            val current = dao.getProviderChannelPersonalization(
+                sourceId.value,
+                categoryId,
+                channelId,
             )
-            organizationDao.upsertChannelMembershipPersonalization(
+            dao.upsertProviderChannelPersonalization(
                 (current ?: LiveChannelMembershipPersonalizationEntity(
-                    sourceId = key.sourceId,
-                    organizationMode = key.mode.name,
-                    categoryId = key.categoryId,
-                    channelId = key.channelId,
+                    sourceId = sourceId.value,
+                    organizationMode = LiveOrganizationMode.PROVIDER.name,
+                    categoryId = categoryId,
+                    channelId = channelId,
                 )).copy(hidden = hidden),
             )
-            if (key.mode == LiveOrganizationMode.PROVIDER) {
-                mirrorProviderChannelHidden(key.channelId, hidden)
-            }
+            true
         }
+    } catch (_: Exception) {
+        false
     }
 
-    override suspend fun setChannelOrder(
-        scope: LiveChannelMembershipScope,
+    override suspend fun setProviderChannelOrder(
+        sourceId: SourceId,
+        categoryId: String,
         orderedChannelIds: List<String>,
-    ) {
-        val ordered = validatedOrder(orderedChannelIds) ?: return
+    ): Boolean = try {
         database.withTransaction {
-            val allowedIds = channelIds(scope).toSet()
-            if (!allowedIds.containsAll(ordered)) return@withTransaction
+            val ordered = orderedChannelIds.filter(String::isNotBlank).distinct()
+            val available = providerChannelIds(sourceId, categoryId)
+            if (ordered.size != available.size || ordered.toSet() != available.toSet()) {
+                return@withTransaction false
+            }
             ordered.forEachIndexed { index, channelId ->
-                val current = organizationDao.getChannelMembershipPersonalization(
-                    scope.sourceId,
-                    scope.mode.name,
-                    scope.categoryId,
+                val current = dao.getProviderChannelPersonalization(
+                    sourceId.value,
+                    categoryId,
                     channelId,
                 )
-                organizationDao.upsertChannelMembershipPersonalization(
+                dao.upsertProviderChannelPersonalization(
                     (current ?: LiveChannelMembershipPersonalizationEntity(
-                        sourceId = scope.sourceId,
-                        organizationMode = scope.mode.name,
-                        categoryId = scope.categoryId,
+                        sourceId = sourceId.value,
+                        organizationMode = LiveOrganizationMode.PROVIDER.name,
+                        categoryId = categoryId,
                         channelId = channelId,
                     )).copy(manualOrder = index),
                 )
-                if (scope.mode == LiveOrganizationMode.PROVIDER) {
-                    mirrorProviderChannelOrder(channelId, index)
-                }
             }
+            true
         }
+    } catch (_: Exception) {
+        false
     }
 
-    override suspend fun resetChannelOrder(scope: LiveChannelMembershipScope) {
+    override suspend fun resetProviderChannelOrder(
+        sourceId: SourceId,
+        categoryId: String,
+    ): Boolean = try {
         database.withTransaction {
-            channelIds(scope).forEach { channelId ->
-                val current = organizationDao.getChannelMembershipPersonalization(
-                    scope.sourceId,
-                    scope.mode.name,
-                    scope.categoryId,
+            val available = providerChannelIds(sourceId, categoryId)
+            if (available.isEmpty()) return@withTransaction false
+            available.forEach { channelId ->
+                val current = dao.getProviderChannelPersonalization(
+                    sourceId.value,
+                    categoryId,
                     channelId,
                 )
                 if (current?.manualOrder != null) {
-                    organizationDao.upsertChannelMembershipPersonalization(current.copy(manualOrder = null))
-                }
-                if (scope.mode == LiveOrganizationMode.PROVIDER) {
-                    mirrorProviderChannelOrder(channelId, null)
+                    dao.upsertProviderChannelPersonalization(current.copy(manualOrder = null))
                 }
             }
+            true
         }
+    } catch (_: Exception) {
+        false
     }
 
-    private suspend fun editOwnPlay(
-        sourceId: String,
-        targetCategoryId: String,
-        channelIds: List<String>,
-        plan: (LiveOrganizationSnapshot, List<String>) -> LiveOwnPlayManualEditPlan?,
-    ) {
-        if (sourceId.isBlank() || targetCategoryId.isBlank()) return
-        val requestedChannelIds = channelIds.filter(String::isNotBlank).distinct()
-        if (requestedChannelIds.isEmpty()) return
+    override suspend fun moveChannel(
+        sourceId: SourceId,
+        channelId: String,
+        placement: OwnPlayLivePlacement,
+    ): Boolean = try {
         database.withTransaction {
-            if (sourceDao.get(sourceId) == null) return@withTransaction
-            val validChannelIds = requestedChannelIds
-                .chunked(QUERY_BATCH_SIZE)
-                .flatMap { batch -> catalogDao.getAvailableLiveChannelIds(sourceId, batch) }
-                .toSet()
-            if (validChannelIds != requestedChannelIds.toSet()) return@withTransaction
+            val channel = dao.getAvailableChannel(sourceId.value, channelId)
+                ?: return@withTransaction false
+            val targetCategoryId = OwnPlayLiveStorageContract.semanticCategoryId(
+                countryId = placement.countryId,
+                semanticCategory = placement.semanticCategory,
+            )
+            val targetCategory = dao.getAvailableOwnPlayCategory(sourceId.value, targetCategoryId)
+                ?: return@withTransaction false
+            if (targetCategory.parentCategoryId != placement.countryId ||
+                targetCategory.semanticKey != placement.semanticCategory.name
+            ) {
+                return@withTransaction false
+            }
 
-            val categoryRows = organizationDao.getOwnPlayCategoriesForEdit(sourceId)
-            val persistedMembershipRows = requestedChannelIds
-                .chunked(QUERY_BATCH_SIZE)
-                .flatMap { batch -> organizationDao.getOwnPlayMembershipsForChannels(sourceId, batch) }
-            val snapshot = LiveOrganizationSnapshot(
-                sourceId = sourceId,
-                activeMode = LiveOrganizationMode.OWNPLAY,
-                categories = categoryRows.map { row -> row.toDomainCategory() },
-                memberships = persistedMembershipRows
-                    .filter { row -> row.available }
-                    .map { row -> row.toDomainMembership() },
+            dao.deleteManualPlacementOverrides(sourceId.value, channel.channelId)
+            dao.upsertManualPlacementOverride(
+                LiveChannelMembershipPersonalizationEntity(
+                    sourceId = sourceId.value,
+                    organizationMode = OwnPlayLiveStorageContract.MANUAL_OVERRIDE_MODE,
+                    categoryId = targetCategoryId,
+                    channelId = channel.channelId,
+                    hidden = false,
+                    manualOrder = null,
+                ),
             )
-            val editPlan = plan(snapshot, requestedChannelIds) ?: return@withTransaction
-            applyOwnPlayManualEditPlan(
-                sourceId = sourceId,
-                categoryRows = categoryRows,
-                persistedMembershipRows = persistedMembershipRows,
-                plan = editPlan,
+            dao.clearLegacyManualMemberships(sourceId.value, channel.channelId)
+            true
+        }
+    } catch (_: Exception) {
+        false
+    }
+
+    override suspend fun resetChannelToAutomatic(sourceId: SourceId, channelId: String): Boolean = try {
+        database.withTransaction {
+            val removedOverrides = dao.deleteManualPlacementOverrides(sourceId.value, channelId)
+            val clearedLegacy = dao.clearLegacyManualMemberships(sourceId.value, channelId)
+            removedOverrides > 0 || clearedLegacy > 0
+        }
+    } catch (_: Exception) {
+        false
+    }
+
+    private fun buildProviderManagementSnapshot(
+        categoryRows: List<ProviderCategoryEntity>,
+        channelRows: List<LiveChannelEntity>,
+        categoryPersonalization: List<LiveCategoryScopePersonalizationEntity>,
+        channelPersonalization: List<LiveChannelMembershipPersonalizationEntity>,
+    ): ProviderLiveManagementSnapshot {
+        val categoryPersonalizationById = categoryPersonalization.associateBy { it.categoryId }
+        val categories = buildList {
+            categoryRows.forEach { row ->
+                val personalization = categoryPersonalizationById[row.categoryKey]
+                add(
+                    ProviderLiveManagementCategory(
+                        categoryId = row.categoryKey,
+                        displayName = row.name,
+                        providerOrder = row.providerOrder,
+                        hidden = personalization?.hidden ?: false,
+                        manualOrder = personalization?.manualOrder,
+                    ),
+                )
+            }
+            if (channelRows.any { it.categoryKey == null }) {
+                val uncategorizedId = ProviderLiveOrganizationContract.UNCATEGORIZED_CATEGORY_ID
+                val personalization = categoryPersonalizationById[uncategorizedId]
+                add(
+                    ProviderLiveManagementCategory(
+                        categoryId = uncategorizedId,
+                        displayName = ProviderLiveOrganizationContract.UNCATEGORIZED_DISPLAY_NAME,
+                        providerOrder = Int.MAX_VALUE,
+                        hidden = personalization?.hidden ?: false,
+                        manualOrder = personalization?.manualOrder,
+                    ),
+                )
+            }
+        }.withIndex()
+            .sortedWith(
+                compareBy<IndexedValue<ProviderLiveManagementCategory>> {
+                    if (it.value.manualOrder == null) 1 else 0
+                }.thenBy { it.value.manualOrder ?: it.value.providerOrder }
+                    .thenBy { it.value.providerOrder }
+                    .thenBy { it.index },
             )
+            .map(IndexedValue<ProviderLiveManagementCategory>::value)
+
+        val categoryRank = categories.mapIndexed { index, category -> category.categoryId to index }.toMap()
+        val channelPersonalizationByKey = channelPersonalization.associateBy { row ->
+            row.categoryId to row.channelId
+        }
+        val channels = channelRows.map { row ->
+            val categoryId = row.categoryKey ?: ProviderLiveOrganizationContract.UNCATEGORIZED_CATEGORY_ID
+            val personalization = channelPersonalizationByKey[categoryId to row.channelId]
+            ProviderLiveManagementChannel(
+                channelId = row.channelId,
+                categoryId = categoryId,
+                name = row.name,
+                tvgName = row.tvgName,
+                logoUrl = row.logoUrl,
+                providerOrder = row.providerOrder,
+                hidden = personalization?.hidden ?: false,
+                manualOrder = personalization?.manualOrder,
+            )
+        }.withIndex()
+            .sortedWith(
+                compareBy<IndexedValue<ProviderLiveManagementChannel>> {
+                    categoryRank[it.value.categoryId] ?: Int.MAX_VALUE
+                }.thenBy { if (it.value.manualOrder == null) 1 else 0 }
+                    .thenBy { it.value.manualOrder ?: it.value.providerOrder }
+                    .thenBy { it.value.providerOrder }
+                    .thenBy { it.index },
+            )
+            .map(IndexedValue<ProviderLiveManagementChannel>::value)
+
+        return ProviderLiveManagementSnapshot(
+            categories = categories,
+            channels = channels,
+        )
+    }
+
+    private fun visibleProviderCatalog(
+        management: ProviderLiveManagementSnapshot,
+    ): ProviderLiveCatalogSnapshot {
+        val visibleCategories = management.categories.filterNot { it.hidden }
+        val visibleCategoryIds = visibleCategories.mapTo(linkedSetOf()) { it.categoryId }
+        return ProviderLiveCatalogSnapshot(
+            categories = visibleCategories.map { category ->
+                ProviderLiveCategory(
+                    categoryId = category.categoryId,
+                    displayName = category.displayName,
+                    providerOrder = category.providerOrder,
+                )
+            },
+            channels = management.channels
+                .asSequence()
+                .filter { channel -> !channel.hidden && channel.categoryId in visibleCategoryIds }
+                .map { channel ->
+                    LiveOrganizationChannel(
+                        channelId = channel.channelId,
+                        name = channel.name,
+                        tvgName = channel.tvgName,
+                        providerCategoryId = channel.categoryId,
+                        providerOrder = channel.providerOrder,
+                        logoUrl = channel.logoUrl,
+                    )
+                }
+                .toList(),
+        )
+    }
+
+    private suspend fun providerCategoryIds(sourceId: SourceId): List<String> = buildList {
+        addAll(dao.getProviderLiveCategoryIds(sourceId.value))
+        if (dao.countProviderUncategorizedChannels(sourceId.value) > 0) {
+            add(ProviderLiveOrganizationContract.UNCATEGORIZED_CATEGORY_ID)
         }
     }
 
-    private suspend fun applyOwnPlayManualEditPlan(
-        sourceId: String,
-        categoryRows: List<OwnPlayLiveCategoryEntity>,
-        persistedMembershipRows: List<OwnPlayLiveChannelMembershipEntity>,
-        plan: LiveOwnPlayManualEditPlan,
-    ) {
-        val categoryById = categoryRows.associateBy { it.categoryId }
-        val protectedRows = plan.protectedCategoryIds.mapNotNull { categoryId ->
-            categoryById[categoryId]?.copy(
-                origin = LiveOrganizationOrigin.MANUAL.name,
-                available = true,
-            )
-        }
-        if (protectedRows.size != plan.protectedCategoryIds.size) return
-        if (protectedRows.isNotEmpty()) organizationDao.upsertOwnPlayCategories(protectedRows)
-
-        val generation = database.refreshStateDao().get(sourceId)?.generation ?: 0L
-        val persistedByKey = persistedMembershipRows.associateBy { row -> row.categoryId to row.channelId }
-        val rows = plan.membershipChanges.map { change ->
-            val current = persistedByKey[change.categoryId to change.channelId]
-            (current ?: OwnPlayLiveChannelMembershipEntity(
-                sourceId = sourceId,
-                categoryId = change.categoryId,
-                channelId = change.channelId,
-                origin = LiveOrganizationOrigin.MANUAL.name,
-                lastSeenGeneration = generation,
-            )).copy(
-                included = change.included,
-                origin = LiveOrganizationOrigin.MANUAL.name,
-                confidence = null,
-                evidenceJson = LiveOrganizationEvidencePolicy.encodeJsonArray(change.evidenceKeys),
-                available = true,
-            )
-        }
-        if (rows.isNotEmpty()) organizationDao.upsertOwnPlayMemberships(rows)
-    }
-
-    private fun OwnPlayLiveCategoryEntity.toDomainCategory() = LiveOrganizationCategory(
-        sourceId = sourceId,
-        mode = LiveOrganizationMode.OWNPLAY,
+    private suspend fun providerChannelIds(
+        sourceId: SourceId,
+        categoryId: String,
+    ): List<String> = dao.getProviderChannelIds(
+        sourceId = sourceId.value,
         categoryId = categoryId,
-        parentCategoryId = parentCategoryId,
-        displayName = displayName,
-        semanticKey = semanticKey,
-        origin = origin.toOwnPlayOrigin(),
+        uncategorizedCategoryId = ProviderLiveOrganizationContract.UNCATEGORIZED_CATEGORY_ID,
     )
 
-    private fun OwnPlayLiveChannelMembershipEntity.toDomainMembership() = LiveChannelMembership(
-        sourceId = sourceId,
-        mode = LiveOrganizationMode.OWNPLAY,
-        categoryId = categoryId,
-        channelId = channelId,
-        included = included,
-        origin = origin.toOwnPlayOrigin(),
-        confidence = confidence.toClassificationConfidence(),
-        evidenceKeys = LiveOrganizationEvidencePolicy.decodeJsonArray(evidenceJson),
-    )
+    private fun buildOwnPlaySnapshot(
+        provider: ProviderLiveCatalogSnapshot,
+        persistedCategories: List<OwnPlayLiveCategoryEntity>,
+        overrides: List<LiveChannelMembershipPersonalizationEntity>,
+        legacyManualMemberships: List<OwnPlayLiveChannelMembershipEntity>,
+    ): OwnPlayLiveCatalogSnapshot {
+        val automatic = LiveOwnPlayClassifier.buildAutomaticOrganization(
+            providerCategories = provider.categories,
+            channels = provider.channels,
+        )
+        val persistedCategoryById = persistedCategories.associateBy(OwnPlayLiveCategoryEntity::categoryId)
+        val overrideByChannelId = overrides
+            .mapNotNull { row ->
+                OwnPlayLiveStorageContract.parseSemanticCategoryId(row.categoryId)
+                    ?.let { placement -> row.channelId to placement }
+            }
+            .toMap()
+        val legacyByChannelId = legacyManualMemberships
+            .groupBy(OwnPlayLiveChannelMembershipEntity::channelId)
+            .mapValues { (_, rows) ->
+                rows.firstNotNullOfOrNull { row ->
+                    legacyPlacement(row, persistedCategoryById)
+                }
+            }
+            .mapNotNull { (channelId, placement) -> placement?.let { channelId to it } }
+            .toMap()
 
-    private suspend fun categoryExists(key: LiveCategoryPersonalizationKey): Boolean = when (key.mode) {
-        LiveOrganizationMode.PROVIDER ->
-            organizationDao.countProviderCategory(key.sourceId, key.categoryId) > 0
-        LiveOrganizationMode.OWNPLAY ->
-            organizationDao.countOwnPlayCategory(key.sourceId, key.categoryId) > 0
-    }
-
-    private suspend fun categoryIds(scope: LiveCategoryScope): List<String> = when (scope.mode) {
-        LiveOrganizationMode.PROVIDER -> {
-            if (scope.parentCategoryId != null) emptyList()
-            else organizationDao.getProviderCategoryIds(scope.sourceId)
+        val orderedChannels = LiveOrganizationOrdering.providerChannels(
+            providerCategories = provider.categories,
+            channels = provider.channels,
+        )
+        val effectivePlacementByChannelId = linkedMapOf<String, OwnPlayLivePlacement>()
+        orderedChannels.forEach { channel ->
+            val automaticPlacement = automatic.placementByChannelId[channel.channelId] ?: return@forEach
+            effectivePlacementByChannelId[channel.channelId] =
+                overrideByChannelId[channel.channelId]
+                    ?: legacyByChannelId[channel.channelId]
+                    ?: automaticPlacement
         }
-        LiveOrganizationMode.OWNPLAY ->
-            organizationDao.getOwnPlaySiblingCategoryIds(scope.sourceId, scope.parentCategoryId)
-    }
 
-    private suspend fun channelMembershipExists(
-        key: LiveChannelMembershipPersonalizationKey,
-    ): Boolean = when (key.mode) {
-        LiveOrganizationMode.PROVIDER -> organizationDao.countProviderChannelMembership(
-            key.sourceId,
-            key.categoryId,
-            key.channelId,
-            LiveOrganizationScopePolicy.PROVIDER_UNCATEGORIZED_CATEGORY_ID,
-        ) > 0
-        LiveOrganizationMode.OWNPLAY -> organizationDao.countOwnPlayChannelMembership(
-            key.sourceId,
-            key.categoryId,
-            key.channelId,
-        ) > 0
-    }
+        val countryById = linkedMapOf<String, OwnPlayCountryScope>()
+        automatic.countries.forEach { country -> countryById[country.countryId] = country }
+        orderedChannels.forEach { channel ->
+            val placement = effectivePlacementByChannelId[channel.channelId] ?: return@forEach
+            if (placement.countryId !in countryById) {
+                val persistedCountry = persistedCategoryById[placement.countryId]
+                countryById[placement.countryId] = OwnPlayCountryScope(
+                    countryId = placement.countryId,
+                    displayName = when {
+                        placement.countryId == LiveOwnPlayClassifier.NEUTRAL_COUNTRY_ID ->
+                            LiveOwnPlayClassifier.NEUTRAL_COUNTRY_DISPLAY_NAME
+                        persistedCountry != null -> persistedCountry.displayName
+                        else -> placement.countryId.removePrefix("country:")
+                    },
+                    providerOrder = countryById.size,
+                    isNeutralScope = placement.countryId == LiveOwnPlayClassifier.NEUTRAL_COUNTRY_ID,
+                )
+            }
+        }
 
-    private suspend fun channelIds(scope: LiveChannelMembershipScope): List<String> = when (scope.mode) {
-        LiveOrganizationMode.PROVIDER -> organizationDao.getProviderChannelIds(
-            scope.sourceId,
-            scope.categoryId,
-            LiveOrganizationScopePolicy.PROVIDER_UNCATEGORIZED_CATEGORY_ID,
-        )
-        LiveOrganizationMode.OWNPLAY ->
-            organizationDao.getOwnPlayChannelIds(scope.sourceId, scope.categoryId)
-    }
+        val channelsByPlacement = linkedMapOf<OwnPlayLivePlacement, MutableList<String>>()
+        orderedChannels.forEach { channel ->
+            val placement = effectivePlacementByChannelId[channel.channelId] ?: return@forEach
+            channelsByPlacement.getOrPut(placement, ::mutableListOf).add(channel.channelId)
+        }
 
-    private suspend fun mirrorProviderCategoryHidden(
-        sourceId: String,
-        categoryId: String,
-        hidden: Boolean,
-    ) {
-        val current = catalogDao.getCategoryPersonalization(sourceId, LIVE_KIND, categoryId)
-        catalogDao.upsertCategoryPersonalization(
-            (current ?: CategoryPersonalizationEntity(sourceId, LIVE_KIND, categoryId)).copy(hidden = hidden),
+        return OwnPlayLiveCatalogSnapshot(
+            countries = countryById.values.toList(),
+            semanticCategories = OwnPlayLiveSemanticCategory.canonicalOrder,
+            channelIdsByPlacement = channelsByPlacement.mapValues { (_, channelIds) -> channelIds.toList() },
+            manualPlacementChannelIds = overrideByChannelId.keys + legacyByChannelId.keys,
+            channels = orderedChannels,
         )
     }
 
-    private suspend fun mirrorProviderCategoryOrder(
-        sourceId: String,
-        categoryId: String,
-        manualOrder: Int?,
-    ) {
-        val current = catalogDao.getCategoryPersonalization(sourceId, LIVE_KIND, categoryId)
-        if (current == null && manualOrder == null) return
-        catalogDao.upsertCategoryPersonalization(
-            (current ?: CategoryPersonalizationEntity(sourceId, LIVE_KIND, categoryId))
-                .copy(manualOrder = manualOrder),
+    private fun legacyPlacement(
+        membership: OwnPlayLiveChannelMembershipEntity,
+        persistedCategoryById: Map<String, OwnPlayLiveCategoryEntity>,
+    ): OwnPlayLivePlacement? {
+        OwnPlayLiveStorageContract.parseSemanticCategoryId(membership.categoryId)?.let { return it }
+        val target = persistedCategoryById[membership.categoryId] ?: return null
+        val semantic = target.semanticKey
+            ?.let { key -> runCatching { OwnPlayLiveSemanticCategory.valueOf(key) }.getOrNull() }
+            ?: return null
+        val countryId = target.parentCategoryId?.takeIf { parentId -> parentId.startsWith("country:") }
+            ?: return null
+        return OwnPlayLivePlacement(
+            countryId = countryId,
+            semanticCategory = semantic,
         )
-    }
-
-    private suspend fun mirrorProviderChannelHidden(channelId: String, hidden: Boolean) {
-        val current = catalogDao.getChannelPersonalization(channelId)
-        catalogDao.upsertChannelPersonalization(
-            (current ?: ChannelPersonalizationEntity(channelId = channelId)).copy(hidden = hidden),
-        )
-    }
-
-    private suspend fun mirrorProviderChannelOrder(channelId: String, manualOrder: Int?) {
-        val current = catalogDao.getChannelPersonalization(channelId)
-        if (current == null && manualOrder == null) return
-        catalogDao.upsertChannelPersonalization(
-            (current ?: ChannelPersonalizationEntity(channelId = channelId))
-                .copy(manualOrder = manualOrder),
-        )
-    }
-
-    private fun validatedOrder(ids: List<String>): List<String>? {
-        if (ids.isEmpty() || ids.any { it.isBlank() }) return null
-        if (ids.distinct().size != ids.size) return null
-        return ids
-    }
-
-    private fun String?.toOrganizationMode(): LiveOrganizationMode =
-        runCatching { LiveOrganizationMode.valueOf(this.orEmpty()) }
-            .getOrDefault(LiveOrganizationMode.PROVIDER)
-
-    private fun String.toOwnPlayOrigin(): LiveOrganizationOrigin =
-        runCatching { LiveOrganizationOrigin.valueOf(this) }
-            .getOrNull()
-            ?.takeUnless { it == LiveOrganizationOrigin.PROVIDER }
-            ?: LiveOrganizationOrigin.AUTO
-
-    private fun String?.toClassificationConfidence(): LiveClassificationConfidence? =
-        runCatching { LiveClassificationConfidence.valueOf(this.orEmpty()) }.getOrNull()
-
-    private companion object {
-        const val LIVE_KIND = "LIVE"
-        const val QUERY_BATCH_SIZE = 500
-        const val MAX_MANUAL_CATEGORY_NAME_LENGTH = 80
-        const val MANUAL_CATEGORY_PREFIX = "ownplay:manual:"
     }
 }
