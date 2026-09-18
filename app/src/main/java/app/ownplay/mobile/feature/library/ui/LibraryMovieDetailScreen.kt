@@ -26,6 +26,7 @@ import app.ownplay.mobile.downloads.domain.DownloadMediaKind
 import app.ownplay.mobile.downloads.domain.DownloadRepository
 import app.ownplay.mobile.downloads.domain.DownloadRequest
 import app.ownplay.mobile.feature.library.data.LibraryArtworkLoader
+import app.ownplay.mobile.feature.library.domain.LibraryCatalogSnapshot
 import app.ownplay.mobile.feature.library.domain.LibraryContentKind
 import app.ownplay.mobile.feature.library.domain.LibraryMovieDetailLoadResult
 import app.ownplay.mobile.feature.library.domain.LibraryMovieDetailMetadata
@@ -54,6 +55,12 @@ internal fun LibraryMovieDetailScreen(
         downloadRepository.observeDownloads(source.sourceId)
     }
     val downloads by downloadsFlow.collectAsState(initial = emptyList())
+    val catalogFlow = remember(repository, source.sourceId) {
+        repository.observeCatalog(source.sourceId)
+    }
+    val catalog by catalogFlow.collectAsState(
+        initial = LibraryCatalogSnapshot(emptyList(), emptyList(), emptyList(), emptyList()),
+    )
     val movieDownload = downloads.firstOrNull { item ->
         item.mediaKind == DownloadMediaKind.MOVIE && item.contentId == movieId
     }
@@ -186,6 +193,9 @@ internal fun LibraryMovieDetailScreen(
                 item = movieDownload,
                 repository = downloadRepository,
                 playbackSessionController = playbackSessionController,
+                offlineResumeAvailable = hasOfflineResumeProgress(
+                    catalog.continueWatching, DownloadMediaKind.MOVIE, movieId,
+                ),
             )
         }
 

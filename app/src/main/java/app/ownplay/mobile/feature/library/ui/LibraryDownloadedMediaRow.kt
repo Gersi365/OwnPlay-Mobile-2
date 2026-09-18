@@ -22,6 +22,7 @@ internal fun LibraryDownloadedMediaRow(
     item: DownloadItem,
     repository: DownloadRepository,
     playbackSessionController: PlaybackSessionController,
+    offlineResumeAvailable: Boolean = false,
     compact: Boolean = false,
 ) {
     val kindLabel = when (item.mediaKind) {
@@ -54,6 +55,7 @@ internal fun LibraryDownloadedMediaRow(
                 item = item,
                 repository = repository,
                 playbackSessionController = playbackSessionController,
+                offlineResumeAvailable = offlineResumeAvailable,
             )
         }
     }

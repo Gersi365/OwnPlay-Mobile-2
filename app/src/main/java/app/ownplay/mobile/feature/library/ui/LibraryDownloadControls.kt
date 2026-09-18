@@ -21,6 +21,8 @@ import app.ownplay.mobile.downloads.domain.DownloadRequest
 import app.ownplay.mobile.downloads.domain.DownloadStatus
 import app.ownplay.mobile.downloads.domain.DownloadUserAction
 import app.ownplay.mobile.downloads.domain.DownloadUserActionPolicy
+import app.ownplay.mobile.feature.library.domain.LibraryContentKind
+import app.ownplay.mobile.feature.library.domain.LibraryContinueWatchingItem
 import app.ownplay.mobile.feature.playback.domain.PlaybackSessionController
 import app.ownplay.mobile.feature.playback.domain.PlaybackTarget
 import app.ownplay.mobile.sources.domain.SourceId
@@ -33,6 +35,7 @@ internal fun LibraryDownloadActions(
     item: DownloadItem?,
     repository: DownloadRepository,
     playbackSessionController: PlaybackSessionController,
+    offlineResumeAvailable: Boolean = false,
 ) {
     val handler = remember(repository) { DownloadActionHandler(repository) }
     val scope = rememberCoroutineScope()
@@ -68,7 +71,7 @@ internal fun LibraryDownloadActions(
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             if (action != null) {
                 TextButton(enabled = !busy, onClick = { perform(action) }) {
-                    Text(if (busy) "Working…" else action.label())
+                    Text(if (busy) "Working…" else downloadActionLabel(action, offlineResumeAvailable))
                 }
             }
             if (DownloadUserActionPolicy.canRemove(item?.status)) {
@@ -94,13 +97,30 @@ internal fun offlinePlaybackTarget(sourceId: SourceId, item: DownloadItem): Play
     }
 }
 
-private fun DownloadUserAction.label(): String = when (this) {
+internal fun downloadActionLabel(
+    action: DownloadUserAction,
+    offlineResumeAvailable: Boolean = false,
+): String = when (action) {
     DownloadUserAction.DOWNLOAD -> "Download"
     DownloadUserAction.PAUSE -> "Pause"
     DownloadUserAction.RESUME -> "Resume"
     DownloadUserAction.RETRY -> "Retry"
-    DownloadUserAction.PLAY_OFFLINE -> "Play Offline"
+    DownloadUserAction.PLAY_OFFLINE -> if (offlineResumeAvailable) "Resume Offline" else "Play Offline"
     DownloadUserAction.REMOVE -> "Remove"
+}
+
+internal fun hasOfflineResumeProgress(
+    continueWatching: List<LibraryContinueWatchingItem>,
+    mediaKind: DownloadMediaKind,
+    contentId: String,
+): Boolean {
+    val expectedKind = when (mediaKind) {
+        DownloadMediaKind.MOVIE -> LibraryContentKind.MOVIE
+        DownloadMediaKind.EPISODE -> LibraryContentKind.EPISODE
+    }
+    return continueWatching.any { item ->
+        item.contentKind == expectedKind && item.contentId == contentId
+    }
 }
 
 private fun downloadStatusLabel(item: DownloadItem): String = when (item.status) {

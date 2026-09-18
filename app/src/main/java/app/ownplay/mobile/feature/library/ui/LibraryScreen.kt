@@ -313,6 +313,9 @@ private fun LibrarySourceScreen(
                     item = item,
                     repository = downloadRepository,
                     playbackSessionController = playbackSessionController,
+                    offlineResumeAvailable = hasOfflineResumeProgress(
+                        catalog.continueWatching, item.mediaKind, item.contentId,
+                    ),
                     compact = compactMediaRows,
                 )
             }
@@ -404,6 +407,12 @@ private fun LibrarySeriesDetailScreen(
         downloadRepository.observeDownloads(source.sourceId)
     }
     val downloads by downloadsFlow.collectAsState(initial = emptyList())
+    val catalogFlow = remember(repository, source.sourceId) {
+        repository.observeCatalog(source.sourceId)
+    }
+    val catalog by catalogFlow.collectAsState(
+        initial = LibraryCatalogSnapshot(emptyList(), emptyList(), emptyList(), emptyList()),
+    )
     val episodeDownloads = remember(downloads) {
         downloads.filter { it.mediaKind == DownloadMediaKind.EPISODE }.associateBy { it.contentId }
     }
@@ -545,6 +554,9 @@ private fun LibrarySeriesDetailScreen(
                     item = episodeDownloads[episode.episodeId],
                     repository = downloadRepository,
                     playbackSessionController = playbackSessionController,
+                    offlineResumeAvailable = hasOfflineResumeProgress(
+                        catalog.continueWatching, DownloadMediaKind.EPISODE, episode.episodeId,
+                    ),
                 )
             }
         }
