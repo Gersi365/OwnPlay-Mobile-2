@@ -1,14 +1,17 @@
 package app.ownplay.mobile.downloads.data
 
+import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Context
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
+import android.provider.BaseColumns
 import android.provider.MediaStore
 import android.provider.OpenableColumns
 import android.webkit.MimeTypeMap
 import app.ownplay.mobile.downloads.domain.DownloadId
+import app.ownplay.mobile.downloads.domain.DownloadPendingNamePolicy
 import java.io.File
 import java.io.FileOutputStream
 import java.io.OutputStream
@@ -19,7 +22,10 @@ internal data class PendingDownloadOutput(
 )
 
 internal sealed interface PendingDownloadToken {
-    data class MediaStoreEntry(val uri: Uri) : PendingDownloadToken
+    data class MediaStoreEntry(
+        val uri: Uri,
+        val finalDisplayName: String,
+    ) : PendingDownloadToken
 
     data class PrivateFile(
         val temporaryFile: File,
@@ -55,7 +61,7 @@ internal class AndroidDownloadStorage(
         media: ResolvedDownloadMedia,
     ): PendingDownloadOutput? =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            openMediaStorePending(media)
+            openMediaStorePending(downloadId, media)
         } else {
             openPrivatePending(downloadId, media)
         }
@@ -69,7 +75,7 @@ internal class AndroidDownloadStorage(
 
     override suspend fun publish(pending: PendingDownloadOutput): String? =
         when (val token = pending.token) {
-            is PendingDownloadToken.MediaStoreEntry -> publishMediaStore(token.uri)
+            is PendingDownloadToken.MediaStoreEntry -> publishMediaStore(token)
             is PendingDownloadToken.PrivateFile -> publishPrivate(token)
         }
 
@@ -97,13 +103,19 @@ internal class AndroidDownloadStorage(
         }
     }
 
-    private fun openMediaStorePending(media: ResolvedDownloadMedia): PendingDownloadOutput? {
+    private fun openMediaStorePending(
+        downloadId: DownloadId,
+        media: ResolvedDownloadMedia,
+    ): PendingDownloadOutput? {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return null
         val relativePath = (
             listOf(Environment.DIRECTORY_DOWNLOADS, "OwnPlay Downloads") + media.relativeDirectories
         ).joinToString("/") + "/"
+        val stagingDisplayName = DownloadPendingNamePolicy.stagingDisplayName(downloadId)
+        if (!discardExistingPendingMediaStore(relativePath, stagingDisplayName)) return null
+
         val values = ContentValues().apply {
-            put(MediaStore.MediaColumns.DISPLAY_NAME, media.displayName)
+            put(MediaStore.MediaColumns.DISPLAY_NAME, stagingDisplayName)
             put(MediaStore.MediaColumns.MIME_TYPE, mimeType(media.extension))
             put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath)
             put(MediaStore.MediaColumns.IS_PENDING, 1)
@@ -114,7 +126,41 @@ internal class AndroidDownloadStorage(
             resolver.delete(uri, null, null)
             return null
         }
-        return PendingDownloadOutput(output, PendingDownloadToken.MediaStoreEntry(uri))
+        return PendingDownloadOutput(
+            outputStream = output,
+            token = PendingDownloadToken.MediaStoreEntry(
+                uri = uri,
+                finalDisplayName = media.displayName,
+            ),
+        )
+    }
+
+    private fun discardExistingPendingMediaStore(
+        relativePath: String,
+        stagingDisplayName: String,
+    ): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return false
+        val ids = runCatching {
+            resolver.query(
+                MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+                arrayOf(BaseColumns._ID),
+                "${MediaStore.MediaColumns.DISPLAY_NAME} = ? AND " +
+                    "${MediaStore.MediaColumns.RELATIVE_PATH} = ? AND " +
+                    "${MediaStore.MediaColumns.IS_PENDING} = 1",
+                arrayOf(stagingDisplayName, relativePath),
+                null,
+            )?.use { cursor ->
+                val idIndex = cursor.getColumnIndexOrThrow(BaseColumns._ID)
+                buildList {
+                    while (cursor.moveToNext()) add(cursor.getLong(idIndex))
+                }
+            } ?: emptyList()
+        }.getOrElse { return false }
+
+        return ids.all { id ->
+            val uri = ContentUris.withAppendedId(MediaStore.Downloads.EXTERNAL_CONTENT_URI, id)
+            runCatching { resolver.delete(uri, null, null) >= 0 }.getOrDefault(false)
+        }
     }
 
     private fun openPrivatePending(
@@ -152,15 +198,18 @@ internal class AndroidDownloadStorage(
         }.getOrNull()
     }
 
-    private fun publishMediaStore(uri: Uri): String? {
+    private fun publishMediaStore(token: PendingDownloadToken.MediaStoreEntry): String? {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return null
         val updated = resolver.update(
-            uri,
-            ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) },
+            token.uri,
+            ContentValues().apply {
+                put(MediaStore.MediaColumns.DISPLAY_NAME, token.finalDisplayName)
+                put(MediaStore.MediaColumns.IS_PENDING, 0)
+            },
             null,
             null,
         )
-        return uri.toString().takeIf { updated == 1 }
+        return token.uri.toString().takeIf { updated == 1 }
     }
 
     private fun publishPrivate(token: PendingDownloadToken.PrivateFile): String? {

@@ -37,6 +37,16 @@ class DownloadExecutionPoliciesTest {
     }
 
     @Test
+    fun pendingStorageNameIsDeterministicAndDoesNotExposeProviderTitle() {
+        val downloadId = DownloadId("download:abcdef1234567890")
+        val name = DownloadPendingNamePolicy.stagingDisplayName(downloadId)
+
+        assertEquals("ownplay-abcdef1234567890.part", name)
+        assertFalse(name.contains("Movie"))
+        assertFalse(name.contains('/'))
+    }
+
+    @Test
     fun integrityRequiresNonZeroExpectedAndStoredAgreement() {
         assertTrue(DownloadTransferIntegrityPolicy.isValid(100L, 100L, 100L))
         assertTrue(DownloadTransferIntegrityPolicy.isValid(100L, null, 100L))

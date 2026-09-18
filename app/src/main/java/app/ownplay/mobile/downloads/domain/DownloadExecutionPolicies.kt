@@ -59,6 +59,17 @@ object DownloadFilePolicy {
     private const val MAX_SEGMENT_LENGTH = 96
 }
 
+object DownloadPendingNamePolicy {
+    fun stagingDisplayName(downloadId: DownloadId): String {
+        val token = downloadId.value
+            .removePrefix("download:")
+            .filter(Char::isLetterOrDigit)
+            .takeLast(32)
+            .ifBlank { "download" }
+        return "ownplay-$token.part"
+    }
+}
+
 object DownloadTransferIntegrityPolicy {
     fun isValid(
         transferredBytes: Long,
