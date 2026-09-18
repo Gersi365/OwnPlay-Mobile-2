@@ -192,6 +192,7 @@ object LiveOwnPlayClassifier {
         "CH" to setOf("Schweiz", "Suisse", "Svizzera"),
         "AT" to setOf("Österreich", "Osterreich"),
         "NL" to setOf("Holland"),
+        "SE" to setOf("Sverige", "Svenska"),
         "US" to setOf("USA", "United States of America", "American"),
     )
 
