@@ -98,6 +98,7 @@ private fun BackupGlobalSettings.toJson() = buildJsonObject {
     put("compactMediaRows", display.compactMediaRows)
     put("showChannelLogos", display.showChannelLogos)
     put("preferTvgName", display.preferTvgName)
+    put("hideChannelPrefix", display.hideChannelPrefix)
     put("automaticPictureInPicture", playback.automaticPictureInPicture)
     put("unmeteredNetworkOnly", downloads.unmeteredNetworkOnly)
 }
@@ -174,6 +175,7 @@ private fun JsonObject.toGlobalSettings() = BackupGlobalSettings(
         compactMediaRows = optionalBoolean("compactMediaRows", false),
         showChannelLogos = optionalBoolean("showChannelLogos", true),
         preferTvgName = optionalBoolean("preferTvgName", false),
+        hideChannelPrefix = optionalBoolean("hideChannelPrefix", false),
     ),
     playback = PlaybackPreferences(
         automaticPictureInPicture = optionalBoolean("automaticPictureInPicture", true),

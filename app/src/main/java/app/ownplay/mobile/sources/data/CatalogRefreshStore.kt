@@ -38,48 +38,79 @@ class RoomCatalogRefreshStore(
     ) {
         require(snapshot.sourceType == sourceType) { "Catalog source type mismatch" }
         database.withTransaction {
+            val existingCategories = refreshStateDao.getCategoriesForRefresh(sourceId.value)
+            val existingLiveChannels = refreshStateDao.getLiveChannelsForRefresh(sourceId.value)
+            val existingMovies = refreshStateDao.getMoviesForRefresh(sourceId.value)
+            val existingSeries = refreshStateDao.getSeriesForRefresh(sourceId.value)
+            val authoritative = snapshot.authoritativeSections
             val plan = CatalogReconciler.reconcile(
                 sourceId = sourceId,
                 sourceType = sourceType,
                 generation = generation,
                 snapshot = snapshot,
-                existingCategories = refreshStateDao.getCategoriesForRefresh(sourceId.value),
-                existingLiveChannels = refreshStateDao.getLiveChannelsForRefresh(sourceId.value),
-                existingMovies = refreshStateDao.getMoviesForRefresh(sourceId.value),
-                existingSeries = refreshStateDao.getSeriesForRefresh(sourceId.value),
+                existingCategories = existingCategories,
+                existingLiveChannels = existingLiveChannels,
+                existingMovies = existingMovies,
+                existingSeries = existingSeries,
             )
 
             refreshStateDao.upsertCategories(plan.categories)
             refreshStateDao.upsertLiveChannels(plan.liveChannels)
-            refreshStateDao.markMissingCategoriesUnavailable(
-                sourceId = sourceId.value,
-                kind = DefaultSourceCatalogLoader.KIND_LIVE,
-                generation = generation,
-            )
-            refreshStateDao.markMissingLiveUnavailable(sourceId.value, generation)
+            if (
+                CatalogSection.LIVE_CATEGORIES in authoritative &&
+                CatalogSection.LIVE_CHANNELS in authoritative
+            ) {
+                refreshStateDao.markMissingCategoriesUnavailable(
+                    sourceId = sourceId.value,
+                    kind = DefaultSourceCatalogLoader.KIND_LIVE,
+                    generation = generation,
+                )
+            }
+            if (CatalogSection.LIVE_CHANNELS in authoritative) {
+                refreshStateDao.markMissingLiveUnavailable(sourceId.value, generation)
 
-            liveOrganizationRefreshStore?.reconcileAutomatic(
-                sourceId = sourceId,
-                generation = generation,
-                providerCategories = plan.categories,
-                liveChannels = plan.liveChannels,
-            )
+                val organizationCategories = if (CatalogSection.LIVE_CATEGORIES in authoritative) {
+                    plan.categories
+                } else {
+                    existingCategories.filter { it.kind == DefaultSourceCatalogLoader.KIND_LIVE }
+                }
+                liveOrganizationRefreshStore?.reconcileAutomatic(
+                    sourceId = sourceId,
+                    generation = generation,
+                    providerCategories = organizationCategories,
+                    liveChannels = plan.liveChannels,
+                )
+            }
 
             if (sourceType == SourceType.XTREAM) {
                 refreshStateDao.upsertMovies(plan.movies)
                 refreshStateDao.upsertSeries(plan.series)
-                refreshStateDao.markMissingCategoriesUnavailable(
-                    sourceId = sourceId.value,
-                    kind = DefaultSourceCatalogLoader.KIND_MOVIE,
-                    generation = generation,
-                )
-                refreshStateDao.markMissingCategoriesUnavailable(
-                    sourceId = sourceId.value,
-                    kind = DefaultSourceCatalogLoader.KIND_SERIES,
-                    generation = generation,
-                )
-                refreshStateDao.markMissingMoviesUnavailable(sourceId.value, generation)
-                refreshStateDao.markMissingSeriesUnavailable(sourceId.value, generation)
+                if (
+                    CatalogSection.MOVIE_CATEGORIES in authoritative &&
+                    CatalogSection.MOVIES in authoritative
+                ) {
+                    refreshStateDao.markMissingCategoriesUnavailable(
+                        sourceId = sourceId.value,
+                        kind = DefaultSourceCatalogLoader.KIND_MOVIE,
+                        generation = generation,
+                    )
+                }
+                if (
+                    CatalogSection.SERIES_CATEGORIES in authoritative &&
+                    CatalogSection.SERIES in authoritative
+                ) {
+                    refreshStateDao.markMissingCategoriesUnavailable(
+                        sourceId = sourceId.value,
+                        kind = DefaultSourceCatalogLoader.KIND_SERIES,
+                        generation = generation,
+                    )
+                }
+                if (CatalogSection.MOVIES in authoritative) {
+                    refreshStateDao.markMissingMoviesUnavailable(sourceId.value, generation)
+                }
+                if (CatalogSection.SERIES in authoritative) {
+                    refreshStateDao.markMissingSeriesUnavailable(sourceId.value, generation)
+                }
             }
 
             refreshStateDao.upsert(
@@ -119,12 +150,15 @@ object CatalogReconciler {
         val existingCategoryKeyByProvider = existingCategories.associate {
             CategoryProviderIdentity(it.kind, it.providerKey) to it.categoryKey
         }
-        val categoryKeyByProvider = snapshot.categories.associate { record ->
-            val identity = CategoryProviderIdentity(record.kind, record.providerKey)
-            identity to (
-                existingCategoryKeyByProvider[identity]
-                    ?: StableIdentity.providerCategory(sourceId, record.kind, record.providerKey)
+        val categoryKeyByProvider = existingCategoryKeyByProvider.toMutableMap().apply {
+            snapshot.categories.forEach { record ->
+                val identity = CategoryProviderIdentity(record.kind, record.providerKey)
+                put(
+                    identity,
+                    existingCategoryKeyByProvider[identity]
+                        ?: StableIdentity.providerCategory(sourceId, record.kind, record.providerKey),
                 )
+            }
         }
 
         val categories = snapshot.categories.map { record ->

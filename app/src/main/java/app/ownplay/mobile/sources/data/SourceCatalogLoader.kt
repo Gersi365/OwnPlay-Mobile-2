@@ -8,6 +8,9 @@ import app.ownplay.mobile.sources.data.xtream.XtreamClient
 import app.ownplay.mobile.sources.data.xtream.XtreamClientException
 import app.ownplay.mobile.sources.data.xtream.XtreamClientFailureCategory
 import app.ownplay.mobile.sources.data.xtream.XtreamConnection
+import app.ownplay.mobile.sources.data.xtream.XtreamCategory
+import app.ownplay.mobile.sources.data.xtream.XtreamLiveStream
+import app.ownplay.mobile.sources.data.xtream.XtreamLiveCategoryAttribution
 import app.ownplay.mobile.sources.data.xtream.XtreamLiveStreamIdentity
 import app.ownplay.mobile.sources.domain.SourceId
 import app.ownplay.mobile.sources.domain.SourceRefreshFailureCategory
@@ -16,7 +19,10 @@ import java.net.SocketTimeoutException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 
 class DefaultSourceCatalogLoader(
@@ -62,24 +68,58 @@ class DefaultSourceCatalogLoader(
             password = credential.password,
         )
 
-        val liveCategoriesDeferred = async { xtreamClient.liveCategories(connection) }
-        val liveStreamsDeferred = async { xtreamClient.liveStreams(connection) }
-        val movieCategoriesDeferred = async { xtreamClient.movieCategories(connection) }
-        val moviesDeferred = async { xtreamClient.movies(connection) }
-        val seriesCategoriesDeferred = async { xtreamClient.seriesCategories(connection) }
-        val seriesDeferred = async { xtreamClient.series(connection) }
+        val accountInfoDeferred = async { loadSection { xtreamClient.accountInfo(connection) } }
+        val liveCategoriesDeferred = async { loadSection { xtreamClient.liveCategories(connection) } }
+        val liveStreamsDeferred = async { loadSection { xtreamClient.liveStreams(connection) } }
+        val movieCategoriesDeferred = async { loadSection { xtreamClient.movieCategories(connection) } }
+        val moviesDeferred = async { loadSection { xtreamClient.movies(connection) } }
+        val seriesCategoriesDeferred = async { loadSection { xtreamClient.seriesCategories(connection) } }
+        val seriesDeferred = async { loadSection { xtreamClient.series(connection) } }
 
+        val accountInfo = accountInfoDeferred.await()
         val liveCategories = liveCategoriesDeferred.await()
-        val liveStreams = liveStreamsDeferred.await()
+        val globalLiveStreams = liveStreamsDeferred.await()
+        val liveStreams = recoverLiveCategoryAttribution(
+            connection = connection,
+            categories = liveCategories,
+            streams = globalLiveStreams,
+        )
         val movieCategories = movieCategoriesDeferred.await()
         val movies = moviesDeferred.await()
         val seriesCategories = seriesCategoriesDeferred.await()
         val series = seriesDeferred.await()
 
+        val coreSections = listOf(liveCategories, liveStreams, movieCategories, movies, seriesCategories, series)
+        coreSections.mapNotNull(SectionLoad<*>::error).firstOrNull { error ->
+            error.refreshCategory() == SourceRefreshFailureCategory.AUTHENTICATION
+        }?.let { error ->
+            throw CatalogLoadException(SourceRefreshFailureCategory.AUTHENTICATION, error)
+        }
+        if (coreSections.none(SectionLoad<*>::isSuccess)) {
+            val failures = coreSections.mapNotNull(SectionLoad<*>::error)
+            val category = failures
+                .map { error -> error.refreshCategory() }
+                .minByOrNull(::refreshFailurePriority)
+                ?: SourceRefreshFailureCategory.UNKNOWN
+            throw CatalogLoadException(category, failures.firstOrNull())
+        }
+
+        val preferredLiveExtension = XtreamLiveStreamIdentity.preferredSupportedExtension(
+            accountInfo.valueOrNull()?.allowedOutputFormats.orEmpty(),
+        )
+        val authoritative = buildSet {
+            if (liveCategories.isSuccess) add(CatalogSection.LIVE_CATEGORIES)
+            if (liveStreams.isSuccess) add(CatalogSection.LIVE_CHANNELS)
+            if (movieCategories.isSuccess) add(CatalogSection.MOVIE_CATEGORIES)
+            if (movies.isSuccess) add(CatalogSection.MOVIES)
+            if (seriesCategories.isSuccess) add(CatalogSection.SERIES_CATEGORIES)
+            if (series.isSuccess) add(CatalogSection.SERIES)
+        }
+
         ProviderCatalogSnapshot(
             sourceType = SourceType.XTREAM,
             categories = buildList {
-                addAll(liveCategories.map { category ->
+                addAll(liveCategories.valueOrNull().orEmpty().map { category ->
                     ProviderCategoryRecord(
                         kind = KIND_LIVE,
                         providerKey = category.providerCategoryId,
@@ -87,7 +127,7 @@ class DefaultSourceCatalogLoader(
                         providerOrder = category.providerOrder,
                     )
                 })
-                addAll(movieCategories.map { category ->
+                addAll(movieCategories.valueOrNull().orEmpty().map { category ->
                     ProviderCategoryRecord(
                         kind = KIND_MOVIE,
                         providerKey = category.providerCategoryId,
@@ -95,7 +135,7 @@ class DefaultSourceCatalogLoader(
                         providerOrder = category.providerOrder,
                     )
                 })
-                addAll(seriesCategories.map { category ->
+                addAll(seriesCategories.valueOrNull().orEmpty().map { category ->
                     ProviderCategoryRecord(
                         kind = KIND_SERIES,
                         providerKey = category.providerCategoryId,
@@ -104,7 +144,7 @@ class DefaultSourceCatalogLoader(
                     )
                 })
             }.distinctBy { it.kind to it.providerKey },
-            liveChannels = liveStreams.map { stream ->
+            liveChannels = liveStreams.valueOrNull().orEmpty().map { stream ->
                 ProviderLiveChannelRecord(
                     proposedChannelId = StableIdentity.xtreamLiveChannel(sourceId, stream.streamId),
                     providerKey = stream.streamId,
@@ -116,12 +156,12 @@ class DefaultSourceCatalogLoader(
                     logoUrl = stream.logoUrl,
                     streamLocator = XtreamLiveStreamIdentity.encode(
                         streamId = stream.streamId,
-                        containerExtension = stream.containerExtension,
+                        containerExtension = stream.containerExtension ?: preferredLiveExtension,
                     ),
                     providerOrder = stream.providerOrder,
                 )
             }.distinctBy(ProviderLiveChannelRecord::proposedChannelId),
-            movies = movies.map { movie ->
+            movies = movies.valueOrNull().orEmpty().map { movie ->
                 ProviderMovieRecord(
                     proposedMovieId = StableIdentity.xtreamMovie(sourceId, movie.streamId),
                     providerStreamId = movie.streamId,
@@ -134,7 +174,7 @@ class DefaultSourceCatalogLoader(
                     providerOrder = movie.providerOrder,
                 )
             }.distinctBy(ProviderMovieRecord::proposedMovieId),
-            series = series.map { item ->
+            series = series.valueOrNull().orEmpty().map { item ->
                 ProviderSeriesRecord(
                     proposedSeriesId = StableIdentity.xtreamSeries(sourceId, item.seriesId),
                     providerSeriesId = item.seriesId,
@@ -147,6 +187,7 @@ class DefaultSourceCatalogLoader(
                     providerOrder = item.providerOrder,
                 )
             }.distinctBy(ProviderSeriesRecord::proposedSeriesId),
+            authoritativeSections = authoritative,
         )
     }
 
@@ -213,10 +254,96 @@ class DefaultSourceCatalogLoader(
         )
     }
 
+    private suspend fun recoverLiveCategoryAttribution(
+        connection: XtreamConnection,
+        categories: SectionLoad<List<XtreamCategory>>,
+        streams: SectionLoad<List<XtreamLiveStream>>,
+    ): SectionLoad<List<XtreamLiveStream>> {
+        if (!categories.isSuccess || !streams.isSuccess) return streams
+        val categoryRows = categories.valueOrNull().orEmpty()
+        val globalRows = streams.valueOrNull().orEmpty()
+        val categoryIds = categoryRows
+            .mapNotNull { XtreamLiveCategoryAttribution.normalizeProviderCategoryId(it.providerCategoryId) }
+            .distinct()
+        if (!XtreamLiveCategoryAttribution.needsRecovery(
+                knownCategoryIds = categoryIds,
+                streamCategoryIds = globalRows.map(XtreamLiveStream::categoryId),
+            )
+        ) {
+            return streams
+        }
+
+        val gate = Semaphore(XTREAM_CATEGORY_RECOVERY_CONCURRENCY)
+        val scopedMemberships = coroutineScope {
+            categoryIds.map { categoryId ->
+                async {
+                    gate.withPermit {
+                        val scoped = try {
+                            xtreamClient.liveStreams(connection, categoryId)
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (_: Exception) {
+                            emptyList()
+                        }
+                        categoryId to scoped.map(XtreamLiveStream::streamId)
+                    }
+                }
+            }.awaitAll()
+        }
+        val recovered = XtreamLiveCategoryAttribution.recoveredCategoryByStreamId(scopedMemberships)
+        if (recovered.isEmpty()) return streams
+        val known = categoryIds.toSet()
+        return SectionLoad(
+            value = globalRows.map { stream ->
+                val existing = XtreamLiveCategoryAttribution
+                    .normalizeProviderCategoryId(stream.categoryId)
+                    ?.takeIf(known::contains)
+                stream.copy(categoryId = existing ?: recovered[stream.streamId])
+            },
+        )
+    }
+
+    private data class SectionLoad<T>(
+        val value: T? = null,
+        val error: Throwable? = null,
+    ) {
+        val isSuccess: Boolean get() = error == null
+        fun valueOrNull(): T? = if (isSuccess) value else null
+    }
+
+    private suspend fun <T> loadSection(block: suspend () -> T): SectionLoad<T> =
+        try {
+            SectionLoad(value = block())
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Throwable) {
+            SectionLoad(error = error)
+        }
+
+    private fun Throwable.refreshCategory(): SourceRefreshFailureCategory = when (this) {
+        is CatalogLoadException -> category
+        is XtreamClientException -> category.toRefreshCategory()
+        is M3uClientException -> category.toRefreshCategory()
+        is ProviderTransportException -> toRefreshCategory()
+        else -> SourceRefreshFailureCategory.UNKNOWN
+    }
+
+    private fun refreshFailurePriority(category: SourceRefreshFailureCategory): Int = when (category) {
+        SourceRefreshFailureCategory.AUTHENTICATION -> 0
+        SourceRefreshFailureCategory.TIMEOUT -> 1
+        SourceRefreshFailureCategory.NETWORK -> 2
+        SourceRefreshFailureCategory.TRANSIENT_PROVIDER -> 3
+        SourceRefreshFailureCategory.PROVIDER -> 4
+        SourceRefreshFailureCategory.INVALID_PAYLOAD -> 5
+        SourceRefreshFailureCategory.STORAGE -> 6
+        SourceRefreshFailureCategory.UNKNOWN -> 7
+    }
+
     private fun XtreamClientFailureCategory.toRefreshCategory(): SourceRefreshFailureCategory =
         when (this) {
             XtreamClientFailureCategory.AUTHENTICATION -> SourceRefreshFailureCategory.AUTHENTICATION
             XtreamClientFailureCategory.PROVIDER -> SourceRefreshFailureCategory.PROVIDER
+            XtreamClientFailureCategory.TRANSIENT_PROVIDER -> SourceRefreshFailureCategory.TRANSIENT_PROVIDER
             XtreamClientFailureCategory.INVALID_PAYLOAD -> SourceRefreshFailureCategory.INVALID_PAYLOAD
         }
 
@@ -224,6 +351,7 @@ class DefaultSourceCatalogLoader(
         when (this) {
             M3uClientFailureCategory.AUTHENTICATION -> SourceRefreshFailureCategory.AUTHENTICATION
             M3uClientFailureCategory.PROVIDER -> SourceRefreshFailureCategory.PROVIDER
+            M3uClientFailureCategory.TRANSIENT_PROVIDER -> SourceRefreshFailureCategory.TRANSIENT_PROVIDER
             M3uClientFailureCategory.INVALID_PAYLOAD -> SourceRefreshFailureCategory.INVALID_PAYLOAD
         }
 
@@ -242,5 +370,6 @@ class DefaultSourceCatalogLoader(
         const val KIND_MOVIE = "MOVIE"
         const val KIND_SERIES = "SERIES"
         private const val PROVIDER_OTHER = "Other"
+        private const val XTREAM_CATEGORY_RECOVERY_CONCURRENCY = 4
     }
 }

@@ -26,4 +26,25 @@ class LiveChannelDisplayPolicyTest {
             LiveChannelDisplayPolicy.displayName(channel.copy(tvgName = "  "), preferTvgName = true),
         )
     }
+    @Test
+    fun prefixCleanupIsOptInAndKeepsMalformedNames() {
+        val prefixed = channel.copy(name = "AL |   Top Channel", tvgName = null)
+        assertEquals(
+            "AL |   Top Channel",
+            LiveChannelDisplayPolicy.displayName(prefixed, preferTvgName = false, hideChannelPrefix = false),
+        )
+        assertEquals(
+            "Top Channel",
+            LiveChannelDisplayPolicy.displayName(prefixed, preferTvgName = false, hideChannelPrefix = true),
+        )
+        assertEquals(
+            "| Channel",
+            LiveChannelDisplayPolicy.displayName(
+                prefixed.copy(name = "| Channel"),
+                preferTvgName = false,
+                hideChannelPrefix = true,
+            ),
+        )
+    }
+
 }

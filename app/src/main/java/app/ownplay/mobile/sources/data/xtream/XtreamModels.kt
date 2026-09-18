@@ -9,10 +9,20 @@ data class XtreamConnection(
         "XtreamConnection(baseUrl=<redacted>, username=<redacted>, password=<redacted>)"
 }
 
+data class XtreamAccountInfo(
+    val allowedOutputFormats: List<String>,
+)
+
 data class XtreamCategory(
     val providerCategoryId: String,
     val name: String,
     val providerOrder: Int,
+)
+
+data class XtreamEpgEntry(
+    val title: String,
+    val startEpochSeconds: Long?,
+    val endEpochSeconds: Long?,
 )
 
 data class XtreamLiveStream(

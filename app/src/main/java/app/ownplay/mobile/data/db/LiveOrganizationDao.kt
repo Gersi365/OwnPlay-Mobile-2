@@ -49,6 +49,18 @@ interface LiveOrganizationDao {
 
     @Query(
         """
+        SELECT p.*
+        FROM channel_personalization AS p
+        INNER JOIN live_channels AS c ON c.channelId = p.channelId
+        WHERE c.sourceId = :sourceId
+          AND c.available = 1
+        ORDER BY c.providerOrder, c.channelId
+        """,
+    )
+    fun observeChannelPersonalization(sourceId: String): Flow<List<ChannelPersonalizationEntity>>
+
+    @Query(
+        """
         SELECT * FROM ownplay_live_categories
         WHERE sourceId = :sourceId
         ORDER BY categoryId
@@ -130,6 +142,12 @@ interface LiveOrganizationDao {
         """,
     )
     suspend fun getAvailableChannel(sourceId: String, channelId: String): LiveChannelEntity?
+
+    @Query("SELECT * FROM channel_personalization WHERE channelId = :channelId LIMIT 1")
+    suspend fun getChannelPersonalization(channelId: String): ChannelPersonalizationEntity?
+
+    @Upsert
+    suspend fun upsertChannelPersonalization(row: ChannelPersonalizationEntity)
 
     @Query(
         """

@@ -192,6 +192,28 @@ class PlaybackSessionControllerTest {
     }
 
     @Test
+    fun playPauseControlsPreserveExplicitUserIntent() = runBlocking {
+        val engine = FakeEngine()
+        val controller = PlaybackSessionController(FakeResolver(), FakePreparer(), engine)
+        val target = PlaybackTarget.LiveChannel(SourceId("source-a"), "channel-a")
+
+        controller.activateLiveChannel(target)
+        assertTrue(controller.state.value.playWhenReady)
+
+        assertTrue(controller.pause())
+        assertFalse(controller.state.value.playWhenReady)
+        assertEquals(1, engine.pauseCalls)
+
+        assertTrue(controller.play())
+        assertTrue(controller.state.value.playWhenReady)
+        assertEquals(1, engine.playCalls)
+
+        controller.clear()
+        assertFalse(controller.play())
+        assertFalse(controller.pause())
+    }
+
+    @Test
     fun decoderFailureUsesExplicitFallbackOnceAndNeverLoops() = runBlocking {
         val engine = FakeEngine()
         val controller = PlaybackSessionController(
@@ -404,6 +426,8 @@ class PlaybackSessionControllerTest {
         val replacedMedia = mutableListOf<PreparedPlaybackMedia>()
         var clearCount: Int = 0
         var releaseCount: Int = 0
+        var playCalls: Int = 0
+        var pauseCalls: Int = 0
         var activeRevision: Long = 0L
             private set
         var audioSelectionResult: PlaybackEngineSelectionResult =
@@ -431,6 +455,16 @@ class PlaybackSessionControllerTest {
 
         override fun selectSubtitleTrack(trackId: String?): PlaybackEngineSelectionResult =
             subtitleSelectionResult
+
+        override fun play(): Boolean {
+            playCalls += 1
+            return activeRevision != 0L
+        }
+
+        override fun pause(): Boolean {
+            pauseCalls += 1
+            return activeRevision != 0L
+        }
 
         override fun clear() {
             clearCount += 1

@@ -6,6 +6,15 @@ import org.junit.Test
 
 class XtreamPayloadParserTest {
     @Test
+    fun `account info preserves provider allowed output format order`() {
+        val info = XtreamPayloadParser.accountInfo(
+            """{"user_info":{"allowed_output_formats":["m3u8","ts"]}}""",
+        )
+
+        assertEquals(listOf("m3u8", "ts"), info.allowedOutputFormats)
+    }
+
+    @Test
     fun `categories preserve provider array order`() {
         val categories = XtreamPayloadParser.categories(
             """
@@ -148,4 +157,26 @@ class XtreamPayloadParserTest {
 
         assertEquals(emptyList<XtreamSeriesEpisode>(), detail.episodes)
     }
+    @Test
+    fun `short epg decodes provider title and timestamps`() {
+        val entries = XtreamPayloadParser.shortEpg(
+            """
+            {
+              "epg_listings": [
+                {
+                  "title": "TmV3cyAmYW1wOyBXZWF0aGVy",
+                  "start_timestamp": "1700000000",
+                  "stop_timestamp": 1700003600
+                }
+              ]
+            }
+            """.trimIndent(),
+        )
+
+        assertEquals(1, entries.size)
+        assertEquals("News & Weather", entries.single().title)
+        assertEquals(1_700_000_000L, entries.single().startEpochSeconds)
+        assertEquals(1_700_003_600L, entries.single().endEpochSeconds)
+    }
+
 }

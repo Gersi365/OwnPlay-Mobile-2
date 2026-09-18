@@ -119,6 +119,23 @@ class PlaybackSessionController internal constructor(
             fallbackReason = null,
         )
 
+    fun play(): Boolean {
+        val current = mutableState.value
+        if (current.target == null || current.readiness == PlaybackReadiness.UNAVAILABLE) return false
+        if (!playbackEngine.play()) return false
+        mutableState.value = current.copy(playWhenReady = true)
+        return true
+    }
+
+    fun pause(): Boolean {
+        val current = mutableState.value
+        if (current.target == null || current.readiness == PlaybackReadiness.UNAVAILABLE) return false
+        if (!playbackEngine.pause()) return false
+        checkpointActiveLibraryProgress()
+        mutableState.value = current.copy(playWhenReady = false)
+        return true
+    }
+
     fun reconcileActiveSource(activeSourceId: SourceId?) {
         val target = mutableState.value.target ?: return
         if (activeSourceId != target.sourceId) {
@@ -205,7 +222,10 @@ class PlaybackSessionController internal constructor(
         if (mutableState.value.target != target) return false
 
         if (media == null) {
-            mutableState.value = mutableState.value.copy(readiness = PlaybackReadiness.UNAVAILABLE)
+            mutableState.value = mutableState.value.copy(
+                readiness = PlaybackReadiness.UNAVAILABLE,
+                playWhenReady = false,
+            )
             return false
         }
 
@@ -224,7 +244,10 @@ class PlaybackSessionController internal constructor(
         } catch (_: Exception) {
             resetActiveMedia()
             playbackEngine.clear()
-            mutableState.value = mutableState.value.copy(readiness = PlaybackReadiness.UNAVAILABLE)
+            mutableState.value = mutableState.value.copy(
+                readiness = PlaybackReadiness.UNAVAILABLE,
+                playWhenReady = false,
+            )
             false
         }
     }
@@ -302,6 +325,7 @@ class PlaybackSessionController internal constructor(
                     checkpointActiveLibraryProgress()
                     mutableState.value = mutableState.value.copy(
                         readiness = PlaybackReadiness.PREPARED,
+                        playWhenReady = false,
                         fallback = mutableState.value.fallback.copy(active = false),
                     )
                     return
@@ -319,6 +343,7 @@ class PlaybackSessionController internal constructor(
                 if (!maybeAttemptFallback(fallbackReason)) {
                     mutableState.value = mutableState.value.copy(
                         readiness = PlaybackReadiness.UNAVAILABLE,
+                        playWhenReady = false,
                         fallback = mutableState.value.fallback.copy(active = false),
                     )
                 }
@@ -359,6 +384,7 @@ class PlaybackSessionController internal constructor(
             playbackEngine.clear()
             mutableState.value = mutableState.value.copy(
                 readiness = PlaybackReadiness.UNAVAILABLE,
+                playWhenReady = false,
                 fallback = PlaybackFallbackState(
                     attempted = true,
                     active = false,

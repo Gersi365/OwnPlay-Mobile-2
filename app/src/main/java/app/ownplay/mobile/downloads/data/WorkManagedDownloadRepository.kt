@@ -7,21 +7,29 @@ import app.ownplay.mobile.downloads.domain.DownloadRepository
 import app.ownplay.mobile.downloads.domain.DownloadRequest
 import app.ownplay.mobile.downloads.domain.DownloadStatus
 import app.ownplay.mobile.sources.domain.SourceId
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 
 internal class WorkManagedDownloadRepository(
     private val delegate: DownloadRepository,
     private val scheduler: DownloadWorkScheduler,
     private val storage: DownloadStorage,
     private val notifications: DownloadNotificationEvents,
+    private val availabilityProbe: DownloadedMediaAvailabilityProbe,
 ) : DownloadRepository {
     override fun observeDownloads(sourceId: SourceId): Flow<List<DownloadItem>> =
-        delegate.observeDownloads(sourceId)
+        delegate.observeDownloads(sourceId).map { items ->
+            items.map { item -> reconcileCompletedOutput(item) }
+        }
 
     override fun observeDownload(downloadId: DownloadId): Flow<DownloadItem?> =
-        delegate.observeDownload(downloadId)
+        delegate.observeDownload(downloadId).map { item ->
+            item?.let { reconcileCompletedOutput(it) }
+        }
 
-    override suspend fun get(downloadId: DownloadId): DownloadItem? = delegate.get(downloadId)
+    override suspend fun get(downloadId: DownloadId): DownloadItem? =
+        delegate.get(downloadId)?.let { reconcileCompletedOutput(it) }
 
     override suspend fun enqueue(request: DownloadRequest): DownloadItem {
         val item = delegate.enqueue(request)
@@ -67,7 +75,9 @@ internal class WorkManagedDownloadRepository(
         localReference: String,
         verifiedBytes: Long,
         sha256: String?,
-    ): Boolean = delegate.complete(downloadId, localReference, verifiedBytes, sha256)
+    ): Boolean {
+        return delegate.complete(downloadId, localReference, verifiedBytes, sha256)
+    }
 
     override suspend fun fail(
         downloadId: DownloadId,
@@ -85,7 +95,25 @@ internal class WorkManagedDownloadRepository(
             return false
         }
         val removed = delegate.remove(downloadId)
-        if (removed) notifications.cancelAll(downloadId)
+        if (removed) {
+            notifications.cancelAll(downloadId)
+        }
         return removed
+    }
+
+    private suspend fun reconcileCompletedOutput(item: DownloadItem): DownloadItem {
+        if (item.status != DownloadStatus.COMPLETED) return item
+
+        val available = try {
+            availabilityProbe.isAvailable(item)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            false
+        }
+        if (available) return item
+
+        if (!delegate.fail(item.downloadId, DownloadFailureCode.INTEGRITY)) return item
+        return delegate.get(item.downloadId) ?: item
     }
 }

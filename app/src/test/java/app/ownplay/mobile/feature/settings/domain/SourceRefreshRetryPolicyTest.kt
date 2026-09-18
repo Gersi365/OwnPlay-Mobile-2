@@ -10,6 +10,7 @@ class SourceRefreshRetryPolicyTest {
     fun retriesOnlyTransientNetworkFailures() {
         assertTrue(SourceRefreshRetryPolicy.shouldRetry(SourceRefreshFailureCategory.NETWORK))
         assertTrue(SourceRefreshRetryPolicy.shouldRetry(SourceRefreshFailureCategory.TIMEOUT))
+        assertTrue(SourceRefreshRetryPolicy.shouldRetry(SourceRefreshFailureCategory.TRANSIENT_PROVIDER))
         assertFalse(SourceRefreshRetryPolicy.shouldRetry(SourceRefreshFailureCategory.AUTHENTICATION))
         assertFalse(SourceRefreshRetryPolicy.shouldRetry(SourceRefreshFailureCategory.INVALID_PAYLOAD))
         assertFalse(SourceRefreshRetryPolicy.shouldRetry(SourceRefreshFailureCategory.PROVIDER))

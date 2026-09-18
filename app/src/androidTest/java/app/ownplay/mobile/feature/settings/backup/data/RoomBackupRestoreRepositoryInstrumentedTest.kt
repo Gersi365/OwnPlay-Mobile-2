@@ -127,7 +127,7 @@ class RoomBackupRestoreRepositoryInstrumentedTest {
                 ),
                 activeSourceId = "source-restored",
                 globalSettings = BackupGlobalSettings(
-                    display = DisplayPreferences(compactMediaRows = true, showChannelLogos = false, preferTvgName = true),
+                    display = DisplayPreferences(compactMediaRows = true, showChannelLogos = false, preferTvgName = true, hideChannelPrefix = true),
                     playback = PlaybackPreferences(automaticPictureInPicture = false),
                     downloads = DownloadPreferences(unmeteredNetworkOnly = true),
                 ),
@@ -190,6 +190,7 @@ private class FakeDisplayRepository : DisplayPreferencesRepository {
     override suspend fun setCompactMediaRows(enabled: Boolean): Boolean = update { copy(compactMediaRows = enabled) }
     override suspend fun setShowChannelLogos(enabled: Boolean): Boolean = update { copy(showChannelLogos = enabled) }
     override suspend fun setPreferTvgName(enabled: Boolean): Boolean = update { copy(preferTvgName = enabled) }
+    override suspend fun setHideChannelPrefix(enabled: Boolean): Boolean = update { copy(hideChannelPrefix = enabled) }
 
     private fun update(block: DisplayPreferences.() -> DisplayPreferences): Boolean {
         state.value = state.value.block()

@@ -42,6 +42,7 @@ data class LiveOrganizationChannel(
     val providerCategoryId: String?,
     val providerOrder: Int,
     val logoUrl: String? = null,
+    val localName: String? = null,
 )
 
 data class OwnPlayCountryScope(
@@ -110,6 +111,8 @@ interface LiveOrganizationRepository {
     fun observeFavoriteChannelIds(sourceId: SourceId): Flow<Set<String>>
 
     suspend fun setMode(sourceId: SourceId, mode: LiveOrganizationMode): Boolean
+
+    suspend fun setFavorite(sourceId: SourceId, channelId: String, favorite: Boolean): Boolean
 
     suspend fun setProviderCategoryHidden(
         sourceId: SourceId,

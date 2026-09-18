@@ -14,6 +14,33 @@ object XtreamPayloadParser {
         isLenient = true
     }
 
+    fun accountInfo(body: String): XtreamAccountInfo {
+        val root = json.parseToJsonElement(body) as? JsonObject
+            ?: return XtreamAccountInfo(emptyList())
+        val userInfo = root["user_info"] as? JsonObject
+        val formats = (userInfo?.get("allowed_output_formats") as? JsonArray)
+            ?.mapNotNull { element -> (element as? JsonPrimitive)?.contentOrNull }
+            .orEmpty()
+        return XtreamAccountInfo(allowedOutputFormats = formats)
+    }
+
+    fun shortEpg(body: String): List<XtreamEpgEntry> {
+        val root = json.parseToJsonElement(body) as? JsonObject ?: return emptyList()
+        val listings = root["epg_listings"] as? JsonArray ?: return emptyList()
+        return listings.mapNotNull { element ->
+            val item = element as? JsonObject ?: return@mapNotNull null
+            val title = item.text("title")
+                ?.let(XtreamEpgTextPolicy::decode)
+                ?.takeIf(String::isNotBlank)
+                ?: return@mapNotNull null
+            XtreamEpgEntry(
+                title = title,
+                startEpochSeconds = item.long("start_timestamp"),
+                endEpochSeconds = item.long("stop_timestamp"),
+            )
+        }
+    }
+
     fun categories(body: String): List<XtreamCategory> =
         parseArray(body).mapIndexedNotNull { index, element ->
             val objectValue = element as? JsonObject ?: return@mapIndexedNotNull null

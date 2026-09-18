@@ -20,6 +20,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -42,7 +43,11 @@ import androidx.compose.ui.window.DialogProperties
 import app.ownplay.mobile.OwnPlayApplication
 import app.ownplay.mobile.design.OwnPlayColors
 import app.ownplay.mobile.design.OwnPlayFeaturePlaceholder
+import app.ownplay.mobile.feature.live.domain.LiveGuidePolicy
+import app.ownplay.mobile.feature.live.domain.LiveGuideRepository
+import app.ownplay.mobile.feature.live.domain.LiveNowNext
 import app.ownplay.mobile.feature.live.domain.LiveOrganizationChannel
+import app.ownplay.mobile.feature.live.domain.LiveProgram
 import app.ownplay.mobile.feature.live.domain.LiveOrganizationMode
 import app.ownplay.mobile.feature.live.domain.LiveOrganizationRepository
 import app.ownplay.mobile.feature.live.domain.OwnPlayCountryScope
@@ -61,6 +66,9 @@ import app.ownplay.mobile.feature.playback.domain.PlaybackTarget
 import app.ownplay.mobile.feature.playback.ui.PlaybackVideoSurface
 import app.ownplay.mobile.feature.settings.domain.DisplayPreferences
 import app.ownplay.mobile.sources.domain.SourceSummary
+import java.text.DateFormat
+import java.util.Date
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @Composable
@@ -107,12 +115,14 @@ fun LiveScreen(
     LiveSourceScreen(
         source = source,
         repository = services.liveOrganizationRepository,
+        guideRepository = services.liveGuideRepository,
         playbackSessionController = services.playbackSessionController,
         playbackEngine = services.playbackEngine,
         artworkLoader = services.libraryArtworkLoader,
         compactMediaRows = displayPreferences.compactMediaRows,
         showChannelLogos = displayPreferences.showChannelLogos,
         preferTvgName = displayPreferences.preferTvgName,
+        hideChannelPrefix = displayPreferences.hideChannelPrefix,
         catalogLoadError = initialRefreshError,
         catalogLoading = initialRefreshInProgress,
         modifier = modifier,
@@ -124,12 +134,14 @@ fun LiveScreen(
 private fun LiveSourceScreen(
     source: SourceSummary,
     repository: LiveOrganizationRepository,
+    guideRepository: LiveGuideRepository,
     playbackSessionController: PlaybackSessionController,
     playbackEngine: Media3PlaybackEngine,
     artworkLoader: LibraryArtworkLoader,
     compactMediaRows: Boolean,
     showChannelLogos: Boolean,
     preferTvgName: Boolean,
+    hideChannelPrefix: Boolean,
     catalogLoadError: String?,
     catalogLoading: Boolean,
     modifier: Modifier,
@@ -161,6 +173,7 @@ private fun LiveSourceScreen(
     }
     var requestedProviderCategoryId by rememberSaveable(sourceId.value) { mutableStateOf<String?>(null) }
     var favoritesOnly by rememberSaveable(sourceId.value) { mutableStateOf(false) }
+    var searchQuery by rememberSaveable(sourceId.value) { mutableStateOf("") }
     var movingChannelId by remember { mutableStateOf<String?>(null) }
     var moveCountryId by remember { mutableStateOf<String?>(null) }
     var moveSemanticName by remember { mutableStateOf(OwnPlayLiveSemanticCategory.GENERAL.name) }
@@ -191,9 +204,15 @@ private fun LiveSourceScreen(
         ?.takeIf { it.sourceId == sourceId }
     val playbackChannelName = playbackTarget?.let { target ->
         channelById[target.channelId]
-            ?.let { channel -> LiveChannelDisplayPolicy.displayName(channel, preferTvgName) }
+            ?.let { channel -> LiveChannelDisplayPolicy.displayName(
+                    channel,
+                    preferTvgName,
+                    hideChannelPrefix && mode == LiveOrganizationMode.OWNPLAY,
+                ) }
             ?: "Live channel"
     }
+    val selectedGuide = rememberLiveGuide(guideRepository, sourceId, playbackTarget?.channelId)
+    val epgNowEpochSeconds = rememberEpgClock()
     val visibleChannelIds = remember(
         mode,
         ownPlayCatalog,
@@ -203,8 +222,17 @@ private fun LiveSourceScreen(
         selectedProviderCategoryId,
         favoritesOnly,
         favoriteChannelIds,
+        searchQuery,
+        displayChannels,
     ) {
-        if (mode == LiveOrganizationMode.OWNPLAY) {
+        if (searchQuery.isNotBlank()) {
+            LiveBrowseStatePolicy.searchChannelIds(
+                channels = displayChannels,
+                query = searchQuery,
+                favoritesOnly = favoritesOnly,
+                favoriteChannelIds = favoriteChannelIds,
+            )
+        } else if (mode == LiveOrganizationMode.OWNPLAY) {
             LiveBrowseStatePolicy.visibleOwnPlayChannelIds(
                 catalog = ownPlayCatalog,
                 countryId = selectedCountryId,
@@ -225,11 +253,23 @@ private fun LiveSourceScreen(
         visibleChannelIds.mapNotNull(channelById::get)
     }
 
+    LaunchedEffect(visibleChannelIds, playbackTarget, playbackState.presentation) {
+        if (
+            LiveBrowseStatePolicy.shouldDismissPreview(
+                selectedChannelId = playbackTarget?.channelId,
+                visibleChannelIds = visibleChannelIds,
+                isPreview = playbackState.presentation == PlaybackPresentation.PREVIEW,
+            )
+        ) {
+            playbackSessionController.clear()
+        }
+    }
+
     Column(
         modifier = modifier
             .fillMaxSize()
-            .padding(horizontal = 20.dp, vertical = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -253,8 +293,16 @@ private fun LiveSourceScreen(
             )
         }
 
+        OutlinedTextField(
+            value = searchQuery,
+            onValueChange = { searchQuery = it },
+            label = { Text("Search channels") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
+
         if (mode == LiveOrganizationMode.OWNPLAY) {
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 items(ownPlayCatalog.countries, key = { it.countryId }) { country ->
                     FilterChip(
                         selected = country.countryId == selectedCountryId,
@@ -264,7 +312,7 @@ private fun LiveSourceScreen(
                 }
             }
 
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 items(OwnPlayLiveSemanticCategory.canonicalOrder, key = { it.name }) { category ->
                     FilterChip(
                         selected = category == selectedSemantic,
@@ -274,7 +322,7 @@ private fun LiveSourceScreen(
                 }
             }
         } else {
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 items(providerOptions, key = { it.categoryId }) { category ->
                     FilterChip(
                         selected = category.categoryId == selectedProviderCategoryId,
@@ -292,6 +340,8 @@ private fun LiveSourceScreen(
         ) {
             PlaybackPreviewCard(
                 channelName = playbackChannelName,
+                guide = selectedGuide,
+                nowEpochSeconds = epgNowEpochSeconds,
                 readiness = playbackState.readiness,
                 playbackEngine = playbackEngine,
                 onFullscreen = playbackSessionController::enterFullscreen,
@@ -319,16 +369,22 @@ private fun LiveSourceScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f),
-                verticalArrangement = Arrangement.spacedBy(if (compactMediaRows) 4.dp else 8.dp),
+                verticalArrangement = Arrangement.spacedBy(if (compactMediaRows) 3.dp else 6.dp),
             ) {
                 items(visibleChannels, key = { it.channelId }) { channel ->
+                    val guide = rememberLiveGuide(guideRepository, sourceId, channel.channelId)
                     LiveChannelRow(
                         channel = channel,
+                        guide = guide,
+                        nowEpochSeconds = epgNowEpochSeconds,
+                        selected = playbackTarget?.channelId == channel.channelId,
+                        favorite = channel.channelId in favoriteChannelIds,
                         ownPlayMode = mode == LiveOrganizationMode.OWNPLAY,
                         hasManualPlacement = channel.channelId in ownPlayCatalog.manualPlacementChannelIds,
                         compact = compactMediaRows,
                         showLogo = showChannelLogos,
                         preferTvgName = preferTvgName,
+                        hideChannelPrefix = hideChannelPrefix && mode == LiveOrganizationMode.OWNPLAY,
                         artworkLoader = artworkLoader,
                         onActivate = {
                             scope.launch {
@@ -338,6 +394,18 @@ private fun LiveSourceScreen(
                                         channelId = channel.channelId,
                                     ),
                                 )
+                            }
+                        },
+                        onFavorite = {
+                            scope.launch {
+                                if (!repository.setFavorite(
+                                        sourceId = sourceId,
+                                        channelId = channel.channelId,
+                                        favorite = channel.channelId !in favoriteChannelIds,
+                                    )
+                                ) {
+                                    operationMessage = "Favorite could not be updated."
+                                }
                             }
                         },
                         onMove = {
@@ -403,6 +471,8 @@ private fun LiveSourceScreen(
     ) {
         PlaybackFullscreenPresentation(
             channelName = playbackChannelName,
+            guide = selectedGuide,
+            nowEpochSeconds = epgNowEpochSeconds,
             readiness = playbackState.readiness,
             playbackEngine = playbackEngine,
             onDismiss = playbackSessionController::returnToPreview,
@@ -413,13 +483,19 @@ private fun LiveSourceScreen(
 @Composable
 private fun LiveChannelRow(
     channel: LiveOrganizationChannel,
+    guide: LiveNowNext,
+    nowEpochSeconds: Long,
+    selected: Boolean,
+    favorite: Boolean,
     ownPlayMode: Boolean,
     hasManualPlacement: Boolean,
     compact: Boolean,
     showLogo: Boolean,
     preferTvgName: Boolean,
+    hideChannelPrefix: Boolean,
     artworkLoader: LibraryArtworkLoader,
     onActivate: () -> Unit,
+    onFavorite: () -> Unit,
     onMove: () -> Unit,
     onReset: () -> Unit,
 ) {
@@ -431,8 +507,8 @@ private fun LiveChannelRow(
     ) {
         Row(
             modifier = Modifier.padding(
-                horizontal = if (compact) 12.dp else 16.dp,
-                vertical = if (compact) 7.dp else 12.dp,
+                horizontal = if (compact) 10.dp else 12.dp,
+                vertical = if (compact) 6.dp else 8.dp,
             ),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -443,18 +519,46 @@ private fun LiveChannelRow(
                     compact = compact,
                     presentation = ArtworkPresentation.CHANNEL_LOGO,
                 )
-                Spacer(modifier = Modifier.width(10.dp))
+                Spacer(modifier = Modifier.width(8.dp))
             }
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = LiveChannelDisplayPolicy.displayName(channel, preferTvgName),
+                    text = LiveChannelDisplayPolicy.displayName(
+                        channel,
+                        preferTvgName,
+                        hideChannelPrefix,
+                    ),
                     color = OwnPlayColors.TextPrimary,
                     fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
                 )
+                guide.now?.let { current ->
+                    Text(
+                        text = currentProgramLine(current, nowEpochSeconds),
+                        color = OwnPlayColors.TextSecondary,
+                        maxLines = 1,
+                    )
+                }
+                if (selected) {
+                    guide.next?.let { next ->
+                        Text(
+                            text = "Next ${programTimeRange(next)} • ${next.title}",
+                            color = OwnPlayColors.TextMuted,
+                            maxLines = 1,
+                        )
+                    }
+                }
                 if (ownPlayMode && hasManualPlacement) {
                     Text(text = "Manual placement", color = OwnPlayColors.TextMuted)
                 }
             }
+            Text(
+                text = if (favorite) "★" else "☆",
+                color = if (favorite) OwnPlayColors.Accent else OwnPlayColors.TextMuted,
+                modifier = Modifier
+                    .clickable(onClick = onFavorite)
+                    .padding(horizontal = 8.dp, vertical = 8.dp),
+            )
             if (ownPlayMode) {
                 TextButton(onClick = onMove) { Text("Move") }
                 if (hasManualPlacement) {
@@ -468,6 +572,8 @@ private fun LiveChannelRow(
 @Composable
 private fun PlaybackPreviewCard(
     channelName: String,
+    guide: LiveNowNext,
+    nowEpochSeconds: Long,
     readiness: PlaybackReadiness,
     playbackEngine: Media3PlaybackEngine,
     onFullscreen: () -> Unit,
@@ -482,7 +588,7 @@ private fun PlaybackPreviewCard(
                     playbackEngine = playbackEngine,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(180.dp),
+                        .height(112.dp),
                 )
                 TextButton(
                     onClick = onFullscreen,
@@ -492,19 +598,28 @@ private fun PlaybackPreviewCard(
                 }
             }
             Column(
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
-                Text(
-                    text = "Preview",
-                    color = OwnPlayColors.TextSecondary,
-                    fontWeight = FontWeight.SemiBold,
-                )
                 Text(
                     text = channelName,
                     color = OwnPlayColors.TextPrimary,
                     fontWeight = FontWeight.Bold,
                 )
+                guide.now?.let { current ->
+                    Text(
+                        text = currentProgramLine(current, nowEpochSeconds),
+                        color = OwnPlayColors.TextSecondary,
+                        maxLines = 1,
+                    )
+                }
+                guide.next?.let { next ->
+                    Text(
+                        text = "Next ${programTimeRange(next)} • ${next.title}",
+                        color = OwnPlayColors.TextMuted,
+                        maxLines = 1,
+                    )
+                }
                 PlaybackReadinessMessage(readiness)
             }
         }
@@ -514,6 +629,8 @@ private fun PlaybackPreviewCard(
 @Composable
 private fun PlaybackFullscreenPresentation(
     channelName: String,
+    guide: LiveNowNext,
+    nowEpochSeconds: Long,
     readiness: PlaybackReadiness,
     playbackEngine: Media3PlaybackEngine,
     onDismiss: () -> Unit,
@@ -546,6 +663,66 @@ private fun PlaybackFullscreenPresentation(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun rememberLiveGuide(
+    repository: LiveGuideRepository,
+    sourceId: app.ownplay.mobile.sources.domain.SourceId,
+    channelId: String?,
+): LiveNowNext {
+    var guide by remember(repository, sourceId, channelId) { mutableStateOf(LiveNowNext()) }
+    LaunchedEffect(repository, sourceId, channelId) {
+        val stableChannelId = channelId?.takeIf(String::isNotBlank)
+        if (stableChannelId == null) {
+            guide = LiveNowNext()
+            return@LaunchedEffect
+        }
+        while (true) {
+            guide = repository.loadNowNext(sourceId, stableChannelId)
+            val nowMs = System.currentTimeMillis()
+            val boundary = LiveGuidePolicy.nextBoundaryEpochSeconds(guide, nowMs / 1_000L)
+            val waitMs = boundary
+                ?.let { ((it * 1_000L) + 100L - nowMs).coerceAtLeast(250L) }
+                ?.coerceAtMost(125_000L)
+                ?: 125_000L
+            delay(waitMs)
+        }
+    }
+    return guide
+}
+
+@Composable
+private fun rememberEpgClock(): Long {
+    var nowEpochSeconds by remember { mutableStateOf(System.currentTimeMillis() / 1_000L) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(30_000L)
+            nowEpochSeconds = System.currentTimeMillis() / 1_000L
+        }
+    }
+    return nowEpochSeconds
+}
+
+private fun currentProgramLine(program: LiveProgram, nowEpochSeconds: Long): String {
+    val progress = LiveGuidePolicy.progressFraction(program, nowEpochSeconds)
+        ?.let { value -> "${(value * 100).toInt()}%" }
+    return listOf(programTimeRange(program), progress, program.title)
+        .filterNotNull()
+        .filter(String::isNotBlank)
+        .joinToString(" • ")
+}
+
+private fun programTimeRange(program: LiveProgram): String {
+    val formatter = DateFormat.getTimeInstance(DateFormat.SHORT)
+    val start = program.startEpochSeconds?.let { formatter.format(Date(it * 1_000L)) }
+    val end = program.endEpochSeconds?.let { formatter.format(Date(it * 1_000L)) }
+    return when {
+        start != null && end != null -> "$start–$end"
+        start != null -> start
+        end != null -> end
+        else -> ""
     }
 }
 

@@ -18,6 +18,7 @@ internal interface DisplayPreferencesStore {
     suspend fun setCompactMediaRows(enabled: Boolean)
     suspend fun setShowChannelLogos(enabled: Boolean)
     suspend fun setPreferTvgName(enabled: Boolean)
+    suspend fun setHideChannelPrefix(enabled: Boolean)
 }
 
 internal class DisplayPreferencesDataStore(
@@ -29,6 +30,7 @@ internal class DisplayPreferencesDataStore(
                 compactMediaRows = values[COMPACT_MEDIA_ROWS] ?: false,
                 showChannelLogos = values[SHOW_CHANNEL_LOGOS] ?: true,
                 preferTvgName = values[PREFER_TVG_NAME] ?: false,
+                hideChannelPrefix = values[HIDE_CHANNEL_PREFIX] ?: false,
             )
         }
 
@@ -50,10 +52,17 @@ internal class DisplayPreferencesDataStore(
         }
     }
 
+    override suspend fun setHideChannelPrefix(enabled: Boolean) {
+        context.rebuildDisplayPreferencesDataStore.edit { values ->
+            values[HIDE_CHANNEL_PREFIX] = enabled
+        }
+    }
+
     private companion object {
         val COMPACT_MEDIA_ROWS = booleanPreferencesKey("compact_media_rows")
         val SHOW_CHANNEL_LOGOS = booleanPreferencesKey("show_channel_logos")
         val PREFER_TVG_NAME = booleanPreferencesKey("prefer_tvg_name")
+        val HIDE_CHANNEL_PREFIX = booleanPreferencesKey("hide_channel_prefix")
     }
 }
 
@@ -72,6 +81,10 @@ internal class DataStoreDisplayPreferencesRepository(
 
     override suspend fun setPreferTvgName(enabled: Boolean): Boolean = write {
         store.setPreferTvgName(enabled)
+    }
+
+    override suspend fun setHideChannelPrefix(enabled: Boolean): Boolean = write {
+        store.setHideChannelPrefix(enabled)
     }
 
     private suspend fun write(block: suspend () -> Unit): Boolean =

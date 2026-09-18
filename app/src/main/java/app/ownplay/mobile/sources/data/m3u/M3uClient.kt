@@ -18,7 +18,12 @@ class OkHttpM3uClient(
             throw M3uClientException(M3uClientFailureCategory.AUTHENTICATION)
         }
         if (response.statusCode !in 200..299) {
-            throw M3uClientException(M3uClientFailureCategory.PROVIDER)
+            val category = if (response.statusCode == 429 || response.statusCode in 500..599) {
+                M3uClientFailureCategory.TRANSIENT_PROVIDER
+            } else {
+                M3uClientFailureCategory.PROVIDER
+            }
+            throw M3uClientException(category)
         }
 
         when (
@@ -44,5 +49,6 @@ class M3uClientException(
 enum class M3uClientFailureCategory {
     AUTHENTICATION,
     PROVIDER,
+    TRANSIENT_PROVIDER,
     INVALID_PAYLOAD,
 }

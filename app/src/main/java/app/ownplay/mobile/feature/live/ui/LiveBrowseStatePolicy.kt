@@ -74,6 +74,39 @@ object LiveBrowseStatePolicy {
         return if (favoritesOnly) ids.filter(favoriteChannelIds::contains) else ids
     }
 
+    fun searchChannelIds(
+        channels: List<app.ownplay.mobile.feature.live.domain.LiveOrganizationChannel>,
+        query: String,
+        favoritesOnly: Boolean,
+        favoriteChannelIds: Set<String>,
+    ): List<String> {
+        val term = query.trim()
+        if (term.isEmpty()) {
+            return channels
+                .asSequence()
+                .filter { !favoritesOnly || it.channelId in favoriteChannelIds }
+                .map { it.channelId }
+                .toList()
+        }
+        return channels
+            .asSequence()
+            .filter { !favoritesOnly || it.channelId in favoriteChannelIds }
+            .filter { channel ->
+                sequenceOf(channel.name, channel.tvgName, channel.localName)
+                    .filterNotNull()
+                    .any { value -> value.contains(term, ignoreCase = true) }
+            }
+            .map { it.channelId }
+            .toList()
+    }
+
+    fun shouldDismissPreview(
+        selectedChannelId: String?,
+        visibleChannelIds: Collection<String>,
+        isPreview: Boolean,
+    ): Boolean =
+        isPreview && selectedChannelId != null && selectedChannelId !in visibleChannelIds
+
     fun visibleProviderChannelIds(
         catalog: ProviderLiveCatalogSnapshot,
         categoryId: String?,

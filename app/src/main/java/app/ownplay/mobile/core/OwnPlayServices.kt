@@ -11,6 +11,7 @@ import app.ownplay.mobile.downloads.data.DownloadExecutor
 import app.ownplay.mobile.downloads.data.DataStoreDownloadPreferencesRepository
 import app.ownplay.mobile.downloads.data.DownloadPreferencesDataStore
 import app.ownplay.mobile.downloads.data.DownloadNotificationController
+import app.ownplay.mobile.downloads.data.DownloadNotificationPermissionPreferences
 import app.ownplay.mobile.downloads.data.ManagedSourceRemovalDownloadCoordinator
 import app.ownplay.mobile.downloads.data.OkHttpDownloadTransferClient
 import app.ownplay.mobile.downloads.data.RoomDownloadRepository
@@ -31,7 +32,9 @@ import app.ownplay.mobile.feature.library.data.SourceBackedLibraryPlaybackLocato
 import app.ownplay.mobile.feature.library.data.SourceBackedLibrarySeriesDetailRefresher
 import app.ownplay.mobile.feature.library.domain.LibraryRepository
 import app.ownplay.mobile.feature.live.data.RoomLiveOrganizationRefreshStore
+import app.ownplay.mobile.feature.live.data.SourceBackedLiveGuideRepository
 import app.ownplay.mobile.feature.live.data.RoomLiveOrganizationRepository
+import app.ownplay.mobile.feature.live.domain.LiveGuideRepository
 import app.ownplay.mobile.feature.live.domain.LiveOrganizationRepository
 import app.ownplay.mobile.feature.playback.data.DefaultLivePlaybackMediaPreparer
 import app.ownplay.mobile.feature.playback.data.Media3PlaybackEngine
@@ -72,8 +75,10 @@ class OwnPlayServices private constructor(
     val displayPreferencesRepository: DisplayPreferencesRepository,
     val playbackPreferencesRepository: PlaybackPreferencesRepository,
     val downloadPreferencesRepository: DownloadPreferencesRepository,
+    internal val downloadNotificationPermissionPreferences: DownloadNotificationPermissionPreferences,
     val backupRestoreRepository: BackupRestoreRepository,
     val liveOrganizationRepository: LiveOrganizationRepository,
+    val liveGuideRepository: LiveGuideRepository,
     val libraryRepository: LibraryRepository,
     val downloadRepository: DownloadRepository,
     internal val downloadExecutor: DownloadExecutor,
@@ -118,6 +123,12 @@ class OwnPlayServices private constructor(
                 database = database,
                 dao = liveOrganizationDao,
             )
+            val liveGuideRepository = SourceBackedLiveGuideRepository(
+                sourceDao = sourceDao,
+                liveOrganizationDao = liveOrganizationDao,
+                credentialStore = credentialStore,
+                xtreamClient = xtreamClient,
+            )
             val libraryDetailRefresher = SourceBackedLibrarySeriesDetailRefresher(
                 sourceDao = sourceDao,
                 libraryDao = libraryDao,
@@ -146,15 +157,19 @@ class OwnPlayServices private constructor(
             val downloadPreferencesRepository = DataStoreDownloadPreferencesRepository(
                 downloadPreferencesStore,
             )
+            val downloadNotificationPermissionPreferences =
+                DownloadNotificationPermissionPreferences(applicationContext)
             val downloadScheduler = WorkManagerDownloadScheduler(
                 context = applicationContext,
                 preferencesRepository = downloadPreferencesRepository,
             )
+            val downloadedMediaVerifier = AndroidDownloadedMediaVerifier(applicationContext)
             val downloadRepository = WorkManagedDownloadRepository(
                 delegate = RoomDownloadRepository(downloadDao),
                 scheduler = downloadScheduler,
                 storage = downloadStorage,
                 notifications = downloadNotifications,
+                availabilityProbe = downloadedMediaVerifier,
             )
             val sourceRemovalDownloadCoordinator = ManagedSourceRemovalDownloadCoordinator(
                 downloadDao = downloadDao,
@@ -214,7 +229,7 @@ class OwnPlayServices private constructor(
             val libraryMediaResolver = DownloadAwareLibraryPlaybackResolver(
                 onlineResolver = libraryPlaybackLocator,
                 downloadRepository = downloadRepository,
-                verifier = AndroidDownloadedMediaVerifier(applicationContext),
+                verifier = downloadedMediaVerifier,
             )
             val libraryArtworkLoader = OkHttpLibraryArtworkLoader()
             val libraryPlaybackProgressStore = RoomLibraryPlaybackProgressStore(libraryDao)
@@ -243,8 +258,10 @@ class OwnPlayServices private constructor(
                 displayPreferencesRepository = displayPreferencesRepository,
                 playbackPreferencesRepository = playbackPreferencesRepository,
                 downloadPreferencesRepository = downloadPreferencesRepository,
+                downloadNotificationPermissionPreferences = downloadNotificationPermissionPreferences,
                 backupRestoreRepository = backupRestoreRepository,
                 liveOrganizationRepository = liveOrganizationRepository,
+                liveGuideRepository = liveGuideRepository,
                 libraryRepository = libraryRepository,
                 downloadRepository = downloadRepository,
                 downloadExecutor = downloadExecutor,

@@ -32,3 +32,15 @@ object DownloadNotificationPolicy {
     private const val BASE_ID_MASK = 0x1fffffff
     private const val RESULT_ID_MASK = 0x20000000
 }
+
+
+object DownloadNotificationPermissionPromptPolicy {
+    private const val ANDROID_13_API = 33
+
+    fun shouldRequest(
+        sdkInt: Int,
+        notificationsGranted: Boolean,
+        alreadyPrompted: Boolean,
+    ): Boolean =
+        sdkInt >= ANDROID_13_API && !notificationsGranted && !alreadyPrompted
+}

@@ -41,6 +41,24 @@ internal class DownloadPreferencesDataStore(
     }
 }
 
+internal class DownloadNotificationPermissionPreferences(
+    private val context: Context,
+) {
+    val prompted: Flow<Boolean> = context.rebuildDownloadPreferencesDataStore.data
+        .map { values -> values[NOTIFICATION_PERMISSION_PROMPTED] ?: false }
+
+    suspend fun markPrompted() {
+        context.rebuildDownloadPreferencesDataStore.edit { values ->
+            values[NOTIFICATION_PERMISSION_PROMPTED] = true
+        }
+    }
+
+    private companion object {
+        val NOTIFICATION_PERMISSION_PROMPTED =
+            booleanPreferencesKey("notification_permission_prompted")
+    }
+}
+
 internal class DataStoreDownloadPreferencesRepository(
     private val store: DownloadPreferencesStore,
 ) : DownloadPreferencesRepository {

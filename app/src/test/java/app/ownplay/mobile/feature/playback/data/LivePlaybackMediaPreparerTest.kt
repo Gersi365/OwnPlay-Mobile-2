@@ -27,6 +27,33 @@ class LivePlaybackMediaPreparerTest {
     }
 
     @Test
+    fun opaqueDirectNetworkMediaGetsOneExplicitHlsFallbackCandidate() {
+        val media = preparer.prepare(
+            LivePlaybackSource.Direct(
+                "https://provider.example/play?channel=42&token=private-token",
+            ),
+        )
+
+        requireNotNull(media)
+        assertNull(media.mimeType)
+        requireNotNull(media.fallback)
+        assertEquals(media.uri, media.fallback.uri)
+        assertEquals("application/x-mpegURL", media.fallback.mimeType)
+        assertFalse(media.toString().contains("private-token"))
+    }
+
+    @Test
+    fun explicitNonHlsPathDoesNotInventHlsFallback() {
+        val media = preparer.prepare(
+            LivePlaybackSource.Direct("https://provider.example/live/channel.ts"),
+        )
+
+        requireNotNull(media)
+        assertNull(media.mimeType)
+        assertNull(media.fallback)
+    }
+
+    @Test
     fun xtreamUsesOnlyAuthoritativeExtensionFromOpaqueIdentity() {
         val media = preparer.prepare(
             LivePlaybackSource.Xtream(

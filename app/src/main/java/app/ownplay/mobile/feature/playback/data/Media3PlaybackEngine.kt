@@ -9,8 +9,12 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.TrackGroup
 import androidx.media3.common.TrackSelectionOverride
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.common.Tracks
+import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import app.ownplay.mobile.feature.playback.domain.PlaybackEngine
 import app.ownplay.mobile.feature.playback.domain.PlaybackEngineEvent
 import app.ownplay.mobile.feature.playback.domain.PlaybackEngineFailureClass
@@ -23,10 +27,24 @@ import app.ownplay.mobile.feature.playback.domain.PlaybackPositionSnapshot
 import app.ownplay.mobile.feature.playback.domain.PlaybackProgressEngine
 import app.ownplay.mobile.feature.playback.domain.PreparedPlaybackMedia
 
+@androidx.annotation.OptIn(markerClass = [UnstableApi::class])
 class Media3PlaybackEngine internal constructor(context: Context) {
-    private val player = ExoPlayer.Builder(context.applicationContext).build()
+    private val applicationContext = context.applicationContext
+    private val player = ExoPlayer.Builder(applicationContext)
+        .setMediaSourceFactory(
+            DefaultMediaSourceFactory(applicationContext)
+                .setDataSourceFactory(
+                    DefaultDataSource.Factory(
+                        applicationContext,
+                        DefaultHttpDataSource.Factory()
+                            .setAllowCrossProtocolRedirects(true),
+                    ),
+                ),
+        )
+        .build()
     private var attachedSurfaceView: SurfaceView? = null
     private var hasMedia: Boolean = false
+    private var userPlayWhenReady: Boolean = false
     private var nextMediaRevision: Long = 0L
     private var activeMediaRevision: Long? = null
     private var eventListener: ((PlaybackEngineEvent) -> Unit)? = null
@@ -72,6 +90,7 @@ class Media3PlaybackEngine internal constructor(context: Context) {
         val revision = nextMediaRevision
         activeMediaRevision = null
         hasMedia = true
+        userPlayWhenReady = true
         trackHandles = emptyMap()
         resetTrackSelection()
 
@@ -86,7 +105,7 @@ class Media3PlaybackEngine internal constructor(context: Context) {
         activeMediaRevision = revision
         emitReadiness(PlaybackEngineReadiness.PREPARING)
         player.prepare()
-        player.playWhenReady = attachedSurfaceView != null
+        player.playWhenReady = attachedSurfaceView != null && userPlayWhenReady
         return revision
     }
 
@@ -123,11 +142,26 @@ class Media3PlaybackEngine internal constructor(context: Context) {
         }
     }
 
+    internal fun play(): Boolean {
+        if (released || !hasMedia || activeMediaRevision == null) return false
+        userPlayWhenReady = true
+        player.playWhenReady = attachedSurfaceView != null
+        return true
+    }
+
+    internal fun pause(): Boolean {
+        if (released || !hasMedia || activeMediaRevision == null) return false
+        userPlayWhenReady = false
+        player.playWhenReady = false
+        return true
+    }
+
     internal fun clear() {
         if (released) return
         activeMediaRevision = null
         trackHandles = emptyMap()
         hasMedia = false
+        userPlayWhenReady = false
         player.playWhenReady = false
         player.stop()
         player.clearMediaItems()
@@ -140,7 +174,7 @@ class Media3PlaybackEngine internal constructor(context: Context) {
         player.setVideoSurfaceView(surfaceView)
         attachedSurfaceView = surfaceView
         if (hasMedia) {
-            player.playWhenReady = true
+            player.playWhenReady = userPlayWhenReady
         }
     }
 
@@ -160,6 +194,7 @@ class Media3PlaybackEngine internal constructor(context: Context) {
         attachedSurfaceView?.let(player::clearVideoSurfaceView)
         attachedSurfaceView = null
         hasMedia = false
+        userPlayWhenReady = false
         player.release()
     }
 
@@ -348,6 +383,10 @@ internal class Media3PlaybackEngineAdapter(
 
     override fun selectSubtitleTrack(trackId: String?): PlaybackEngineSelectionResult =
         engine.selectSubtitleTrack(trackId)
+
+    override fun play(): Boolean = engine.play()
+
+    override fun pause(): Boolean = engine.pause()
 
     override fun positionSnapshot(): PlaybackPositionSnapshot? = engine.positionSnapshot()
 

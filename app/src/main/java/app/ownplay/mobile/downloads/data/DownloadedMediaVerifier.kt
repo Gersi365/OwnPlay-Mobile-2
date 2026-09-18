@@ -11,6 +11,10 @@ internal fun interface DownloadedMediaVerifier {
     suspend fun verify(item: DownloadItem): Boolean
 }
 
+internal fun interface DownloadedMediaAvailabilityProbe {
+    suspend fun isAvailable(item: DownloadItem): Boolean
+}
+
 /** Streams a bounded buffer; never loads the downloaded media into memory. */
 internal suspend fun verifyDownloadedBytes(
     input: InputStream,

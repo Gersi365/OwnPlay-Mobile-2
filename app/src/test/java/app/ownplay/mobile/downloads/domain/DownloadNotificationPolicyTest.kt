@@ -39,4 +39,12 @@ class DownloadNotificationPolicyTest {
         assertFalse(DownloadNotificationPolicy.canCancel(DownloadStatus.CANCELED))
         assertFalse(DownloadNotificationPolicy.canCancel(DownloadStatus.UNKNOWN))
     }
+    @Test
+    fun notificationPermissionIsRequestedOnlyOnceOnAndroid13OrNewer() {
+        assertTrue(DownloadNotificationPermissionPromptPolicy.shouldRequest(33, false, false))
+        assertFalse(DownloadNotificationPermissionPromptPolicy.shouldRequest(33, false, true))
+        assertFalse(DownloadNotificationPermissionPromptPolicy.shouldRequest(33, true, false))
+        assertFalse(DownloadNotificationPermissionPromptPolicy.shouldRequest(32, false, false))
+    }
+
 }

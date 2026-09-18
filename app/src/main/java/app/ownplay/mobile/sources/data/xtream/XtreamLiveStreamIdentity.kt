@@ -16,6 +16,12 @@ object XtreamLiveStreamIdentity {
         return "$base?ext=$extension"
     }
 
+    fun preferredSupportedExtension(allowedOutputFormats: List<String>): String? =
+        allowedOutputFormats
+            .asSequence()
+            .mapNotNull(::normalizeExtension)
+            .firstOrNull { extension -> extension == "ts" || extension == "m3u8" }
+
     fun extension(identity: String, streamId: String): String? {
         val normalizedStreamId = streamId.trim()
         if (normalizedStreamId.isBlank()) return null

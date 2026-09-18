@@ -6,6 +6,7 @@ data class DisplayPreferences(
     val compactMediaRows: Boolean = false,
     val showChannelLogos: Boolean = true,
     val preferTvgName: Boolean = false,
+    val hideChannelPrefix: Boolean = false,
 )
 
 interface DisplayPreferencesRepository {
@@ -16,4 +17,6 @@ interface DisplayPreferencesRepository {
     suspend fun setShowChannelLogos(enabled: Boolean): Boolean
 
     suspend fun setPreferTvgName(enabled: Boolean): Boolean
+
+    suspend fun setHideChannelPrefix(enabled: Boolean): Boolean
 }

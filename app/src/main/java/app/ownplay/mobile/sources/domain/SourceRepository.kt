@@ -41,6 +41,7 @@ enum class SourceRefreshFailureCategory {
     TIMEOUT,
     INVALID_PAYLOAD,
     PROVIDER,
+    TRANSIENT_PROVIDER,
     STORAGE,
     UNKNOWN,
 }

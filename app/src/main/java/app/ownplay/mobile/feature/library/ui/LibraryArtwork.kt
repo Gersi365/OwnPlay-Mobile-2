@@ -53,11 +53,11 @@ internal fun LibraryArtwork(
 
     val sizedModifier = when (presentation) {
         ArtworkPresentation.POSTER -> if (compact) {
-            modifier.size(width = 56.dp, height = 84.dp)
+            modifier.size(width = 48.dp, height = 72.dp)
         } else {
-            modifier.size(width = 72.dp, height = 108.dp)
+            modifier.size(width = 64.dp, height = 96.dp)
         }
-        ArtworkPresentation.CHANNEL_LOGO -> modifier.size(if (compact) 40.dp else 48.dp)
+        ArtworkPresentation.CHANNEL_LOGO -> modifier.size(if (compact) 32.dp else 40.dp)
     }
     Surface(
         color = OwnPlayColors.Surface,

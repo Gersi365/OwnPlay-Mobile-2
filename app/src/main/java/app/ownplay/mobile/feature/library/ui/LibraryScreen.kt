@@ -22,6 +22,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -200,8 +202,8 @@ private fun LibrarySourceScreen(
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
-            .padding(horizontal = 20.dp, vertical = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(7.dp),
     ) {
         item {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -388,8 +390,8 @@ private fun LibraryContinueWatchingRow(
     ) {
         Row(
             modifier = Modifier.padding(
-                horizontal = if (compact) 12.dp else 16.dp,
-                vertical = if (compact) 7.dp else 12.dp,
+                horizontal = if (compact) 10.dp else 12.dp,
+                vertical = if (compact) 6.dp else 8.dp,
             ),
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
@@ -750,7 +752,7 @@ private fun LibrarySeriesRow(
         favorite = series.favorite,
         artworkLoader = artworkLoader,
         compact = compact,
-        primaryActionLabel = "Open details",
+        primaryActionLabel = "Open",
         onPrimaryAction = onOpen,
         onFavorite = onFavorite,
     )
@@ -777,10 +779,10 @@ private fun LibraryMediaRow(
     ) {
         Row(
             modifier = Modifier.padding(
-                horizontal = if (compact) 12.dp else 16.dp,
-                vertical = if (compact) 8.dp else 12.dp,
+                horizontal = if (compact) 10.dp else 12.dp,
+                vertical = if (compact) 6.dp else 8.dp,
             ),
-            horizontalArrangement = Arrangement.spacedBy(if (compact) 8.dp else 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(if (compact) 6.dp else 8.dp),
         ) {
             LibraryArtwork(
                 url = posterUrl,
@@ -789,30 +791,38 @@ private fun LibraryMediaRow(
             )
             Column(
                 modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(3.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
                 Text(
                     text = title,
                     color = OwnPlayColors.TextPrimary,
                     fontWeight = FontWeight.SemiBold,
                 )
-                categoryName?.let {
-                    Text(text = it, color = OwnPlayColors.TextSecondary)
+                val metadata = listOfNotNull(
+                    categoryName,
+                    rating?.takeIf(String::isNotBlank)?.let { "Rating $it" },
+                ).joinToString(" • ")
+                if (metadata.isNotBlank()) {
+                    Text(text = metadata, color = OwnPlayColors.TextSecondary)
                 }
-                rating?.takeIf(String::isNotBlank)?.let {
-                    Text(text = "Rating: $it", color = OwnPlayColors.TextMuted)
-                }
-                TextButton(onClick = onPrimaryAction) {
-                    Text(primaryActionLabel)
-                }
-                if (secondaryActionLabel != null && onSecondaryAction != null) {
-                    TextButton(onClick = onSecondaryAction) {
-                        Text(secondaryActionLabel)
+                Row {
+                    TextButton(onClick = onPrimaryAction) {
+                        Text(primaryActionLabel)
+                    }
+                    if (secondaryActionLabel != null && onSecondaryAction != null) {
+                        TextButton(onClick = onSecondaryAction) {
+                            Text(secondaryActionLabel)
+                        }
+                    }
+                    TextButton(
+                        onClick = onFavorite,
+                        modifier = Modifier.semantics {
+                            contentDescription = if (favorite) "Remove favorite" else "Add favorite"
+                        },
+                    ) {
+                        Text(if (favorite) "★" else "☆")
                     }
                 }
-            }
-            TextButton(onClick = onFavorite) {
-                Text(if (favorite) "Unfavorite" else "Favorite")
             }
         }
     }

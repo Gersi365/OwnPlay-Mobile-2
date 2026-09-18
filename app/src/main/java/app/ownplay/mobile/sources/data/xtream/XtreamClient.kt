@@ -6,8 +6,19 @@ import app.ownplay.mobile.sources.data.ProviderPayloadValidationResult
 import app.ownplay.mobile.sources.data.ProviderTransport
 
 interface XtreamClient {
+    suspend fun accountInfo(connection: XtreamConnection): XtreamAccountInfo =
+        XtreamAccountInfo(emptyList())
+    suspend fun shortEpg(
+        connection: XtreamConnection,
+        streamId: String,
+        limit: Int = 4,
+    ): List<XtreamEpgEntry> = emptyList()
     suspend fun liveCategories(connection: XtreamConnection): List<XtreamCategory>
     suspend fun liveStreams(connection: XtreamConnection): List<XtreamLiveStream>
+    suspend fun liveStreams(
+        connection: XtreamConnection,
+        categoryId: String,
+    ): List<XtreamLiveStream> = liveStreams(connection)
     suspend fun movieCategories(connection: XtreamConnection): List<XtreamCategory>
     suspend fun movies(connection: XtreamConnection): List<XtreamMovie>
     suspend fun movieInfo(connection: XtreamConnection, movieId: String): XtreamMovieDetail =
@@ -20,6 +31,26 @@ interface XtreamClient {
 class OkHttpXtreamClient(
     private val transport: ProviderTransport,
 ) : XtreamClient {
+    override suspend fun accountInfo(connection: XtreamConnection): XtreamAccountInfo =
+        parse(connection, null, XtreamPayloadParser::accountInfo)
+
+    override suspend fun shortEpg(
+        connection: XtreamConnection,
+        streamId: String,
+        limit: Int,
+    ): List<XtreamEpgEntry> {
+        require(streamId.isNotBlank()) { "Stream id must not be blank" }
+        return parse(
+            connection = connection,
+            action = "get_short_epg",
+            parser = XtreamPayloadParser::shortEpg,
+            extraParameters = mapOf(
+                "stream_id" to streamId,
+                "limit" to limit.coerceIn(1, 20).toString(),
+            ),
+        )
+    }
+
     override suspend fun liveCategories(
         connection: XtreamConnection,
     ): List<XtreamCategory> =
@@ -29,6 +60,19 @@ class OkHttpXtreamClient(
         connection: XtreamConnection,
     ): List<XtreamLiveStream> =
         parse(connection, "get_live_streams", XtreamPayloadParser::liveStreams)
+
+    override suspend fun liveStreams(
+        connection: XtreamConnection,
+        categoryId: String,
+    ): List<XtreamLiveStream> {
+        require(categoryId.isNotBlank()) { "Category id must not be blank" }
+        return parse(
+            connection = connection,
+            action = "get_live_streams",
+            parser = XtreamPayloadParser::liveStreams,
+            extraParameters = mapOf("category_id" to categoryId.trim()),
+        )
+    }
 
     override suspend fun movieCategories(
         connection: XtreamConnection,
@@ -78,7 +122,7 @@ class OkHttpXtreamClient(
 
     private suspend fun <T> parse(
         connection: XtreamConnection,
-        action: String,
+        action: String?,
         parser: (String) -> T,
         extraParameters: Map<String, String> = emptyMap(),
     ): T {
@@ -96,7 +140,12 @@ class OkHttpXtreamClient(
             throw XtreamClientException(XtreamClientFailureCategory.AUTHENTICATION)
         }
         if (response.statusCode !in 200..299) {
-            throw XtreamClientException(XtreamClientFailureCategory.PROVIDER)
+            val category = if (response.statusCode == 429 || response.statusCode in 500..599) {
+                XtreamClientFailureCategory.TRANSIENT_PROVIDER
+            } else {
+                XtreamClientFailureCategory.PROVIDER
+            }
+            throw XtreamClientException(category)
         }
 
         when (
@@ -126,5 +175,6 @@ class XtreamClientException(
 enum class XtreamClientFailureCategory {
     AUTHENTICATION,
     PROVIDER,
+    TRANSIENT_PROVIDER,
     INVALID_PAYLOAD,
 }

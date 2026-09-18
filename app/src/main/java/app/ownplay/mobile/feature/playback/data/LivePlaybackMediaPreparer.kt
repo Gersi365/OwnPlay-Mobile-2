@@ -2,7 +2,9 @@ package app.ownplay.mobile.feature.playback.data
 
 import app.ownplay.mobile.feature.playback.domain.LivePlaybackMediaPreparer
 import app.ownplay.mobile.feature.playback.domain.LivePlaybackSource
+import app.ownplay.mobile.feature.playback.domain.PreparedPlaybackAlternative
 import app.ownplay.mobile.feature.playback.domain.PreparedPlaybackMedia
+import java.net.URI
 import app.ownplay.mobile.sources.data.xtream.XtreamLiveStreamIdentity
 import app.ownplay.mobile.sources.data.xtream.XtreamUrlBuilder
 import app.ownplay.mobile.sources.domain.ConnectionValidation
@@ -22,9 +24,18 @@ internal class DefaultLivePlaybackMediaPreparer : LivePlaybackMediaPreparer {
             is ConnectionValidation.Invalid -> return null
         }
 
+        val mimeType = inferMimeType(normalized)
         return PreparedPlaybackMedia(
             uri = normalized,
-            mimeType = inferMimeType(normalized),
+            mimeType = mimeType,
+            fallback = if (mimeType == null && isOpaqueNetworkUri(normalized)) {
+                PreparedPlaybackAlternative(
+                    uri = normalized,
+                    mimeType = HLS_MIME_TYPE,
+                )
+            } else {
+                null
+            },
         )
     }
 
@@ -52,6 +63,15 @@ internal class DefaultLivePlaybackMediaPreparer : LivePlaybackMediaPreparer {
 
     private fun inferMimeType(uri: String): String? =
         if (uri.substringBefore('?').lowercase().endsWith(".m3u8")) HLS_MIME_TYPE else null
+
+    private fun isOpaqueNetworkUri(uri: String): Boolean = runCatching {
+        val parsed = URI(uri)
+        if (!parsed.scheme.equals("http", true) && !parsed.scheme.equals("https", true)) {
+            return@runCatching false
+        }
+        val segment = parsed.path.orEmpty().trimEnd('/').substringAfterLast('/')
+        segment.isBlank() || '.' !in segment
+    }.getOrDefault(false)
 
     private companion object {
         const val HLS_MIME_TYPE = "application/x-mpegURL"

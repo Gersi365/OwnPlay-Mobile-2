@@ -154,7 +154,12 @@ class RoomDownloadRepository(
     ): Boolean {
         val existing = dao.get(downloadId.value) ?: return false
         val current = persistedStatus(existing.state)
-        if (!DownloadStateTransitionPolicy.canTransition(current, DownloadStatus.FAILED)) return false
+        val allowed = if (current == DownloadStatus.COMPLETED) {
+            failureCode == DownloadFailureCode.INTEGRITY
+        } else {
+            DownloadStateTransitionPolicy.canTransition(current, DownloadStatus.FAILED)
+        }
+        if (!allowed) return false
         dao.upsert(
             existing.copy(
                 state = DownloadStatus.FAILED.name,

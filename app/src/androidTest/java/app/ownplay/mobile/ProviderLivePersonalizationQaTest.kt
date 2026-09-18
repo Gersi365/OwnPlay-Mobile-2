@@ -79,6 +79,15 @@ class ProviderLivePersonalizationQaTest {
         assertTrue(repository.observeOwnPlayCatalog(sourceId).first().channels.any { it.channelId == "a1" })
         assertTrue(repository.setProviderCategoryHidden(sourceId, "a", false))
 
+        assertTrue(repository.setFavorite(sourceId, "a1", true))
+        assertEquals(setOf("a1"), repository.observeFavoriteChannelIds(sourceId).first())
+        database.refreshStateDao().upsertLiveChannels(
+            listOf(channel("a1", "a", 0).copy(name = "Renamed Channel a1", lastSeenGeneration = 2L)),
+        )
+        assertEquals(setOf("a1"), repository.observeFavoriteChannelIds(sourceId).first())
+        assertTrue(repository.setFavorite(sourceId, "a1", false))
+        assertTrue(repository.observeFavoriteChannelIds(sourceId).first().isEmpty())
+
         assertTrue(repository.setProviderCategoryOrder(sourceId, listOf("b", "a", uncategorized)))
         assertEquals(
             listOf("b", "a", uncategorized),

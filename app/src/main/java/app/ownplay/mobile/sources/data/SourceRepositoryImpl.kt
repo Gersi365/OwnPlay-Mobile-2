@@ -408,6 +408,7 @@ class SourceRepositoryImpl(
         SourceRefreshFailureCategory.TIMEOUT -> "Source request timed out."
         SourceRefreshFailureCategory.INVALID_PAYLOAD -> "Source returned invalid catalog data."
         SourceRefreshFailureCategory.PROVIDER -> "Source provider rejected the refresh."
+        SourceRefreshFailureCategory.TRANSIENT_PROVIDER -> "Source provider is temporarily unavailable."
         SourceRefreshFailureCategory.STORAGE -> "Source refresh could not be saved."
         SourceRefreshFailureCategory.UNKNOWN -> "Source refresh failed."
     }

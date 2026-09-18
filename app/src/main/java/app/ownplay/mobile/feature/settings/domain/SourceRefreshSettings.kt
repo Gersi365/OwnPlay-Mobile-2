@@ -27,6 +27,7 @@ object SourceRefreshRetryPolicy {
     fun shouldRetry(category: SourceRefreshFailureCategory): Boolean = when (category) {
         SourceRefreshFailureCategory.NETWORK,
         SourceRefreshFailureCategory.TIMEOUT,
+        SourceRefreshFailureCategory.TRANSIENT_PROVIDER,
         -> true
         SourceRefreshFailureCategory.AUTHENTICATION,
         SourceRefreshFailureCategory.INVALID_PAYLOAD,

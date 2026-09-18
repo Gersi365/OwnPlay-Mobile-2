@@ -104,6 +104,7 @@ data class PlaybackSessionState(
     val target: PlaybackTarget? = null,
     val presentation: PlaybackPresentation = PlaybackPresentation.NONE,
     val readiness: PlaybackReadiness = PlaybackReadiness.IDLE,
+    val playWhenReady: Boolean = false,
     val tracks: PlaybackTrackSnapshot = PlaybackTrackSnapshot(),
     val fallback: PlaybackFallbackState = PlaybackFallbackState(),
 )
@@ -125,6 +126,7 @@ object PlaybackSessionPolicy {
             target = target,
             presentation = PlaybackPresentation.PREVIEW,
             readiness = PlaybackReadiness.PREPARING,
+            playWhenReady = true,
         )
     }
 
@@ -140,6 +142,7 @@ object PlaybackSessionPolicy {
             target = target,
             presentation = PlaybackPresentation.FULLSCREEN,
             readiness = PlaybackReadiness.PREPARING,
+            playWhenReady = true,
         )
     }
 
@@ -345,6 +348,10 @@ internal interface PlaybackEngine {
     fun selectAudioTrack(trackId: String?): PlaybackEngineSelectionResult
 
     fun selectSubtitleTrack(trackId: String?): PlaybackEngineSelectionResult
+
+    fun play(): Boolean = false
+
+    fun pause(): Boolean = false
 
     fun clear()
 

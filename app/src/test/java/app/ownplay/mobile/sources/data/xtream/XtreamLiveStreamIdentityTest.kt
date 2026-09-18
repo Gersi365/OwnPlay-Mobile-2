@@ -6,6 +6,13 @@ import org.junit.Test
 
 class XtreamLiveStreamIdentityTest {
     @Test
+    fun preferredSupportedExtensionUsesProviderOrderWithoutGuessing() {
+        assertEquals("m3u8", XtreamLiveStreamIdentity.preferredSupportedExtension(listOf("rtmp", "m3u8", "ts")))
+        assertEquals("ts", XtreamLiveStreamIdentity.preferredSupportedExtension(listOf("TS")))
+        assertNull(XtreamLiveStreamIdentity.preferredSupportedExtension(listOf("rtmp")))
+    }
+
+    @Test
     fun encodesAuthoritativeContainerExtensionWithoutGuessing() {
         val identity = XtreamLiveStreamIdentity.encode(
             streamId = "42",

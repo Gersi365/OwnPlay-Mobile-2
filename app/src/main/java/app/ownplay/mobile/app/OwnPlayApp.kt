@@ -58,7 +58,12 @@ fun OwnPlayApp() {
         bottomBar = {
             OwnPlayBottomBar(
                 selected = selected,
-                onSelected = { selectedName = it.name },
+                onSelected = { destination ->
+                    if (destination != selected) {
+                        services.playbackSessionController.clear()
+                        selectedName = destination.name
+                    }
+                },
             )
         },
     ) { innerPadding ->

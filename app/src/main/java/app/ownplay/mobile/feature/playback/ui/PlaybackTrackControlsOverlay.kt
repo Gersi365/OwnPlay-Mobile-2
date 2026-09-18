@@ -22,6 +22,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import app.ownplay.mobile.design.OwnPlayColors
+import app.ownplay.mobile.feature.playback.domain.PlaybackReadiness
 import app.ownplay.mobile.feature.playback.domain.PlaybackSessionController
 import app.ownplay.mobile.feature.playback.domain.PlaybackSessionState
 import app.ownplay.mobile.feature.playback.domain.PlaybackTrackOption
@@ -46,30 +47,36 @@ internal fun PlaybackTrackControlsOverlay(
         null -> null
     }
 
-    if (audioTracks.isNotEmpty() || subtitleTracks.isNotEmpty() || issueMessage != null) {
-        Surface(
-            color = OwnPlayColors.Surface,
-            modifier = modifier.fillMaxWidth(),
+    Surface(
+        color = OwnPlayColors.Surface,
+        modifier = modifier.fillMaxWidth(),
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            Column(
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (audioTracks.isNotEmpty()) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(
+                    enabled = state.readiness != PlaybackReadiness.UNAVAILABLE,
+                    onClick = {
+                        if (state.playWhenReady) controller.pause() else controller.play()
+                    },
+                ) {
+                    Text(if (state.playWhenReady) "Pause" else "Play")
+                }
+                if (audioTracks.isNotEmpty()) {
                         TextButton(onClick = { audioSheetOpen = true }) {
                             Text("Audio")
                         }
                     }
-                    if (subtitleTracks.isNotEmpty()) {
-                        TextButton(onClick = { subtitleSheetOpen = true }) {
-                            Text("Subtitles")
-                        }
+                if (subtitleTracks.isNotEmpty()) {
+                    TextButton(onClick = { subtitleSheetOpen = true }) {
+                        Text("Subtitles")
                     }
                 }
-                issueMessage?.let { message ->
-                    Text(text = message, color = OwnPlayColors.Error)
-                }
+            }
+            issueMessage?.let { message ->
+                Text(text = message, color = OwnPlayColors.Error)
             }
         }
     }

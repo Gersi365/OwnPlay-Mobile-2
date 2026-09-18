@@ -1,6 +1,7 @@
 package app.ownplay.mobile.feature.live.data
 
 import androidx.room.withTransaction
+import app.ownplay.mobile.data.db.ChannelPersonalizationEntity
 import app.ownplay.mobile.data.db.LiveCategoryScopePersonalizationEntity
 import app.ownplay.mobile.data.db.LiveChannelEntity
 import app.ownplay.mobile.data.db.LiveChannelMembershipPersonalizationEntity
@@ -71,7 +72,9 @@ class RoomLiveOrganizationRepository(
         combine(
             dao.observeProviderLiveCategories(sourceId.value),
             dao.observeLiveChannels(sourceId.value),
-        ) { categoryRows, channelRows ->
+            dao.observeChannelPersonalization(sourceId.value),
+        ) { categoryRows, channelRows, channelPersonalization ->
+            val personalizationByChannelId = channelPersonalization.associateBy { it.channelId }
             ProviderLiveCatalogSnapshot(
                 categories = categoryRows.map { row ->
                     ProviderLiveCategory(
@@ -81,13 +84,15 @@ class RoomLiveOrganizationRepository(
                     )
                 },
                 channels = channelRows.map { row ->
+                    val personalization = personalizationByChannelId[row.channelId]
                     LiveOrganizationChannel(
                         channelId = row.channelId,
                         name = row.name,
                         tvgName = row.tvgName,
                         providerCategoryId = row.categoryKey,
                         providerOrder = row.providerOrder,
-                        logoUrl = row.logoUrl,
+                        logoUrl = personalization?.localLogo?.trim()?.takeIf(String::isNotEmpty) ?: row.logoUrl,
+                        localName = personalization?.localName?.trim()?.takeIf(String::isNotEmpty),
                     )
                 },
             )
@@ -110,6 +115,25 @@ class RoomLiveOrganizationRepository(
 
     override fun observeFavoriteChannelIds(sourceId: SourceId): Flow<Set<String>> =
         dao.observeFavoriteChannelIds(sourceId.value).map { rows -> rows.toSet() }
+
+    override suspend fun setFavorite(
+        sourceId: SourceId,
+        channelId: String,
+        favorite: Boolean,
+    ): Boolean = try {
+        database.withTransaction {
+            val channel = dao.getAvailableChannel(sourceId.value, channelId)
+                ?: return@withTransaction false
+            val current = dao.getChannelPersonalization(channel.channelId)
+            dao.upsertChannelPersonalization(
+                (current ?: ChannelPersonalizationEntity(channelId = channel.channelId))
+                    .copy(favorite = favorite),
+            )
+            true
+        }
+    } catch (_: Exception) {
+        false
+    }
 
     override suspend fun setMode(sourceId: SourceId, mode: LiveOrganizationMode): Boolean = try {
         database.withTransaction {

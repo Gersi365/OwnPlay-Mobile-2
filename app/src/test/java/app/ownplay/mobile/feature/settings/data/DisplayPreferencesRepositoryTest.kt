@@ -18,10 +18,12 @@ class DisplayPreferencesRepositoryTest {
         assertTrue(repository.setCompactMediaRows(true))
         assertTrue(repository.setShowChannelLogos(false))
         assertTrue(repository.setPreferTvgName(true))
+        assertTrue(repository.setHideChannelPrefix(true))
         val current = repository.preferences.first()
         assertTrue(current.compactMediaRows)
         assertFalse(current.showChannelLogos)
         assertTrue(current.preferTvgName)
+        assertTrue(current.hideChannelPrefix)
     }
 
     @Test
@@ -32,9 +34,11 @@ class DisplayPreferencesRepositoryTest {
         assertFalse(repository.setCompactMediaRows(true))
         assertFalse(repository.setShowChannelLogos(false))
         assertFalse(repository.setPreferTvgName(true))
+        assertFalse(repository.setHideChannelPrefix(true))
         assertFalse(repository.preferences.first().compactMediaRows)
         assertTrue(repository.preferences.first().showChannelLogos)
         assertFalse(repository.preferences.first().preferTvgName)
+        assertFalse(repository.preferences.first().hideChannelPrefix)
     }
 }
 
@@ -47,6 +51,7 @@ private class FakeDisplayPreferencesStore(
     override suspend fun setCompactMediaRows(enabled: Boolean) = update { copy(compactMediaRows = enabled) }
     override suspend fun setShowChannelLogos(enabled: Boolean) = update { copy(showChannelLogos = enabled) }
     override suspend fun setPreferTvgName(enabled: Boolean) = update { copy(preferTvgName = enabled) }
+    override suspend fun setHideChannelPrefix(enabled: Boolean) = update { copy(hideChannelPrefix = enabled) }
 
     private fun update(block: DisplayPreferences.() -> DisplayPreferences) {
         if (failWrites) error("storage failed")

@@ -115,7 +115,7 @@ class BackupJsonCodecTest {
             ),
             activeSourceId = "source-1",
             globalSettings = BackupGlobalSettings(
-                display = DisplayPreferences(compactMediaRows = true, showChannelLogos = false, preferTvgName = true),
+                display = DisplayPreferences(compactMediaRows = true, showChannelLogos = false, preferTvgName = true, hideChannelPrefix = true),
                 playback = PlaybackPreferences(automaticPictureInPicture = false),
                 downloads = DownloadPreferences(unmeteredNetworkOnly = true),
             ),

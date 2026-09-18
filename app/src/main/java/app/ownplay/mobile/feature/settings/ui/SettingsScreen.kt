@@ -463,6 +463,14 @@ private fun DisplayPreferencesSection(
                 if (preferences.compactMediaRows) "Compact media rows are on." else "Compact media rows are off.",
                 color = OwnPlayColors.TextSecondary,
             )
+            Text(
+                if (preferences.hideChannelPrefix) {
+                    "OwnPlay hides provider prefixes before | in channel names."
+                } else {
+                    "OwnPlay keeps full channel names."
+                },
+                color = OwnPlayColors.TextSecondary,
+            )
             TextButton(onClick = {
                 val target = !preferences.showChannelLogos
                 scope.launch {
@@ -486,6 +494,18 @@ private fun DisplayPreferencesSection(
                 }
             }) {
                 Text(if (preferences.preferTvgName) "Prefer provider names" else "Prefer TV guide names")
+            }
+            TextButton(onClick = {
+                val target = !preferences.hideChannelPrefix
+                scope.launch {
+                    onMessage(
+                        if (repository.setHideChannelPrefix(target)) {
+                            if (target) "OwnPlay channel prefixes hidden." else "Full channel names restored."
+                        } else "Could not update display preference.",
+                    )
+                }
+            }) {
+                Text(if (preferences.hideChannelPrefix) "Show full channel names" else "Hide channel prefixes in OwnPlay")
             }
             TextButton(
                 onClick = {

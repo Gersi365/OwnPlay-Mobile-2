@@ -4,12 +4,22 @@ import app.ownplay.mobile.sources.domain.SourceId
 import app.ownplay.mobile.sources.domain.SourceRefreshFailureCategory
 import app.ownplay.mobile.sources.domain.SourceType
 
+enum class CatalogSection {
+    LIVE_CATEGORIES,
+    LIVE_CHANNELS,
+    MOVIE_CATEGORIES,
+    MOVIES,
+    SERIES_CATEGORIES,
+    SERIES,
+}
+
 data class ProviderCatalogSnapshot(
     val sourceType: SourceType,
     val categories: List<ProviderCategoryRecord>,
     val liveChannels: List<ProviderLiveChannelRecord>,
     val movies: List<ProviderMovieRecord>,
     val series: List<ProviderSeriesRecord>,
+    val authoritativeSections: Set<CatalogSection> = CatalogSection.entries.toSet(),
 )
 
 data class ProviderCategoryRecord(
