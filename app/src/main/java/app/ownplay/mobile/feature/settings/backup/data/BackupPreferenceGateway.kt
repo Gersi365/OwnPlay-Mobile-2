@@ -14,7 +14,7 @@ import kotlinx.coroutines.flow.first
 data class BackupPreferenceSnapshot(
     val globalSettings: BackupGlobalSettings,
     val activeSourceId: String?,
-    val refreshSchedules: Map<String, SourceRefreshSchedule>,
+    val refreshSchedules: Map<String, SourceRefreshSchedule?>,
 )
 
 internal class BackupPreferenceGateway(
@@ -34,7 +34,7 @@ internal class BackupPreferenceGateway(
             ),
             activeSourceId = activeSourceStore.currentSelectedSourceId(),
             refreshSchedules = sourceIds.associateWith { sourceId ->
-                refreshStore.current(SourceId(sourceId))
+                refreshStore.currentOrNull(SourceId(sourceId))
             },
         )
 
@@ -58,7 +58,11 @@ internal class BackupPreferenceGateway(
         check(downloadRepository.setUnmeteredNetworkOnly(snapshot.globalSettings.downloads.unmeteredNetworkOnly))
         activeSourceStore.setSelectedSourceId(snapshot.activeSourceId)
         snapshot.refreshSchedules.forEach { (sourceId, schedule) ->
-            refreshStore.set(SourceId(sourceId), schedule)
+            if (schedule == null) {
+                refreshStore.clear(SourceId(sourceId))
+            } else {
+                refreshStore.set(SourceId(sourceId), schedule)
+            }
         }
     }
 

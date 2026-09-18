@@ -17,6 +17,7 @@ private val Context.rebuildRefreshPreferencesDataStore by preferencesDataStore(
 internal interface SourceRefreshScheduleStore {
     fun observe(sourceId: SourceId): Flow<SourceRefreshSchedule>
     suspend fun current(sourceId: SourceId): SourceRefreshSchedule
+    suspend fun currentOrNull(sourceId: SourceId): SourceRefreshSchedule?
     suspend fun set(sourceId: SourceId, schedule: SourceRefreshSchedule)
     suspend fun clear(sourceId: SourceId)
 }
@@ -30,7 +31,11 @@ internal class SourceRefreshSchedulePreferences(
         }
 
     override suspend fun current(sourceId: SourceId): SourceRefreshSchedule =
-        decode(context.rebuildRefreshPreferencesDataStore.data.first()[key(sourceId)])
+        currentOrNull(sourceId) ?: SourceRefreshSchedule.MANUAL
+
+    override suspend fun currentOrNull(sourceId: SourceId): SourceRefreshSchedule? =
+        context.rebuildRefreshPreferencesDataStore.data.first()[key(sourceId)]
+            ?.let { value -> runCatching { SourceRefreshSchedule.valueOf(value) }.getOrNull() }
 
     override suspend fun set(sourceId: SourceId, schedule: SourceRefreshSchedule) {
         context.rebuildRefreshPreferencesDataStore.edit { preferences ->

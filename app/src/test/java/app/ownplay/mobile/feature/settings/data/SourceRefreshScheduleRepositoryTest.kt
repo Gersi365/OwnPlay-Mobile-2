@@ -73,6 +73,7 @@ private class FakeStore(
 
     override fun observe(sourceId: SourceId): Flow<SourceRefreshSchedule> = state(sourceId)
     override suspend fun current(sourceId: SourceId): SourceRefreshSchedule = state(sourceId).value
+    override suspend fun currentOrNull(sourceId: SourceId): SourceRefreshSchedule? = state(sourceId).value
     override suspend fun set(sourceId: SourceId, schedule: SourceRefreshSchedule) { state(sourceId).value = schedule }
     override suspend fun clear(sourceId: SourceId) { state(sourceId).value = SourceRefreshSchedule.MANUAL }
 }

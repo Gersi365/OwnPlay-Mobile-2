@@ -74,6 +74,24 @@ class BackupPreferenceGatewayTest {
     }
 
     @Test
+    fun restoreClearsRefreshScheduleWhenSnapshotHadNoStoredKey() = runBlocking {
+        val fixture = Fixture()
+        val gateway = fixture.gateway()
+        val before = gateway.snapshot(listOf("source-new"))
+        assertEquals(null, before.refreshSchedules["source-new"])
+
+        gateway.apply(
+            globalSettings = before.globalSettings,
+            activeSourceId = before.activeSourceId,
+            refreshSchedules = mapOf("source-new" to SourceRefreshSchedule.DAILY),
+        )
+        assertEquals(SourceRefreshSchedule.DAILY, fixture.refresh.values["source-new"])
+
+        gateway.restore(before)
+        assertFalse(fixture.refresh.values.containsKey("source-new"))
+    }
+
+    @Test
     fun schedulerSyncOnlyTargetsEnabledSourcesAndCountsFailures() {
         val fixture = Fixture()
         fixture.scheduler.failOn += "source-2"
@@ -153,6 +171,8 @@ private class FakeRefreshStore : SourceRefreshScheduleStore {
         MutableStateFlow(values[sourceId.value] ?: SourceRefreshSchedule.MANUAL)
     override suspend fun current(sourceId: SourceId): SourceRefreshSchedule =
         values[sourceId.value] ?: SourceRefreshSchedule.MANUAL
+    override suspend fun currentOrNull(sourceId: SourceId): SourceRefreshSchedule? =
+        values[sourceId.value]
     override suspend fun set(sourceId: SourceId, schedule: SourceRefreshSchedule) {
         values[sourceId.value] = schedule
     }
