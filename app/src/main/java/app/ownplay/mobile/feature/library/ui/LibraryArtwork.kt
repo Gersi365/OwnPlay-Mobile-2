@@ -27,11 +27,17 @@ import app.ownplay.mobile.feature.library.data.LibraryArtworkPayload
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
+internal enum class ArtworkPresentation {
+    POSTER,
+    CHANNEL_LOGO,
+}
+
 @Composable
 internal fun LibraryArtwork(
     url: String?,
     loader: LibraryArtworkLoader,
     compact: Boolean = false,
+    presentation: ArtworkPresentation = ArtworkPresentation.POSTER,
     modifier: Modifier = Modifier,
 ) {
     var image by remember(url, loader) { mutableStateOf<ImageBitmap?>(null) }
@@ -45,13 +51,17 @@ internal fun LibraryArtwork(
         }
     }
 
-    Surface(
-        color = OwnPlayColors.Surface,
-        modifier = if (compact) {
+    val sizedModifier = when (presentation) {
+        ArtworkPresentation.POSTER -> if (compact) {
             modifier.size(width = 56.dp, height = 84.dp)
         } else {
             modifier.size(width = 72.dp, height = 108.dp)
-        },
+        }
+        ArtworkPresentation.CHANNEL_LOGO -> modifier.size(if (compact) 40.dp else 48.dp)
+    }
+    Surface(
+        color = OwnPlayColors.Surface,
+        modifier = sizedModifier,
     ) {
         val current = image
         if (current == null) {
@@ -59,13 +69,20 @@ internal fun LibraryArtwork(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center,
             ) {
-                Text(text = "Artwork", color = OwnPlayColors.TextMuted)
+                Text(
+                    text = if (presentation == ArtworkPresentation.CHANNEL_LOGO) "Logo" else "Artwork",
+                    color = OwnPlayColors.TextMuted,
+                )
             }
         } else {
             Image(
                 bitmap = current,
                 contentDescription = null,
-                contentScale = ContentScale.Crop,
+                contentScale = if (presentation == ArtworkPresentation.CHANNEL_LOGO) {
+                    ContentScale.Fit
+                } else {
+                    ContentScale.Crop
+                },
                 modifier = Modifier.fillMaxSize(),
             )
         }

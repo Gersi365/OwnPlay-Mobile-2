@@ -30,6 +30,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -47,6 +48,9 @@ import app.ownplay.mobile.feature.live.domain.OwnPlayLiveCatalogSnapshot
 import app.ownplay.mobile.feature.live.domain.OwnPlayLivePlacement
 import app.ownplay.mobile.feature.live.domain.OwnPlayLiveSemanticCategory
 import app.ownplay.mobile.feature.live.domain.ProviderLiveCatalogSnapshot
+import app.ownplay.mobile.feature.library.data.LibraryArtworkLoader
+import app.ownplay.mobile.feature.library.ui.ArtworkPresentation
+import app.ownplay.mobile.feature.library.ui.LibraryArtwork
 import app.ownplay.mobile.feature.playback.data.Media3PlaybackEngine
 import app.ownplay.mobile.feature.playback.domain.PlaybackPresentation
 import app.ownplay.mobile.feature.playback.domain.PlaybackReadiness
@@ -86,7 +90,10 @@ fun LiveScreen(
         repository = services.liveOrganizationRepository,
         playbackSessionController = services.playbackSessionController,
         playbackEngine = services.playbackEngine,
+        artworkLoader = services.libraryArtworkLoader,
         compactMediaRows = displayPreferences.compactMediaRows,
+        showChannelLogos = displayPreferences.showChannelLogos,
+        preferTvgName = displayPreferences.preferTvgName,
         modifier = modifier,
     )
 }
@@ -98,7 +105,10 @@ private fun LiveSourceScreen(
     repository: LiveOrganizationRepository,
     playbackSessionController: PlaybackSessionController,
     playbackEngine: Media3PlaybackEngine,
+    artworkLoader: LibraryArtworkLoader,
     compactMediaRows: Boolean,
+    showChannelLogos: Boolean,
+    preferTvgName: Boolean,
     modifier: Modifier,
 ) {
     val sourceId = source.sourceId
@@ -149,7 +159,9 @@ private fun LiveSourceScreen(
     val playbackTarget = (playbackState.target as? PlaybackTarget.LiveChannel)
         ?.takeIf { it.sourceId == sourceId }
     val playbackChannelName = playbackTarget?.let { target ->
-        channelById[target.channelId]?.name ?: "Live channel"
+        channelById[target.channelId]
+            ?.let { channel -> LiveChannelDisplayPolicy.displayName(channel, preferTvgName) }
+            ?: "Live channel"
     }
     val visibleChannelIds = if (mode == LiveOrganizationMode.OWNPLAY) {
         LiveBrowseStatePolicy.visibleOwnPlayChannelIds(
@@ -280,6 +292,9 @@ private fun LiveSourceScreen(
                         ownPlayMode = mode == LiveOrganizationMode.OWNPLAY,
                         hasManualPlacement = channel.channelId in ownPlayCatalog.manualPlacementChannelIds,
                         compact = compactMediaRows,
+                        showLogo = showChannelLogos,
+                        preferTvgName = preferTvgName,
+                        artworkLoader = artworkLoader,
                         onActivate = {
                             scope.launch {
                                 playbackSessionController.activateLiveChannel(
@@ -378,6 +393,9 @@ private fun LiveChannelRow(
     ownPlayMode: Boolean,
     hasManualPlacement: Boolean,
     compact: Boolean,
+    showLogo: Boolean,
+    preferTvgName: Boolean,
+    artworkLoader: LibraryArtworkLoader,
     onActivate: () -> Unit,
     onMove: () -> Unit,
     onReset: () -> Unit,
@@ -393,11 +411,20 @@ private fun LiveChannelRow(
                 horizontal = if (compact) 12.dp else 16.dp,
                 vertical = if (compact) 7.dp else 12.dp,
             ),
-            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
         ) {
+            if (showLogo && !channel.logoUrl.isNullOrBlank()) {
+                LibraryArtwork(
+                    url = channel.logoUrl,
+                    loader = artworkLoader,
+                    compact = compact,
+                    presentation = ArtworkPresentation.CHANNEL_LOGO,
+                )
+                Spacer(modifier = Modifier.width(10.dp))
+            }
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = channel.name,
+                    text = LiveChannelDisplayPolicy.displayName(channel, preferTvgName),
                     color = OwnPlayColors.TextPrimary,
                     fontWeight = FontWeight.SemiBold,
                 )

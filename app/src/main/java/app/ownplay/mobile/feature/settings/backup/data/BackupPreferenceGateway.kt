@@ -44,6 +44,8 @@ internal class BackupPreferenceGateway(
         refreshSchedules: Map<String, SourceRefreshSchedule>,
     ) {
         check(displayRepository.setCompactMediaRows(globalSettings.display.compactMediaRows))
+        check(displayRepository.setShowChannelLogos(globalSettings.display.showChannelLogos))
+        check(displayRepository.setPreferTvgName(globalSettings.display.preferTvgName))
         check(playbackRepository.setAutomaticPictureInPicture(globalSettings.playback.automaticPictureInPicture))
         check(downloadRepository.setUnmeteredNetworkOnly(globalSettings.downloads.unmeteredNetworkOnly))
         activeSourceStore.setSelectedSourceId(activeSourceId)
@@ -54,6 +56,8 @@ internal class BackupPreferenceGateway(
 
     suspend fun restore(snapshot: BackupPreferenceSnapshot) {
         check(displayRepository.setCompactMediaRows(snapshot.globalSettings.display.compactMediaRows))
+        check(displayRepository.setShowChannelLogos(snapshot.globalSettings.display.showChannelLogos))
+        check(displayRepository.setPreferTvgName(snapshot.globalSettings.display.preferTvgName))
         check(playbackRepository.setAutomaticPictureInPicture(snapshot.globalSettings.playback.automaticPictureInPicture))
         check(downloadRepository.setUnmeteredNetworkOnly(snapshot.globalSettings.downloads.unmeteredNetworkOnly))
         activeSourceStore.setSelectedSourceId(snapshot.activeSourceId)

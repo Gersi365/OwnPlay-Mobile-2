@@ -32,7 +32,7 @@ class BackupPreferenceGatewayTest {
         assertEquals(SourceRefreshSchedule.EVERY_6_HOURS, snapshot.refreshSchedules["source-1"])
         gateway.apply(
             globalSettings = app.ownplay.mobile.feature.settings.backup.domain.BackupGlobalSettings(
-                display = DisplayPreferences(compactMediaRows = true),
+                display = DisplayPreferences(compactMediaRows = true, showChannelLogos = false, preferTvgName = true),
                 playback = PlaybackPreferences(automaticPictureInPicture = false),
                 downloads = DownloadPreferences(unmeteredNetworkOnly = true),
             ),
@@ -41,6 +41,8 @@ class BackupPreferenceGatewayTest {
         )
 
         assertTrue(fixture.display.state.value.compactMediaRows)
+        assertFalse(fixture.display.state.value.showChannelLogos)
+        assertTrue(fixture.display.state.value.preferTvgName)
         assertFalse(fixture.playback.state.value.automaticPictureInPicture)
         assertTrue(fixture.download.state.value.unmeteredNetworkOnly)
         assertEquals(null, fixture.active.value)
@@ -57,7 +59,7 @@ class BackupPreferenceGatewayTest {
 
         gateway.apply(
             globalSettings = app.ownplay.mobile.feature.settings.backup.domain.BackupGlobalSettings(
-                display = DisplayPreferences(compactMediaRows = true),
+                display = DisplayPreferences(compactMediaRows = true, showChannelLogos = false, preferTvgName = true),
                 playback = PlaybackPreferences(automaticPictureInPicture = false),
                 downloads = DownloadPreferences(unmeteredNetworkOnly = true),
             ),
@@ -67,6 +69,8 @@ class BackupPreferenceGatewayTest {
         gateway.restore(before)
 
         assertFalse(fixture.display.state.value.compactMediaRows)
+        assertTrue(fixture.display.state.value.showChannelLogos)
+        assertFalse(fixture.display.state.value.preferTvgName)
         assertTrue(fixture.playback.state.value.automaticPictureInPicture)
         assertFalse(fixture.download.state.value.unmeteredNetworkOnly)
         assertEquals("source-1", fixture.active.value)
@@ -140,8 +144,11 @@ private class FakeActiveSourceStore : ActiveSourceSelectionStore {
 private class FakeDisplayRepository : DisplayPreferencesRepository {
     val state = MutableStateFlow(DisplayPreferences())
     override val preferences: Flow<DisplayPreferences> = state
-    override suspend fun setCompactMediaRows(enabled: Boolean): Boolean {
-        state.value = DisplayPreferences(enabled)
+    override suspend fun setCompactMediaRows(enabled: Boolean): Boolean = update { copy(compactMediaRows = enabled) }
+    override suspend fun setShowChannelLogos(enabled: Boolean): Boolean = update { copy(showChannelLogos = enabled) }
+    override suspend fun setPreferTvgName(enabled: Boolean): Boolean = update { copy(preferTvgName = enabled) }
+    private fun update(block: DisplayPreferences.() -> DisplayPreferences): Boolean {
+        state.value = state.value.block()
         return true
     }
 }

@@ -105,6 +105,8 @@ class RoomBackupRestoreRepositoryInstrumentedTest {
         assertTrue(result is BackupRestoreResult.StorageFailure)
         assertTrue(database.sourceDao().getAll().isEmpty())
         assertFalse(preferences.display.state.value.compactMediaRows)
+        assertTrue(preferences.display.state.value.showChannelLogos)
+        assertFalse(preferences.display.state.value.preferTvgName)
         assertTrue(preferences.playback.state.value.automaticPictureInPicture)
         assertFalse(preferences.download.state.value.unmeteredNetworkOnly)
         assertNull(preferences.active.value)
@@ -125,7 +127,7 @@ class RoomBackupRestoreRepositoryInstrumentedTest {
                 ),
                 activeSourceId = "source-restored",
                 globalSettings = BackupGlobalSettings(
-                    display = DisplayPreferences(compactMediaRows = true),
+                    display = DisplayPreferences(compactMediaRows = true, showChannelLogos = false, preferTvgName = true),
                     playback = PlaybackPreferences(automaticPictureInPicture = false),
                     downloads = DownloadPreferences(unmeteredNetworkOnly = true),
                 ),
@@ -185,8 +187,12 @@ private class FakeDisplayRepository : DisplayPreferencesRepository {
     val state = MutableStateFlow(DisplayPreferences())
     override val preferences: Flow<DisplayPreferences> = state
 
-    override suspend fun setCompactMediaRows(enabled: Boolean): Boolean {
-        state.value = DisplayPreferences(compactMediaRows = enabled)
+    override suspend fun setCompactMediaRows(enabled: Boolean): Boolean = update { copy(compactMediaRows = enabled) }
+    override suspend fun setShowChannelLogos(enabled: Boolean): Boolean = update { copy(showChannelLogos = enabled) }
+    override suspend fun setPreferTvgName(enabled: Boolean): Boolean = update { copy(preferTvgName = enabled) }
+
+    private fun update(block: DisplayPreferences.() -> DisplayPreferences): Boolean {
+        state.value = state.value.block()
         return true
     }
 }

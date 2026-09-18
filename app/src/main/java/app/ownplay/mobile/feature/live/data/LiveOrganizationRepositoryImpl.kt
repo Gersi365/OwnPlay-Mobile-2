@@ -54,6 +54,7 @@ class RoomLiveOrganizationRepository(
                         tvgName = row.tvgName,
                         providerCategoryId = row.categoryKey,
                         providerOrder = row.providerOrder,
+                        logoUrl = row.logoUrl,
                     )
                 },
             )

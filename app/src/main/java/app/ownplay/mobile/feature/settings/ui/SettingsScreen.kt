@@ -432,9 +432,41 @@ private fun DisplayPreferencesSection(
         ) {
             Text("Display", color = OwnPlayColors.TextPrimary, fontWeight = FontWeight.SemiBold)
             Text(
+                if (preferences.showChannelLogos) "Channel logos are shown." else "Channel logos are hidden.",
+                color = OwnPlayColors.TextSecondary,
+            )
+            Text(
+                if (preferences.preferTvgName) "TV guide names are preferred when available." else "Provider channel names are preferred.",
+                color = OwnPlayColors.TextSecondary,
+            )
+            Text(
                 if (preferences.compactMediaRows) "Compact media rows are on." else "Compact media rows are off.",
                 color = OwnPlayColors.TextSecondary,
             )
+            TextButton(onClick = {
+                val target = !preferences.showChannelLogos
+                scope.launch {
+                    onMessage(
+                        if (repository.setShowChannelLogos(target)) {
+                            if (target) "Channel logos enabled." else "Channel logos hidden."
+                        } else "Could not update display preference.",
+                    )
+                }
+            }) {
+                Text(if (preferences.showChannelLogos) "Hide channel logos" else "Show channel logos")
+            }
+            TextButton(onClick = {
+                val target = !preferences.preferTvgName
+                scope.launch {
+                    onMessage(
+                        if (repository.setPreferTvgName(target)) {
+                            if (target) "TV guide names preferred." else "Provider names preferred."
+                        } else "Could not update display preference.",
+                    )
+                }
+            }) {
+                Text(if (preferences.preferTvgName) "Prefer provider names" else "Prefer TV guide names")
+            }
             TextButton(
                 onClick = {
                     val target = !preferences.compactMediaRows

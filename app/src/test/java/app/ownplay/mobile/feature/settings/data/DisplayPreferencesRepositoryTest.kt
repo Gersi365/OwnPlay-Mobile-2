@@ -11,12 +11,17 @@ import org.junit.Test
 
 class DisplayPreferencesRepositoryTest {
     @Test
-    fun compactMediaRowsPersistsThroughRepository() = runBlocking {
+    fun displayPreferencesPersistThroughRepository() = runBlocking {
         val store = FakeDisplayPreferencesStore()
         val repository = DataStoreDisplayPreferencesRepository(store)
 
         assertTrue(repository.setCompactMediaRows(true))
-        assertTrue(repository.preferences.first().compactMediaRows)
+        assertTrue(repository.setShowChannelLogos(false))
+        assertTrue(repository.setPreferTvgName(true))
+        val current = repository.preferences.first()
+        assertTrue(current.compactMediaRows)
+        assertFalse(current.showChannelLogos)
+        assertTrue(current.preferTvgName)
     }
 
     @Test
@@ -25,7 +30,11 @@ class DisplayPreferencesRepositoryTest {
         val repository = DataStoreDisplayPreferencesRepository(store)
 
         assertFalse(repository.setCompactMediaRows(true))
+        assertFalse(repository.setShowChannelLogos(false))
+        assertFalse(repository.setPreferTvgName(true))
         assertFalse(repository.preferences.first().compactMediaRows)
+        assertTrue(repository.preferences.first().showChannelLogos)
+        assertFalse(repository.preferences.first().preferTvgName)
     }
 }
 
@@ -35,8 +44,12 @@ private class FakeDisplayPreferencesStore(
     private val state = MutableStateFlow(DisplayPreferences())
     override val preferences: Flow<DisplayPreferences> = state
 
-    override suspend fun setCompactMediaRows(enabled: Boolean) {
+    override suspend fun setCompactMediaRows(enabled: Boolean) = update { copy(compactMediaRows = enabled) }
+    override suspend fun setShowChannelLogos(enabled: Boolean) = update { copy(showChannelLogos = enabled) }
+    override suspend fun setPreferTvgName(enabled: Boolean) = update { copy(preferTvgName = enabled) }
+
+    private fun update(block: DisplayPreferences.() -> DisplayPreferences) {
         if (failWrites) error("storage failed")
-        state.value = DisplayPreferences(compactMediaRows = enabled)
+        state.value = state.value.block()
     }
 }

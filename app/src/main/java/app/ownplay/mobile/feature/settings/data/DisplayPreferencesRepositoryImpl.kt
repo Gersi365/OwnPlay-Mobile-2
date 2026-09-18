@@ -16,6 +16,8 @@ private val Context.rebuildDisplayPreferencesDataStore by preferencesDataStore(
 internal interface DisplayPreferencesStore {
     val preferences: Flow<DisplayPreferences>
     suspend fun setCompactMediaRows(enabled: Boolean)
+    suspend fun setShowChannelLogos(enabled: Boolean)
+    suspend fun setPreferTvgName(enabled: Boolean)
 }
 
 internal class DisplayPreferencesDataStore(
@@ -25,6 +27,8 @@ internal class DisplayPreferencesDataStore(
         context.rebuildDisplayPreferencesDataStore.data.map { values ->
             DisplayPreferences(
                 compactMediaRows = values[COMPACT_MEDIA_ROWS] ?: false,
+                showChannelLogos = values[SHOW_CHANNEL_LOGOS] ?: true,
+                preferTvgName = values[PREFER_TVG_NAME] ?: false,
             )
         }
 
@@ -34,8 +38,22 @@ internal class DisplayPreferencesDataStore(
         }
     }
 
+    override suspend fun setShowChannelLogos(enabled: Boolean) {
+        context.rebuildDisplayPreferencesDataStore.edit { values ->
+            values[SHOW_CHANNEL_LOGOS] = enabled
+        }
+    }
+
+    override suspend fun setPreferTvgName(enabled: Boolean) {
+        context.rebuildDisplayPreferencesDataStore.edit { values ->
+            values[PREFER_TVG_NAME] = enabled
+        }
+    }
+
     private companion object {
         val COMPACT_MEDIA_ROWS = booleanPreferencesKey("compact_media_rows")
+        val SHOW_CHANNEL_LOGOS = booleanPreferencesKey("show_channel_logos")
+        val PREFER_TVG_NAME = booleanPreferencesKey("prefer_tvg_name")
     }
 }
 
@@ -44,9 +62,21 @@ internal class DataStoreDisplayPreferencesRepository(
 ) : DisplayPreferencesRepository {
     override val preferences: Flow<DisplayPreferences> = store.preferences
 
-    override suspend fun setCompactMediaRows(enabled: Boolean): Boolean =
+    override suspend fun setCompactMediaRows(enabled: Boolean): Boolean = write {
+        store.setCompactMediaRows(enabled)
+    }
+
+    override suspend fun setShowChannelLogos(enabled: Boolean): Boolean = write {
+        store.setShowChannelLogos(enabled)
+    }
+
+    override suspend fun setPreferTvgName(enabled: Boolean): Boolean = write {
+        store.setPreferTvgName(enabled)
+    }
+
+    private suspend fun write(block: suspend () -> Unit): Boolean =
         try {
-            store.setCompactMediaRows(enabled)
+            block()
             true
         } catch (_: Exception) {
             false

@@ -36,6 +36,7 @@ data class LiveOrganizationChannel(
     val tvgName: String?,
     val providerCategoryId: String?,
     val providerOrder: Int,
+    val logoUrl: String? = null,
 )
 
 data class OwnPlayCountryScope(

@@ -33,6 +33,20 @@ class BackupJsonCodecTest {
     }
 
     @Test
+    fun olderVersionOneBackupWithoutDisplayExtensionsUsesCompatibleDefaults() {
+        val encoded = BackupJsonCodec.encode(sampleEnvelope())
+        val legacy = encoded
+            .replace(Regex("""\s*"showChannelLogos"\s*:\s*(true|false)\s*,?"""), "")
+            .replace(Regex("""\s*"preferTvgName"\s*:\s*(true|false)\s*,?"""), "")
+
+        val result = BackupJsonCodec.decode(legacy)
+        assertTrue(result is BackupDecodeResult.Success)
+        val display = (result as BackupDecodeResult.Success).envelope.payload.globalSettings.display
+        assertTrue(display.showChannelLogos)
+        assertFalse(display.preferTvgName)
+    }
+
+    @Test
     fun decodeRejectsForbiddenSecretFieldsBeforeRestoreModelCreation() {
         val encoded = BackupJsonCodec.encode(sampleEnvelope())
         val malicious = encoded.replace(
@@ -101,7 +115,7 @@ class BackupJsonCodecTest {
             ),
             activeSourceId = "source-1",
             globalSettings = BackupGlobalSettings(
-                display = DisplayPreferences(compactMediaRows = true),
+                display = DisplayPreferences(compactMediaRows = true, showChannelLogos = false, preferTvgName = true),
                 playback = PlaybackPreferences(automaticPictureInPicture = false),
                 downloads = DownloadPreferences(unmeteredNetworkOnly = true),
             ),

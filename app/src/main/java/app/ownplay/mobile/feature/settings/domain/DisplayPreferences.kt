@@ -4,10 +4,16 @@ import kotlinx.coroutines.flow.Flow
 
 data class DisplayPreferences(
     val compactMediaRows: Boolean = false,
+    val showChannelLogos: Boolean = true,
+    val preferTvgName: Boolean = false,
 )
 
 interface DisplayPreferencesRepository {
     val preferences: Flow<DisplayPreferences>
 
     suspend fun setCompactMediaRows(enabled: Boolean): Boolean
+
+    suspend fun setShowChannelLogos(enabled: Boolean): Boolean
+
+    suspend fun setPreferTvgName(enabled: Boolean): Boolean
 }
