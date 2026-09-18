@@ -9,6 +9,11 @@ interface SourceRepository {
 
     suspend fun addSource(input: SourceInput): SourceMutationResult
 
+    suspend fun reconnectSource(
+        sourceId: SourceId,
+        input: SourceReconnectInput,
+    ): SourceMutationResult
+
     suspend fun setActiveSource(sourceId: SourceId): Boolean
 
     suspend fun renameSource(

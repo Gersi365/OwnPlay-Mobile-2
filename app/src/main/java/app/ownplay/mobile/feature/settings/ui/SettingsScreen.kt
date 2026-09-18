@@ -37,6 +37,7 @@ import app.ownplay.mobile.downloads.domain.DownloadPreferences
 import app.ownplay.mobile.downloads.domain.DownloadPreferencesRepository
 import app.ownplay.mobile.feature.playback.domain.PlaybackPreferences
 import app.ownplay.mobile.feature.playback.domain.PlaybackPreferencesRepository
+import app.ownplay.mobile.feature.settings.backup.domain.BackupRestoreRepository
 import app.ownplay.mobile.feature.settings.domain.DisplayPreferences
 import app.ownplay.mobile.feature.settings.domain.DisplayPreferencesRepository
 import app.ownplay.mobile.feature.settings.domain.SourceRefreshSchedule
@@ -44,6 +45,7 @@ import app.ownplay.mobile.feature.settings.domain.SourceRefreshScheduleRepositor
 import app.ownplay.mobile.sources.domain.SourceInput
 import app.ownplay.mobile.sources.domain.SourceMutationRejection
 import app.ownplay.mobile.sources.domain.SourceMutationResult
+import app.ownplay.mobile.sources.domain.SourceReconnectInput
 import app.ownplay.mobile.sources.domain.SourceRefreshResult
 import app.ownplay.mobile.sources.domain.SourceRepository
 import app.ownplay.mobile.sources.domain.SourceSummary
@@ -63,6 +65,7 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
         liveOrganizationRepository = services.liveOrganizationRepository,
         playbackPreferencesRepository = services.playbackPreferencesRepository,
         downloadPreferencesRepository = services.downloadPreferencesRepository,
+        backupRestoreRepository = services.backupRestoreRepository,
         modifier = modifier,
     )
 }
@@ -75,6 +78,7 @@ private fun SettingsSourcesScreen(
     liveOrganizationRepository: LiveOrganizationRepository,
     playbackPreferencesRepository: PlaybackPreferencesRepository,
     downloadPreferencesRepository: DownloadPreferencesRepository,
+    backupRestoreRepository: BackupRestoreRepository,
     modifier: Modifier,
 ) {
     val sourcesFlow = remember(repository) { repository.observeSources() }
@@ -86,6 +90,7 @@ private fun SettingsSourcesScreen(
     var message by remember { mutableStateOf<String?>(null) }
     var addType by remember { mutableStateOf<SourceType?>(null) }
     var renameSource by remember { mutableStateOf<SourceSummary?>(null) }
+    var reconnectSource by remember { mutableStateOf<SourceSummary?>(null) }
     var removeSource by remember { mutableStateOf<SourceSummary?>(null) }
 
     fun runForSource(source: SourceSummary, block: suspend () -> String) {
@@ -157,6 +162,7 @@ private fun SettingsSourcesScreen(
                             }
                         }
                     },
+                    onReconnect = { reconnectSource = source },
                     onRename = { renameSource = source },
                     onRemove = { removeSource = source },
                 )
@@ -201,11 +207,14 @@ private fun SettingsSourcesScreen(
         }
 
         item {
-            AboutSettingsSection()
+            BackupRestoreSection(
+                repository = backupRestoreRepository,
+                onMessage = { message = it },
+            )
         }
 
         item {
-            SettingsNextSections()
+            AboutSettingsSection()
         }
     }
 
@@ -247,6 +256,20 @@ private fun SettingsSourcesScreen(
         )
     }
 
+    reconnectSource?.let { source ->
+        ReconnectSourceDialog(
+            source = source,
+            onDismiss = { reconnectSource = null },
+            onSubmit = { input ->
+                runForSource(source) {
+                    val result = repository.reconnectSource(source.sourceId, input)
+                    if (result is SourceMutationResult.Success) reconnectSource = null
+                    mutationMessage(result, "${source.displayName} reconnected.")
+                }
+            },
+        )
+    }
+
     removeSource?.let { source ->
         AlertDialog(
             onDismissRequest = { removeSource = null },
@@ -283,6 +306,7 @@ private fun SourceSettingsCard(
     busy: Boolean,
     onSetActive: () -> Unit,
     onRefresh: () -> Unit,
+    onReconnect: () -> Unit,
     onRename: () -> Unit,
     onRemove: () -> Unit,
 ) {
@@ -300,7 +324,10 @@ private fun SourceSettingsCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
                 Text(source.displayName, color = OwnPlayColors.TextPrimary, fontWeight = FontWeight.SemiBold)
-                if (isActive) Text("Active", color = OwnPlayColors.Accent)
+                when {
+                    isActive -> Text("Active", color = OwnPlayColors.Accent)
+                    !source.enabled -> Text("Disabled", color = OwnPlayColors.TextMuted)
+                }
             }
             Text(
                 "${source.type.name} • ${source.connectionLabel}",
@@ -312,11 +339,21 @@ private fun SourceSettingsCard(
                 } ?: "Not refreshed yet",
                 color = OwnPlayColors.TextMuted,
             )
+            if (!source.enabled) {
+                Text(
+                    "Credentials are not stored in backups. Reconnect this source to enable it.",
+                    color = OwnPlayColors.TextMuted,
+                )
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                if (!isActive) {
-                    TextButton(enabled = !busy, onClick = onSetActive) { Text("Set active") }
+                if (source.enabled) {
+                    if (!isActive) {
+                        TextButton(enabled = !busy, onClick = onSetActive) { Text("Set active") }
+                    }
+                    TextButton(enabled = !busy, onClick = onRefresh) { Text("Refresh") }
+                } else {
+                    TextButton(enabled = !busy, onClick = onReconnect) { Text("Reconnect") }
                 }
-                TextButton(enabled = !busy, onClick = onRefresh) { Text("Refresh") }
                 TextButton(enabled = !busy, onClick = onRename) { Text("Rename") }
                 TextButton(enabled = !busy, onClick = onRemove) { Text("Remove") }
             }
@@ -664,26 +701,6 @@ private fun AboutSettingsSection() {
 }
 
 @Composable
-private fun SettingsNextSections() {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = OwnPlayShapes.Medium,
-        color = OwnPlayColors.SurfaceRaised,
-    ) {
-        Column(
-            modifier = Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            Text("Next settings sections", color = OwnPlayColors.TextPrimary, fontWeight = FontWeight.SemiBold)
-            Text(
-                "Backup & restore",
-                color = OwnPlayColors.TextSecondary,
-            )
-        }
-    }
-}
-
-@Composable
 private fun XtreamSourceDialog(
     onDismiss: () -> Unit,
     onSubmit: (SourceInput.Xtream) -> Unit,
@@ -730,6 +747,57 @@ private fun M3uSourceDialog(
 }
 
 @Composable
+private fun ReconnectSourceDialog(
+    source: SourceSummary,
+    onDismiss: () -> Unit,
+    onSubmit: (SourceReconnectInput) -> Unit,
+) {
+    when (source.type) {
+        SourceType.XTREAM -> {
+            var server by remember(source.sourceId) { mutableStateOf(source.connectionLabel) }
+            var username by remember(source.sourceId) { mutableStateOf("") }
+            var password by remember(source.sourceId) { mutableStateOf("") }
+            SourceInputDialog(
+                title = "Reconnect Xtream source",
+                onDismiss = onDismiss,
+                onConfirm = {
+                    onSubmit(SourceReconnectInput.Xtream(server, username, password))
+                },
+                confirmLabel = "Reconnect",
+            ) {
+                Text("Saved credentials are never redisplayed. Enter them again to enable this restored source.")
+                OutlinedTextField(server, { server = it }, label = { Text("Server URL") }, singleLine = true)
+                OutlinedTextField(username, { username = it }, label = { Text("Username") }, singleLine = true)
+                OutlinedTextField(
+                    password,
+                    { password = it },
+                    label = { Text("Password") },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                )
+            }
+        }
+
+        SourceType.M3U -> {
+            var playlist by remember(source.sourceId) { mutableStateOf(source.connectionLabel) }
+            var epg by remember(source.sourceId) { mutableStateOf("") }
+            SourceInputDialog(
+                title = "Reconnect M3U source",
+                onDismiss = onDismiss,
+                onConfirm = {
+                    onSubmit(SourceReconnectInput.M3u(playlist, epg.trim().ifBlank { null }))
+                },
+                confirmLabel = "Reconnect",
+            ) {
+                Text("Private playlist/EPG parameters are never restored from backup. Enter the full URLs again if required.")
+                OutlinedTextField(playlist, { playlist = it }, label = { Text("Playlist URL") }, singleLine = true)
+                OutlinedTextField(epg, { epg = it }, label = { Text("EPG URL (optional)") }, singleLine = true)
+            }
+        }
+    }
+}
+
+@Composable
 private fun RenameSourceDialog(
     source: SourceSummary,
     onDismiss: () -> Unit,
@@ -750,6 +818,7 @@ private fun SourceInputDialog(
     title: String,
     onDismiss: () -> Unit,
     onConfirm: () -> Unit,
+    confirmLabel: String = "Save",
     content: @Composable () -> Unit,
 ) {
     AlertDialog(
@@ -758,7 +827,7 @@ private fun SourceInputDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) { content() }
         },
-        confirmButton = { TextButton(onClick = onConfirm) { Text("Save") } },
+        confirmButton = { TextButton(onClick = onConfirm) { Text(confirmLabel) } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }

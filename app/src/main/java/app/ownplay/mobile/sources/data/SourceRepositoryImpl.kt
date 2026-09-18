@@ -15,6 +15,7 @@ import app.ownplay.mobile.sources.domain.SourceInput
 import app.ownplay.mobile.sources.domain.SourceMutationRejection
 import app.ownplay.mobile.sources.domain.SourceMutationResult
 import app.ownplay.mobile.sources.domain.SourceRefreshFailureCategory
+import app.ownplay.mobile.sources.domain.SourceReconnectInput
 import app.ownplay.mobile.sources.domain.SourceRefreshResult
 import app.ownplay.mobile.sources.domain.SourceRepository
 import app.ownplay.mobile.sources.domain.SourceSummary
@@ -121,6 +122,65 @@ class SourceRepositoryImpl(
                     runCatching { credentialStore.delete(sourceId) }
                     throw exception
                 }
+            }
+            SourceMutationResult.Success(sourceId)
+        } catch (_: Exception) {
+            SourceMutationResult.Rejected(SourceMutationRejection.STORAGE_FAILURE)
+        }
+    }
+
+    override suspend fun reconnectSource(
+        sourceId: SourceId,
+        input: SourceReconnectInput,
+    ): SourceMutationResult {
+        val source = try {
+            sourceDao.get(sourceId.value)
+        } catch (_: Exception) {
+            return SourceMutationResult.Rejected(SourceMutationRejection.STORAGE_FAILURE)
+        } ?: return SourceMutationResult.Rejected(SourceMutationRejection.STORAGE_FAILURE)
+        if (source.enabled) {
+            return SourceMutationResult.Rejected(SourceMutationRejection.INVALID_CONNECTION)
+        }
+
+        val prepared = prepareReconnect(source.displayName, input)
+            ?: return when (input) {
+                is SourceReconnectInput.Xtream -> if (
+                    !CredentialInputPolicy.isValidCredential(input.username) ||
+                    !CredentialInputPolicy.isValidCredential(input.password)
+                ) {
+                    SourceMutationResult.Rejected(SourceMutationRejection.INVALID_CREDENTIALS)
+                } else {
+                    SourceMutationResult.Rejected(SourceMutationRejection.INVALID_CONNECTION)
+                }
+
+                is SourceReconnectInput.M3u ->
+                    SourceMutationResult.Rejected(SourceMutationRejection.INVALID_CONNECTION)
+            }
+        if (source.type != prepared.type.name || source.baseLocator != prepared.safeLocator) {
+            return SourceMutationResult.Rejected(SourceMutationRejection.INVALID_CONNECTION)
+        }
+
+        val previousSecret = try {
+            credentialStore.get(sourceId)
+        } catch (_: Exception) {
+            return SourceMutationResult.Rejected(SourceMutationRejection.STORAGE_FAILURE)
+        }
+        return try {
+            credentialStore.put(sourceId, prepared.secret)
+            try {
+                sourceDao.update(
+                    source.copy(
+                        credentialReference = sourceId.value,
+                        enabled = true,
+                        updatedAt = nowMillis(),
+                    ),
+                )
+            } catch (exception: Exception) {
+                runCatching {
+                    if (previousSecret == null) credentialStore.delete(sourceId)
+                    else credentialStore.put(sourceId, previousSecret)
+                }
+                throw exception
             }
             SourceMutationResult.Success(sourceId)
         } catch (_: Exception) {
@@ -356,6 +416,28 @@ class SourceRepositoryImpl(
         category = SourceRefreshFailureCategory.STORAGE,
         safeMessage = SourceRefreshFailureCategory.STORAGE.safeMessage(),
     )
+
+    private fun prepareReconnect(
+        displayName: String,
+        input: SourceReconnectInput,
+    ): PreparedSource? = when (input) {
+        is SourceReconnectInput.Xtream -> prepare(
+            SourceInput.Xtream(
+                displayName = displayName,
+                serverUrl = input.serverUrl,
+                username = input.username,
+                password = input.password,
+            ),
+        )
+
+        is SourceReconnectInput.M3u -> prepare(
+            SourceInput.M3u(
+                displayName = displayName,
+                playlistUrl = input.playlistUrl,
+                epgUrl = input.epgUrl,
+            ),
+        )
+    }
 
     private fun prepare(input: SourceInput): PreparedSource? {
         return when (input) {

@@ -16,6 +16,7 @@ import app.ownplay.mobile.sources.domain.SourceInput
 import app.ownplay.mobile.sources.domain.SourceMutationRejection
 import app.ownplay.mobile.sources.domain.SourceMutationResult
 import app.ownplay.mobile.sources.domain.SourceRefreshFailureCategory
+import app.ownplay.mobile.sources.domain.SourceReconnectInput
 import app.ownplay.mobile.sources.domain.SourceRefreshResult
 import app.ownplay.mobile.sources.domain.SourceType
 import java.util.concurrent.atomic.AtomicInteger
@@ -189,6 +190,119 @@ class SourceRepositoryImplTest {
             result,
         )
         assertEquals(original, sourceDao.get("source-a"))
+    }
+
+    @Test
+    fun reconnectRestoredXtreamPreservesStableIdentityAndEnablesSource() = runBlocking {
+        val restored = source(id = "source-a", enabled = false, updatedAt = 10L).copy(
+            displayName = "Living Room",
+            baseLocator = "https://example.com/portal",
+            credentialReference = null,
+        )
+        val sourceDao = FakeSourceDao(listOf(restored))
+        val credentialStore = FakeCredentialStore()
+        val repository = repository(
+            sourceDao = sourceDao,
+            credentialStore = credentialStore,
+            nowMillis = { 50L },
+        )
+
+        val result = repository.reconnectSource(
+            SourceId("source-a"),
+            SourceReconnectInput.Xtream(
+                serverUrl = "HTTPS://EXAMPLE.COM/portal/",
+                username = "alice",
+                password = "secret-password",
+            ),
+        )
+
+        assertEquals(SourceMutationResult.Success(SourceId("source-a")), result)
+        assertEquals(1, sourceDao.getAll().size)
+        val connected = sourceDao.get("source-a")!!
+        assertEquals("Living Room", connected.displayName)
+        assertEquals(restored.baseLocator, connected.baseLocator)
+        assertEquals("source-a", connected.credentialReference)
+        assertTrue(connected.enabled)
+        assertEquals(50L, connected.updatedAt)
+        val secret = credentialStore.secrets[SourceId("source-a")] as SourceSecret.Xtream
+        assertEquals("alice", secret.username)
+        assertEquals("secret-password", secret.password)
+    }
+
+    @Test
+    fun reconnectRestoredM3uAcceptsSecretBearingUrlWithoutPersistingSecretLocator() = runBlocking {
+        val restored = source(id = "source-a", enabled = false, updatedAt = 10L).copy(
+            type = "M3U",
+            baseLocator = "https://media.example/list.m3u",
+            credentialReference = null,
+        )
+        val sourceDao = FakeSourceDao(listOf(restored))
+        val credentialStore = FakeCredentialStore()
+        val repository = repository(sourceDao = sourceDao, credentialStore = credentialStore)
+
+        val result = repository.reconnectSource(
+            SourceId("source-a"),
+            SourceReconnectInput.M3u(
+                playlistUrl = "https://media.example/list.m3u?token=playlist-secret",
+                epgUrl = "https://media.example/epg.xml?token=epg-secret",
+            ),
+        )
+
+        assertEquals(SourceMutationResult.Success(SourceId("source-a")), result)
+        val connected = sourceDao.get("source-a")!!
+        assertEquals("https://media.example/list.m3u", connected.baseLocator)
+        assertFalse(connected.baseLocator.contains("playlist-secret"))
+        val secret = credentialStore.secrets[SourceId("source-a")] as SourceSecret.M3uRemote
+        assertTrue(secret.playlistUrl.contains("playlist-secret"))
+        assertTrue(secret.epgUrl!!.contains("epg-secret"))
+    }
+
+    @Test
+    fun reconnectRejectsConnectionMismatchWithoutCredentialWrite() = runBlocking {
+        val restored = source(id = "source-a", enabled = false, updatedAt = 10L).copy(
+            baseLocator = "https://expected.example/portal",
+            credentialReference = null,
+        )
+        val credentialStore = FakeCredentialStore()
+        val repository = repository(
+            sourceDao = FakeSourceDao(listOf(restored)),
+            credentialStore = credentialStore,
+        )
+
+        val result = repository.reconnectSource(
+            SourceId("source-a"),
+            SourceReconnectInput.Xtream("https://other.example/portal", "alice", "secret"),
+        )
+
+        assertEquals(
+            SourceMutationResult.Rejected(SourceMutationRejection.INVALID_CONNECTION),
+            result,
+        )
+        assertEquals(0, credentialStore.putCalls)
+    }
+
+    @Test
+    fun reconnectRoomFailureRollsBackNewCredentialAndLeavesSourceDisabled() = runBlocking {
+        val restored = source(id = "source-a", enabled = false, updatedAt = 10L).copy(
+            baseLocator = "https://example.com/portal",
+            credentialReference = null,
+        )
+        val sourceDao = FakeSourceDao(listOf(restored)).apply { failUpdate = true }
+        val credentialStore = FakeCredentialStore()
+        val repository = repository(sourceDao = sourceDao, credentialStore = credentialStore)
+
+        val result = repository.reconnectSource(
+            SourceId("source-a"),
+            SourceReconnectInput.Xtream("https://example.com/portal", "alice", "secret"),
+        )
+
+        assertEquals(
+            SourceMutationResult.Rejected(SourceMutationRejection.STORAGE_FAILURE),
+            result,
+        )
+        assertFalse(sourceDao.get("source-a")!!.enabled)
+        assertNull(sourceDao.get("source-a")!!.credentialReference)
+        assertTrue(credentialStore.secrets.isEmpty())
     }
 
     @Test
@@ -526,6 +640,7 @@ private class FakeSourceDao(
 ) : SourceDao {
     private val rows = MutableStateFlow(sort(initial))
     var failInsert: Boolean = false
+    var failUpdate: Boolean = false
 
     override fun observeAll(): Flow<List<SourceEntity>> = rows
 
@@ -541,6 +656,7 @@ private class FakeSourceDao(
     }
 
     override suspend fun update(entity: SourceEntity) {
+        if (failUpdate) error("update failed")
         check(rows.value.any { it.sourceId == entity.sourceId })
         rows.value = sort(rows.value.map { row ->
             if (row.sourceId == entity.sourceId) entity else row

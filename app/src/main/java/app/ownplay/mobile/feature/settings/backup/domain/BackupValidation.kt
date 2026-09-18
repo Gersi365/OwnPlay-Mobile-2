@@ -40,6 +40,10 @@ object BackupValidator {
         if (sourceIds.size != sourceIds.toSet().size) {
             issues += issue(BackupValidationCode.DUPLICATE_IDENTITY, "$.payload.sources[].sourceId")
         }
+        val sourceConnections = sources.map { it.type to it.baseLocator }
+        if (sourceConnections.size != sourceConnections.toSet().size) {
+            issues += issue(BackupValidationCode.DUPLICATE_IDENTITY, "$.payload.sources[].baseLocator")
+        }
         sources.forEachIndexed { index, source ->
             if (source.displayName.isBlank() || !isSafeLocator(source.baseLocator)) {
                 issues += issue(BackupValidationCode.INVALID_FIELD, "$.payload.sources[$index]")

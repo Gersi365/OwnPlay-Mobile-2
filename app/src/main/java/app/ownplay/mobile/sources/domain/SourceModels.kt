@@ -44,6 +44,25 @@ sealed interface SourceInput {
     }
 }
 
+sealed interface SourceReconnectInput {
+    class Xtream(
+        val serverUrl: String,
+        val username: String,
+        val password: String,
+    ) : SourceReconnectInput {
+        override fun toString(): String =
+            "Xtream(serverUrl=<redacted>, username=<redacted>, password=<redacted>)"
+    }
+
+    class M3u(
+        val playlistUrl: String,
+        val epgUrl: String?,
+    ) : SourceReconnectInput {
+        override fun toString(): String =
+            "M3u(playlistUrl=<redacted>, epgUrl=<redacted>)"
+    }
+}
+
 sealed interface SourceMutationResult {
     data class Success(val sourceId: SourceId) : SourceMutationResult
 

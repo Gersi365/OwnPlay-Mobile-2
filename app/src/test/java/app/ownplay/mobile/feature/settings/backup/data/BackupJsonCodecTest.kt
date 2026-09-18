@@ -71,6 +71,22 @@ class BackupJsonCodecTest {
         assertTrue(issues.any { it.code == BackupValidationCode.INVALID_REFERENCE })
     }
 
+    @Test
+    fun validatorRejectsDuplicateSourceConnectionIdentity() {
+        val first = sampleEnvelope().payload.sources.single()
+        val invalid = sampleEnvelope().copy(
+            payload = sampleEnvelope().payload.copy(
+                sources = listOf(first, first.copy(sourceId = "source-2")),
+            ),
+        )
+
+        val issues = app.ownplay.mobile.feature.settings.backup.domain.BackupValidator.validate(invalid)
+        assertTrue(issues.any {
+            it.code == BackupValidationCode.DUPLICATE_IDENTITY &&
+                it.path == "$.payload.sources[].baseLocator"
+        })
+    }
+
     private fun sampleEnvelope(): OwnPlayBackupEnvelope = OwnPlayBackupEnvelope(
         createdAt = "2026-09-18T06:00:00Z",
         payload = OwnPlayBackupPayload(

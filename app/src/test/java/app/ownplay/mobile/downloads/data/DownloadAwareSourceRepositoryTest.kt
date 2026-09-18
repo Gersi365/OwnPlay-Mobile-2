@@ -4,6 +4,7 @@ import app.ownplay.mobile.downloads.domain.DownloadId
 import app.ownplay.mobile.sources.domain.SourceId
 import app.ownplay.mobile.sources.domain.SourceInput
 import app.ownplay.mobile.sources.domain.SourceMutationResult
+import app.ownplay.mobile.sources.domain.SourceReconnectInput
 import app.ownplay.mobile.sources.domain.SourceRefreshResult
 import app.ownplay.mobile.sources.domain.SourceRepository
 import app.ownplay.mobile.sources.domain.SourceSummary
@@ -96,6 +97,7 @@ private class FakeSourceRepository(
     override fun observeSources(): Flow<List<SourceSummary>> = flowOf(emptyList())
     override fun observeActiveSource(): Flow<SourceSummary?> = flowOf(null)
     override suspend fun addSource(input: SourceInput): SourceMutationResult = error("unused")
+    override suspend fun reconnectSource(sourceId: SourceId, input: SourceReconnectInput): SourceMutationResult = error("unused")
     override suspend fun setActiveSource(sourceId: SourceId): Boolean = error("unused")
     override suspend fun renameSource(sourceId: SourceId, displayName: String): SourceMutationResult = error("unused")
     override suspend fun refreshSource(sourceId: SourceId): SourceRefreshResult = error("unused")
