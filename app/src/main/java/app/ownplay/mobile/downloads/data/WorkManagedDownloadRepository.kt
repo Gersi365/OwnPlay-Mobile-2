@@ -13,6 +13,7 @@ internal class WorkManagedDownloadRepository(
     private val delegate: DownloadRepository,
     private val scheduler: DownloadWorkScheduler,
     private val storage: DownloadStorage,
+    private val notifications: DownloadNotificationEvents,
 ) : DownloadRepository {
     override fun observeDownloads(sourceId: SourceId): Flow<List<DownloadItem>> =
         delegate.observeDownloads(sourceId)
@@ -25,6 +26,7 @@ internal class WorkManagedDownloadRepository(
     override suspend fun enqueue(request: DownloadRequest): DownloadItem {
         val item = delegate.enqueue(request)
         if (item.status == DownloadStatus.QUEUED) {
+            notifications.cancelResult(item.downloadId)
             scheduler.enqueue(item.downloadId, replace = false)
         }
         return item
@@ -47,7 +49,10 @@ internal class WorkManagedDownloadRepository(
 
     override suspend fun resume(downloadId: DownloadId): Boolean {
         val changed = delegate.resume(downloadId)
-        if (changed) scheduler.enqueue(downloadId, replace = true)
+        if (changed) {
+            notifications.cancelResult(downloadId)
+            scheduler.enqueue(downloadId, replace = true)
+        }
         return changed
     }
 
@@ -79,6 +84,8 @@ internal class WorkManagedDownloadRepository(
         ) {
             return false
         }
-        return delegate.remove(downloadId)
+        val removed = delegate.remove(downloadId)
+        if (removed) notifications.cancelAll(downloadId)
+        return removed
     }
 }

@@ -7,6 +7,7 @@ import app.ownplay.mobile.data.security.CredentialStore
 import app.ownplay.mobile.data.security.KeystoreCredentialStore
 import app.ownplay.mobile.downloads.data.AndroidDownloadStorage
 import app.ownplay.mobile.downloads.data.DownloadExecutor
+import app.ownplay.mobile.downloads.data.DownloadNotificationController
 import app.ownplay.mobile.downloads.data.OkHttpDownloadTransferClient
 import app.ownplay.mobile.downloads.data.RoomDownloadRepository
 import app.ownplay.mobile.downloads.data.SourceBackedDownloadMediaResolver
@@ -52,6 +53,7 @@ class OwnPlayServices private constructor(
     val libraryRepository: LibraryRepository,
     val downloadRepository: DownloadRepository,
     internal val downloadExecutor: DownloadExecutor,
+    internal val downloadNotifications: DownloadNotificationController,
     internal val libraryPlaybackLocator: LibraryPlaybackLocator,
     internal val libraryArtworkLoader: LibraryArtworkLoader,
     val playbackSessionController: PlaybackSessionController,
@@ -114,10 +116,12 @@ class OwnPlayServices private constructor(
                 credentialStore = credentialStore,
             )
             val downloadStorage = AndroidDownloadStorage(applicationContext)
+            val downloadNotifications = DownloadNotificationController(applicationContext)
             val downloadRepository = WorkManagedDownloadRepository(
                 delegate = RoomDownloadRepository(database.downloadDao()),
                 scheduler = WorkManagerDownloadScheduler(applicationContext),
                 storage = downloadStorage,
+                notifications = downloadNotifications,
             )
             val downloadExecutor = DownloadExecutor(
                 repository = downloadRepository,
@@ -167,6 +171,7 @@ class OwnPlayServices private constructor(
                 libraryRepository = libraryRepository,
                 downloadRepository = downloadRepository,
                 downloadExecutor = downloadExecutor,
+                downloadNotifications = downloadNotifications,
                 libraryPlaybackLocator = libraryPlaybackLocator,
                 libraryArtworkLoader = libraryArtworkLoader,
                 playbackSessionController = playbackSessionController,
