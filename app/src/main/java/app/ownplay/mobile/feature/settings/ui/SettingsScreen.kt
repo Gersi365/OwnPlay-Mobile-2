@@ -1,16 +1,372 @@
 package app.ownplay.mobile.feature.settings.ui
 
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import app.ownplay.mobile.design.OwnPlayFeaturePlaceholder
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.unit.dp
+import app.ownplay.mobile.OwnPlayApplication
+import app.ownplay.mobile.design.OwnPlayColors
+import app.ownplay.mobile.design.OwnPlayShapes
+import app.ownplay.mobile.sources.domain.SourceInput
+import app.ownplay.mobile.sources.domain.SourceMutationRejection
+import app.ownplay.mobile.sources.domain.SourceMutationResult
+import app.ownplay.mobile.sources.domain.SourceRefreshResult
+import app.ownplay.mobile.sources.domain.SourceRepository
+import app.ownplay.mobile.sources.domain.SourceSummary
+import app.ownplay.mobile.sources.domain.SourceType
+import java.text.DateFormat
+import java.util.Date
+import kotlinx.coroutines.launch
 
 @Composable
-fun SettingsScreen(
-    modifier: Modifier = Modifier,
+fun SettingsScreen(modifier: Modifier = Modifier) {
+    val application = LocalContext.current.applicationContext as OwnPlayApplication
+    val repository = remember(application) { application.services.sourceRepository }
+    SettingsSourcesScreen(repository = repository, modifier = modifier)
+}
+
+@Composable
+private fun SettingsSourcesScreen(
+    repository: SourceRepository,
+    modifier: Modifier,
 ) {
-    OwnPlayFeaturePlaceholder(
-        title = "Settings",
-        message = "Sources, playback, downloads, backup and application preferences will be managed here.",
-        modifier = modifier,
+    val sourcesFlow = remember(repository) { repository.observeSources() }
+    val activeSourceFlow = remember(repository) { repository.observeActiveSource() }
+    val sources by sourcesFlow.collectAsState(initial = emptyList())
+    val activeSource by activeSourceFlow.collectAsState(initial = null)
+    val scope = rememberCoroutineScope()
+    var busyIds by remember { mutableStateOf(emptySet<String>()) }
+    var message by remember { mutableStateOf<String?>(null) }
+    var addType by remember { mutableStateOf<SourceType?>(null) }
+    var renameSource by remember { mutableStateOf<SourceSummary?>(null) }
+    var removeSource by remember { mutableStateOf<SourceSummary?>(null) }
+
+    fun runForSource(source: SourceSummary, block: suspend () -> String) {
+        if (source.sourceId.value in busyIds) return
+        busyIds = busyIds + source.sourceId.value
+        scope.launch {
+            message = block()
+            busyIds = busyIds - source.sourceId.value
+        }
+    }
+
+    LazyColumn(
+        modifier = modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Settings", color = OwnPlayColors.TextPrimary, fontWeight = FontWeight.Bold)
+                Text(
+                    "Sources",
+                    color = OwnPlayColors.TextPrimary,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    "Manage provider sources without exposing saved credentials.",
+                    color = OwnPlayColors.TextSecondary,
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(onClick = { addType = SourceType.XTREAM }) { Text("Add Xtream") }
+                    TextButton(onClick = { addType = SourceType.M3U }) { Text("Add M3U") }
+                }
+            }
+        }
+
+        message?.let { status ->
+            item {
+                Text(status, color = OwnPlayColors.TextSecondary)
+            }
+        }
+
+        if (sources.isEmpty()) {
+            item {
+                Text(
+                    "No sources configured. Add Xtream or M3U to begin.",
+                    color = OwnPlayColors.TextMuted,
+                )
+            }
+        } else {
+            items(sources, key = { it.sourceId.value }) { source ->
+                SourceSettingsCard(
+                    source = source,
+                    isActive = activeSource?.sourceId == source.sourceId,
+                    busy = source.sourceId.value in busyIds,
+                    onSetActive = {
+                        runForSource(source) {
+                            if (repository.setActiveSource(source.sourceId)) {
+                                "${source.displayName} is now active."
+                            } else {
+                                "Could not select ${source.displayName}."
+                            }
+                        }
+                    },
+                    onRefresh = {
+                        runForSource(source) {
+                            when (val result = repository.refreshSource(source.sourceId)) {
+                                SourceRefreshResult.Success -> "${source.displayName} refreshed."
+                                is SourceRefreshResult.Failure ->
+                                    result.safeMessage ?: "${source.displayName} refresh failed."
+                            }
+                        }
+                    },
+                    onRename = { renameSource = source },
+                    onRemove = { removeSource = source },
+                )
+            }
+        }
+
+        item {
+            SettingsNextSections()
+        }
+    }
+
+    when (addType) {
+        SourceType.XTREAM -> XtreamSourceDialog(
+            onDismiss = { addType = null },
+            onSubmit = { input ->
+                scope.launch {
+                    val result = repository.addSource(input)
+                    message = mutationMessage(result, "Xtream source added.")
+                    if (result is SourceMutationResult.Success) addType = null
+                }
+            },
+        )
+        SourceType.M3U -> M3uSourceDialog(
+            onDismiss = { addType = null },
+            onSubmit = { input ->
+                scope.launch {
+                    val result = repository.addSource(input)
+                    message = mutationMessage(result, "M3U source added.")
+                    if (result is SourceMutationResult.Success) addType = null
+                }
+            },
+        )
+        null -> Unit
+    }
+
+    renameSource?.let { source ->
+        RenameSourceDialog(
+            source = source,
+            onDismiss = { renameSource = null },
+            onSubmit = { name ->
+                runForSource(source) {
+                    val result = repository.renameSource(source.sourceId, name)
+                    if (result is SourceMutationResult.Success) renameSource = null
+                    mutationMessage(result, "Source renamed.")
+                }
+            },
+        )
+    }
+
+    removeSource?.let { source ->
+        AlertDialog(
+            onDismissRequest = { removeSource = null },
+            title = { Text("Remove source?") },
+            text = {
+                Text(
+                    "${source.displayName} and its source-scoped app data will be removed. " +
+                        "Completed files already published to storage are left in place.",
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        removeSource = null
+                        runForSource(source) {
+                            if (repository.removeSource(source.sourceId)) {
+                                "${source.displayName} removed."
+                            } else {
+                                "Could not remove ${source.displayName}."
+                            }
+                        }
+                    },
+                ) { Text("Remove") }
+            },
+            dismissButton = { TextButton(onClick = { removeSource = null }) { Text("Cancel") } },
+        )
+    }
+}
+
+@Composable
+private fun SourceSettingsCard(
+    source: SourceSummary,
+    isActive: Boolean,
+    busy: Boolean,
+    onSetActive: () -> Unit,
+    onRefresh: () -> Unit,
+    onRename: () -> Unit,
+    onRemove: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = OwnPlayShapes.Medium,
+        color = OwnPlayColors.Surface,
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(source.displayName, color = OwnPlayColors.TextPrimary, fontWeight = FontWeight.SemiBold)
+                if (isActive) Text("Active", color = OwnPlayColors.Accent)
+            }
+            Text(
+                "${source.type.name} • ${source.connectionLabel}",
+                color = OwnPlayColors.TextSecondary,
+            )
+            Text(
+                source.lastSuccessfulRefreshAtEpochMs?.let {
+                    "Last refresh: ${DateFormat.getDateTimeInstance().format(Date(it))}"
+                } ?: "Not refreshed yet",
+                color = OwnPlayColors.TextMuted,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                if (!isActive) {
+                    TextButton(enabled = !busy, onClick = onSetActive) { Text("Set active") }
+                }
+                TextButton(enabled = !busy, onClick = onRefresh) { Text("Refresh") }
+                TextButton(enabled = !busy, onClick = onRename) { Text("Rename") }
+                TextButton(enabled = !busy, onClick = onRemove) { Text("Remove") }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingsNextSections() {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = OwnPlayShapes.Medium,
+        color = OwnPlayColors.SurfaceRaised,
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text("Next settings sections", color = OwnPlayColors.TextPrimary, fontWeight = FontWeight.SemiBold)
+            Text(
+                "Live organization • Playback • Display • Refresh • Downloads • Backup & restore • About",
+                color = OwnPlayColors.TextSecondary,
+            )
+        }
+    }
+}
+
+@Composable
+private fun XtreamSourceDialog(
+    onDismiss: () -> Unit,
+    onSubmit: (SourceInput.Xtream) -> Unit,
+) {
+    var name by remember { mutableStateOf("") }
+    var server by remember { mutableStateOf("") }
+    var username by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
+    SourceInputDialog(
+        title = "Add Xtream source",
+        onDismiss = onDismiss,
+        onConfirm = { onSubmit(SourceInput.Xtream(name, server, username, password)) },
+    ) {
+        OutlinedTextField(name, { name = it }, label = { Text("Display name") }, singleLine = true)
+        OutlinedTextField(server, { server = it }, label = { Text("Server URL") }, singleLine = true)
+        OutlinedTextField(username, { username = it }, label = { Text("Username") }, singleLine = true)
+        OutlinedTextField(
+            password,
+            { password = it },
+            label = { Text("Password") },
+            singleLine = true,
+            visualTransformation = PasswordVisualTransformation(),
+        )
+    }
+}
+
+@Composable
+private fun M3uSourceDialog(
+    onDismiss: () -> Unit,
+    onSubmit: (SourceInput.M3u) -> Unit,
+) {
+    var name by remember { mutableStateOf("") }
+    var playlist by remember { mutableStateOf("") }
+    var epg by remember { mutableStateOf("") }
+    SourceInputDialog(
+        title = "Add M3U source",
+        onDismiss = onDismiss,
+        onConfirm = { onSubmit(SourceInput.M3u(name, playlist, epg.trim().ifBlank { null })) },
+    ) {
+        OutlinedTextField(name, { name = it }, label = { Text("Display name") }, singleLine = true)
+        OutlinedTextField(playlist, { playlist = it }, label = { Text("Playlist URL") }, singleLine = true)
+        OutlinedTextField(epg, { epg = it }, label = { Text("EPG URL (optional)") }, singleLine = true)
+    }
+}
+
+@Composable
+private fun RenameSourceDialog(
+    source: SourceSummary,
+    onDismiss: () -> Unit,
+    onSubmit: (String) -> Unit,
+) {
+    var name by remember(source.sourceId) { mutableStateOf(source.displayName) }
+    SourceInputDialog(
+        title = "Rename source",
+        onDismiss = onDismiss,
+        onConfirm = { onSubmit(name) },
+    ) {
+        OutlinedTextField(name, { name = it }, label = { Text("Display name") }, singleLine = true)
+    }
+}
+
+@Composable
+private fun SourceInputDialog(
+    title: String,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit,
+    content: @Composable () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) { content() }
+        },
+        confirmButton = { TextButton(onClick = onConfirm) { Text("Save") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
+}
+
+private fun mutationMessage(
+    result: SourceMutationResult,
+    success: String,
+): String = when (result) {
+    is SourceMutationResult.Success -> success
+    is SourceMutationResult.Rejected -> when (result.reason) {
+        SourceMutationRejection.INVALID_NAME -> "Enter a valid display name."
+        SourceMutationRejection.INVALID_CONNECTION -> "Enter a valid source connection."
+        SourceMutationRejection.INVALID_CREDENTIALS -> "Enter valid source credentials."
+        SourceMutationRejection.DUPLICATE_SOURCE -> "That source connection is already configured."
+        SourceMutationRejection.STORAGE_FAILURE -> "The source change could not be saved."
+    }
 }

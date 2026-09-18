@@ -153,6 +153,45 @@ class SourceRepositoryImplTest {
     }
 
     @Test
+    fun renameSourceNormalizesDisplayNameWithoutChangingConnectionOrCredentials() = runBlocking {
+        val original = source(id = "source-a", enabled = true, updatedAt = 10L)
+        val sourceDao = FakeSourceDao(listOf(original))
+        val credentialStore = FakeCredentialStore().apply {
+            seed(SourceId("source-a"), SourceSecret.Xtream("user", "secret"))
+        }
+        val repository = repository(
+            sourceDao = sourceDao,
+            credentialStore = credentialStore,
+            nowMillis = { 50L },
+        )
+
+        val result = repository.renameSource(SourceId("source-a"), "  Living Room  ")
+
+        assertEquals(SourceMutationResult.Success(SourceId("source-a")), result)
+        val renamed = sourceDao.get("source-a")!!
+        assertEquals("Living Room", renamed.displayName)
+        assertEquals(original.baseLocator, renamed.baseLocator)
+        assertEquals(original.credentialReference, renamed.credentialReference)
+        assertEquals(50L, renamed.updatedAt)
+        assertTrue(credentialStore.secrets.containsKey(SourceId("source-a")))
+    }
+
+    @Test
+    fun renameSourceRejectsInvalidNameWithoutMutatingSource() = runBlocking {
+        val original = source(id = "source-a", enabled = true, updatedAt = 10L)
+        val sourceDao = FakeSourceDao(listOf(original))
+        val repository = repository(sourceDao = sourceDao)
+
+        val result = repository.renameSource(SourceId("source-a"), "   ")
+
+        assertEquals(
+            SourceMutationResult.Rejected(SourceMutationRejection.INVALID_NAME),
+            result,
+        )
+        assertEquals(original, sourceDao.get("source-a"))
+    }
+
+    @Test
     fun disabledSourceCannotBecomeActive() = runBlocking {
         val disabled = source(
             id = "disabled",

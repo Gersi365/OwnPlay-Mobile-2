@@ -144,6 +144,33 @@ class SourceRepositoryImpl(
         }
     }
 
+    override suspend fun renameSource(
+        sourceId: SourceId,
+        displayName: String,
+    ): SourceMutationResult {
+        val normalizedName = CredentialInputPolicy.normalizeDisplayName(displayName)
+            ?: return SourceMutationResult.Rejected(SourceMutationRejection.INVALID_NAME)
+        val source = try {
+            sourceDao.get(sourceId.value)
+        } catch (_: Exception) {
+            return SourceMutationResult.Rejected(SourceMutationRejection.STORAGE_FAILURE)
+        } ?: return SourceMutationResult.Rejected(SourceMutationRejection.STORAGE_FAILURE)
+        if (source.displayName == normalizedName) {
+            return SourceMutationResult.Success(sourceId)
+        }
+        return try {
+            sourceDao.update(
+                source.copy(
+                    displayName = normalizedName,
+                    updatedAt = nowMillis(),
+                ),
+            )
+            SourceMutationResult.Success(sourceId)
+        } catch (_: Exception) {
+            SourceMutationResult.Rejected(SourceMutationRejection.STORAGE_FAILURE)
+        }
+    }
+
     override suspend fun refreshSource(sourceId: SourceId): SourceRefreshResult =
         refreshMutex.withLock {
             val source = try {

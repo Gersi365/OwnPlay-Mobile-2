@@ -11,6 +11,11 @@ interface SourceRepository {
 
     suspend fun setActiveSource(sourceId: SourceId): Boolean
 
+    suspend fun renameSource(
+        sourceId: SourceId,
+        displayName: String,
+    ): SourceMutationResult
+
     suspend fun refreshSource(sourceId: SourceId): SourceRefreshResult
 
     suspend fun removeSource(sourceId: SourceId): Boolean

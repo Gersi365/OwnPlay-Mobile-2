@@ -97,6 +97,7 @@ private class FakeSourceRepository(
     override fun observeActiveSource(): Flow<SourceSummary?> = flowOf(null)
     override suspend fun addSource(input: SourceInput): SourceMutationResult = error("unused")
     override suspend fun setActiveSource(sourceId: SourceId): Boolean = error("unused")
+    override suspend fun renameSource(sourceId: SourceId, displayName: String): SourceMutationResult = error("unused")
     override suspend fun refreshSource(sourceId: SourceId): SourceRefreshResult = error("unused")
     override suspend fun removeSource(sourceId: SourceId): Boolean {
         removeCalls += 1
