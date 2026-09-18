@@ -6,8 +6,10 @@ import app.ownplay.mobile.data.prefs.ActiveSourcePreferences
 import app.ownplay.mobile.data.security.CredentialStore
 import app.ownplay.mobile.data.security.KeystoreCredentialStore
 import app.ownplay.mobile.downloads.data.AndroidDownloadStorage
+import app.ownplay.mobile.downloads.data.DownloadAwareSourceRepository
 import app.ownplay.mobile.downloads.data.DownloadExecutor
 import app.ownplay.mobile.downloads.data.DownloadNotificationController
+import app.ownplay.mobile.downloads.data.ManagedSourceRemovalDownloadCoordinator
 import app.ownplay.mobile.downloads.data.OkHttpDownloadTransferClient
 import app.ownplay.mobile.downloads.data.RoomDownloadRepository
 import app.ownplay.mobile.downloads.data.SourceBackedDownloadMediaResolver
@@ -79,6 +81,7 @@ class OwnPlayServices private constructor(
             val refreshStateDao = database.refreshStateDao()
             val liveOrganizationDao = database.liveOrganizationDao()
             val libraryDao = database.libraryDao()
+            val downloadDao = database.downloadDao()
             val catalogLoader = DefaultSourceCatalogLoader(
                 xtreamClient = xtreamClient,
                 m3uClient = m3uClient,
@@ -117,9 +120,16 @@ class OwnPlayServices private constructor(
             )
             val downloadStorage = AndroidDownloadStorage(applicationContext)
             val downloadNotifications = DownloadNotificationController(applicationContext)
+            val downloadScheduler = WorkManagerDownloadScheduler(applicationContext)
             val downloadRepository = WorkManagedDownloadRepository(
-                delegate = RoomDownloadRepository(database.downloadDao()),
-                scheduler = WorkManagerDownloadScheduler(applicationContext),
+                delegate = RoomDownloadRepository(downloadDao),
+                scheduler = downloadScheduler,
+                storage = downloadStorage,
+                notifications = downloadNotifications,
+            )
+            val sourceRemovalDownloadCoordinator = ManagedSourceRemovalDownloadCoordinator(
+                downloadDao = downloadDao,
+                scheduler = downloadScheduler,
                 storage = downloadStorage,
                 notifications = downloadNotifications,
             )
@@ -159,13 +169,16 @@ class OwnPlayServices private constructor(
                 database = database,
                 activeSourcePreferences = activeSourcePreferences,
                 credentialStore = credentialStore,
-                sourceRepository = SourceRepositoryImpl(
-                    sourceDao = sourceDao,
-                    refreshStateDao = refreshStateDao,
-                    activeSourceStore = activeSourcePreferences,
-                    credentialStore = credentialStore,
-                    catalogLoader = catalogLoader,
-                    catalogRefreshStore = catalogRefreshStore,
+                sourceRepository = DownloadAwareSourceRepository(
+                    delegate = SourceRepositoryImpl(
+                        sourceDao = sourceDao,
+                        refreshStateDao = refreshStateDao,
+                        activeSourceStore = activeSourcePreferences,
+                        credentialStore = credentialStore,
+                        catalogLoader = catalogLoader,
+                        catalogRefreshStore = catalogRefreshStore,
+                    ),
+                    removalCoordinator = sourceRemovalDownloadCoordinator,
                 ),
                 liveOrganizationRepository = liveOrganizationRepository,
                 libraryRepository = libraryRepository,

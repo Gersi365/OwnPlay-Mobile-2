@@ -25,6 +25,10 @@ internal class DownloadTestStore : DownloadDao {
     override fun observeForSource(sourceId: String) = flowOf(rows.values.filter { it.sourceId == sourceId })
     override fun observe(downloadId: String) = flowOf(rows[downloadId])
     override suspend fun get(downloadId: String) = rows[downloadId]
+    override suspend fun getIdsForSource(sourceId: String) =
+        rows.values.filter { it.sourceId == sourceId }.sortedWith(
+            compareBy<DownloadEntity> { it.createdAt }.thenBy { it.downloadId },
+        ).map { it.downloadId }
     override suspend fun getForContent(sourceId: String, mediaKind: String, contentId: String) =
         rows.values.firstOrNull {
             it.sourceId == sourceId && it.mediaKind == mediaKind && it.contentId == contentId

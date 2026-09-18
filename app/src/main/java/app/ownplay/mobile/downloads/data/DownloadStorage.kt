@@ -46,6 +46,8 @@ internal interface DownloadStorage {
 
     suspend fun discard(pending: PendingDownloadOutput)
 
+    suspend fun discardPending(downloadId: DownloadId): Boolean
+
     suspend fun removePublished(localReference: String): Boolean
 }
 
@@ -90,6 +92,13 @@ internal class AndroidDownloadStorage(
             }
         }
     }
+
+    override suspend fun discardPending(downloadId: DownloadId): Boolean =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            discardPendingMediaStore(DownloadPendingNamePolicy.stagingDisplayName(downloadId))
+        } else {
+            discardPrivatePending(downloadId)
+        }
 
     override suspend fun removePublished(localReference: String): Boolean {
         val uri = runCatching { Uri.parse(localReference) }.getOrNull() ?: return false
@@ -161,6 +170,39 @@ internal class AndroidDownloadStorage(
             val uri = ContentUris.withAppendedId(MediaStore.Downloads.EXTERNAL_CONTENT_URI, id)
             runCatching { resolver.delete(uri, null, null) >= 0 }.getOrDefault(false)
         }
+    }
+
+    private fun discardPendingMediaStore(stagingDisplayName: String): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return false
+        val ids = runCatching {
+            resolver.query(
+                MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+                arrayOf(BaseColumns._ID),
+                "${MediaStore.MediaColumns.DISPLAY_NAME} = ? AND " +
+                    "${MediaStore.MediaColumns.IS_PENDING} = 1",
+                arrayOf(stagingDisplayName),
+                null,
+            )?.use { cursor ->
+                val idIndex = cursor.getColumnIndexOrThrow(BaseColumns._ID)
+                buildList {
+                    while (cursor.moveToNext()) add(cursor.getLong(idIndex))
+                }
+            } ?: emptyList()
+        }.getOrElse { return false }
+
+        return ids.all { id ->
+            val uri = ContentUris.withAppendedId(MediaStore.Downloads.EXTERNAL_CONTENT_URI, id)
+            runCatching { resolver.delete(uri, null, null) >= 0 }.getOrDefault(false)
+        }
+    }
+
+    private fun discardPrivatePending(downloadId: DownloadId): Boolean {
+        val token = downloadId.value.filter(Char::isLetterOrDigit).takeLast(32).ifBlank { "download" }
+        val candidate = File(File(privateRoot, "pending"), "$token.part")
+        val canonicalCandidate = runCatching { candidate.canonicalFile }.getOrNull() ?: return false
+        val pendingRoot = runCatching { File(privateRoot, "pending").canonicalFile }.getOrNull() ?: return false
+        if (canonicalCandidate.parentFile != pendingRoot) return false
+        return !canonicalCandidate.exists() || canonicalCandidate.delete()
     }
 
     private fun openPrivatePending(

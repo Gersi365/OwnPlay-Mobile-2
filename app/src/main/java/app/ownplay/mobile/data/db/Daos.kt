@@ -127,6 +127,9 @@ interface DownloadDao {
     @Query("SELECT * FROM downloads WHERE downloadId = :downloadId LIMIT 1")
     suspend fun get(downloadId: String): DownloadEntity?
 
+    @Query("SELECT downloadId FROM downloads WHERE sourceId = :sourceId ORDER BY createdAt ASC, downloadId ASC")
+    suspend fun getIdsForSource(sourceId: String): List<String>
+
     @Query(
         """
         SELECT * FROM downloads
