@@ -2,6 +2,7 @@ package app.ownplay.mobile.feature.live.ui
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -266,6 +267,7 @@ private fun LiveSourceScreen(
                 channelName = playbackChannelName,
                 readiness = playbackState.readiness,
                 playbackEngine = playbackEngine,
+                onFullscreen = playbackSessionController::enterFullscreen,
             )
         }
 
@@ -447,18 +449,27 @@ private fun PlaybackPreviewCard(
     channelName: String,
     readiness: PlaybackReadiness,
     playbackEngine: Media3PlaybackEngine,
+    onFullscreen: () -> Unit,
 ) {
     Surface(
         color = OwnPlayColors.Surface,
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column {
-            PlaybackVideoSurface(
-                playbackEngine = playbackEngine,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(180.dp),
-            )
+            Box(modifier = Modifier.fillMaxWidth()) {
+                PlaybackVideoSurface(
+                    playbackEngine = playbackEngine,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(180.dp),
+                )
+                TextButton(
+                    onClick = onFullscreen,
+                    modifier = Modifier.align(Alignment.TopEnd),
+                ) {
+                    Text("Fullscreen")
+                }
+            }
             Column(
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
