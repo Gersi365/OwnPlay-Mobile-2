@@ -253,6 +253,7 @@ private data class DownloadIntegrityMetadata(
                 .toMap()
             val verifiedBytes = parts["bytes"]?.toLongOrNull()?.takeIf { it > 0L } ?: return null
             val digest = parts["sha256"]?.let(DownloadIntegrityPolicy::normalizeSha256)
+            if (parts.containsKey("sha256") && digest == null) return null
             return DownloadIntegrityMetadata(verifiedBytes = verifiedBytes, sha256 = digest)
         }
     }

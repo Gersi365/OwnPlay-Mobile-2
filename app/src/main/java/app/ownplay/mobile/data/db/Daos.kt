@@ -116,7 +116,7 @@ interface DownloadDao {
         """
         SELECT * FROM downloads
         WHERE sourceId = :sourceId
-        ORDER BY updatedAt DESC, createdAt ASC, downloadId ASC
+        ORDER BY createdAt DESC, downloadId ASC
         """,
     )
     fun observeForSource(sourceId: String): Flow<List<DownloadEntity>>

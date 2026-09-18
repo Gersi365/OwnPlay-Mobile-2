@@ -11,17 +11,21 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import app.ownplay.mobile.design.OwnPlayColors
-import app.ownplay.mobile.feature.library.domain.LibraryContentKind
-import app.ownplay.mobile.feature.library.domain.LibraryDownloadedMediaItem
+import app.ownplay.mobile.downloads.domain.DownloadItem
+import app.ownplay.mobile.downloads.domain.DownloadMediaKind
+import app.ownplay.mobile.downloads.domain.DownloadRepository
+import app.ownplay.mobile.downloads.domain.DownloadRequest
+import app.ownplay.mobile.feature.playback.domain.PlaybackSessionController
 
 @Composable
 internal fun LibraryDownloadedMediaRow(
-    item: LibraryDownloadedMediaItem,
+    item: DownloadItem,
+    repository: DownloadRepository,
+    playbackSessionController: PlaybackSessionController,
 ) {
-    val kindLabel = when (item.contentKind) {
-        LibraryContentKind.MOVIE -> "Movie"
-        LibraryContentKind.EPISODE -> "Episode"
-        LibraryContentKind.SERIES -> "Series"
+    val kindLabel = when (item.mediaKind) {
+        DownloadMediaKind.MOVIE -> "Movie"
+        DownloadMediaKind.EPISODE -> "Episode"
     }
 
     Surface(
@@ -38,8 +42,14 @@ internal fun LibraryDownloadedMediaRow(
                 fontWeight = FontWeight.SemiBold,
             )
             Text(
-                text = "$kindLabel • Downloaded",
+                text = kindLabel,
                 color = OwnPlayColors.TextSecondary,
+            )
+            LibraryDownloadActions(
+                request = DownloadRequest(item.sourceId, item.mediaKind, item.contentId, item.title),
+                item = item,
+                repository = repository,
+                playbackSessionController = playbackSessionController,
             )
         }
     }

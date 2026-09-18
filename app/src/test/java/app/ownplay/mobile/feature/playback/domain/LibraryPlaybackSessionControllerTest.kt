@@ -10,6 +10,42 @@ import org.junit.Test
 
 class LibraryPlaybackSessionControllerTest {
     @Test
+    fun explicitOfflineSelectionReplacesOnlineMediaInTheSameEngine() = runBlocking {
+        val resolver = FakeLibraryResolver()
+        val engine = FakeEngine()
+        val controller = controller(resolver, engine)
+        val online = PlaybackTarget.Movie(SourceId("source-a"), "movie-a")
+        val offline = online.copy(offlineDownloadId = "download-a")
+
+        controller.activateLibraryMedia(online)
+        engine.emitReady()
+        controller.activateLibraryMedia(offline)
+
+        assertEquals(offline, controller.state.value.target)
+        assertEquals(PlaybackPresentation.FULLSCREEN, controller.state.value.presentation)
+        assertEquals(listOf(online, offline), resolver.resolvedTargets)
+        assertEquals(2, engine.replacedMedia.size)
+    }
+
+    @Test
+    fun offlinePipReturnPreservesTargetWithoutReplacingMedia() = runBlocking {
+        val resolver = FakeLibraryResolver()
+        val engine = FakeEngine()
+        val controller = controller(resolver, engine)
+        val offline = PlaybackTarget.Episode(SourceId("source-a"), "episode-a", "download-a")
+
+        controller.activateLibraryMedia(offline)
+        engine.emitReady()
+        controller.onPictureInPictureModeChanged(true)
+        controller.onPictureInPictureModeChanged(false)
+
+        assertEquals(offline, controller.state.value.target)
+        assertEquals(PlaybackPresentation.FULLSCREEN, controller.state.value.presentation)
+        assertEquals(1, engine.replacedMedia.size)
+        assertEquals(listOf(offline), resolver.resolvedTargets)
+    }
+
+    @Test
     fun movieActivationUsesSharedEngineAndStartsFullscreen() = runBlocking {
         val liveResolver = FakeLiveResolver()
         val libraryResolver = FakeLibraryResolver()

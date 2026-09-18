@@ -60,7 +60,9 @@ data class PlaybackFallbackState(
 sealed interface PlaybackTarget {
     val sourceId: SourceId
 
-    sealed interface Library : PlaybackTarget
+    sealed interface Library : PlaybackTarget {
+        val offlineDownloadId: String?
+    }
 
     data class LiveChannel(
         override val sourceId: SourceId,
@@ -74,18 +76,26 @@ sealed interface PlaybackTarget {
     data class Movie(
         override val sourceId: SourceId,
         val movieId: String,
+        override val offlineDownloadId: String? = null,
     ) : Library {
         init {
             require(movieId.isNotBlank()) { "Playback movie id must not be blank" }
+            require(offlineDownloadId == null || offlineDownloadId.isNotBlank()) {
+                "Offline download id must not be blank"
+            }
         }
     }
 
     data class Episode(
         override val sourceId: SourceId,
         val episodeId: String,
+        override val offlineDownloadId: String? = null,
     ) : Library {
         init {
             require(episodeId.isNotBlank()) { "Playback episode id must not be blank" }
+            require(offlineDownloadId == null || offlineDownloadId.isNotBlank()) {
+                "Offline download id must not be blank"
+            }
         }
     }
 }

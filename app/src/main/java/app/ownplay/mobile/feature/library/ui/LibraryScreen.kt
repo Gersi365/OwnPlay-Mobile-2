@@ -29,6 +29,9 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import app.ownplay.mobile.OwnPlayApplication
 import app.ownplay.mobile.design.OwnPlayColors
+import app.ownplay.mobile.downloads.domain.DownloadRepository
+import app.ownplay.mobile.downloads.domain.DownloadRequest
+import app.ownplay.mobile.downloads.domain.DownloadMediaKind
 import app.ownplay.mobile.design.OwnPlayFeaturePlaceholder
 import app.ownplay.mobile.feature.library.data.LibraryArtworkLoader
 import app.ownplay.mobile.feature.library.domain.LibraryCatalogSnapshot
@@ -76,6 +79,7 @@ fun LibraryScreen(
     LibrarySourceScreen(
         source = source,
         repository = services.libraryRepository,
+        downloadRepository = services.downloadRepository,
         artworkLoader = services.libraryArtworkLoader,
         playbackSessionController = services.playbackSessionController,
         modifier = modifier,
@@ -100,6 +104,7 @@ fun LibraryScreen(
 private fun LibrarySourceScreen(
     source: SourceSummary,
     repository: LibraryRepository,
+    downloadRepository: DownloadRepository,
     artworkLoader: LibraryArtworkLoader,
     playbackSessionController: PlaybackSessionController,
     modifier: Modifier,
@@ -113,6 +118,7 @@ private fun LibrarySourceScreen(
             source = source,
             movieId = openMovieId,
             repository = repository,
+            downloadRepository = downloadRepository,
             artworkLoader = artworkLoader,
             playbackSessionController = playbackSessionController,
             onBack = { selectedMovieId = null },
@@ -127,6 +133,7 @@ private fun LibrarySourceScreen(
             source = source,
             seriesId = openSeriesId,
             repository = repository,
+            downloadRepository = downloadRepository,
             artworkLoader = artworkLoader,
             playbackSessionController = playbackSessionController,
             onBack = { selectedSeriesId = null },
@@ -134,6 +141,11 @@ private fun LibrarySourceScreen(
         )
         return
     }
+
+    val downloadsFlow = remember(downloadRepository, source.sourceId) {
+        downloadRepository.observeDownloads(source.sourceId)
+    }
+    val downloads by downloadsFlow.collectAsState(initial = emptyList())
 
     val catalogFlow = remember(repository, source.sourceId) {
         repository.observeCatalog(source.sourceId)
@@ -280,15 +292,15 @@ private fun LibrarySourceScreen(
             }
         }
 
-        if (visibleCatalog.downloadedMedia.isNotEmpty()) {
+        if (searchQuery.isBlank() && downloads.isNotEmpty()) {
             item {
                 LibrarySectionTitle("Downloaded Media")
             }
             items(
-                items = visibleCatalog.downloadedMedia,
+                items = downloads,
                 key = { item -> "download:${item.downloadId}" },
             ) { item ->
-                LibraryDownloadedMediaRow(item)
+                LibraryDownloadedMediaRow(item, downloadRepository, playbackSessionController)
             }
         }
     }
@@ -360,6 +372,7 @@ private fun LibrarySeriesDetailScreen(
     source: SourceSummary,
     seriesId: String,
     repository: LibraryRepository,
+    downloadRepository: DownloadRepository,
     artworkLoader: LibraryArtworkLoader,
     playbackSessionController: PlaybackSessionController,
     onBack: () -> Unit,
@@ -369,6 +382,13 @@ private fun LibrarySeriesDetailScreen(
         repository.observeSeriesDetail(source.sourceId, seriesId)
     }
     val detail by detailFlow.collectAsState(initial = null)
+    val downloadsFlow = remember(downloadRepository, source.sourceId) {
+        downloadRepository.observeDownloads(source.sourceId)
+    }
+    val downloads by downloadsFlow.collectAsState(initial = emptyList())
+    val episodeDownloads = remember(downloads) {
+        downloads.filter { it.mediaKind == DownloadMediaKind.EPISODE }.associateBy { it.contentId }
+    }
     var refreshing by remember(source.sourceId, seriesId) { mutableStateOf(true) }
     var refreshResult by remember(source.sourceId, seriesId) {
         mutableStateOf<LibraryDetailRefreshResult?>(null)
@@ -495,6 +515,19 @@ private fun LibrarySeriesDetailScreen(
                 },
             ) {
                 Text("Play selected episode")
+            }
+        }
+
+        selectedEpisode?.let { episode ->
+            item(key = "selected-episode-download") {
+                LibraryDownloadActions(
+                    request = DownloadRequest(
+                        source.sourceId, DownloadMediaKind.EPISODE, episode.episodeId, episode.title,
+                    ),
+                    item = episodeDownloads[episode.episodeId],
+                    repository = downloadRepository,
+                    playbackSessionController = playbackSessionController,
+                )
             }
         }
 
@@ -750,7 +783,7 @@ private fun LibraryPlaybackFullscreenPresentation(
                         color = OwnPlayColors.TextPrimary,
                         fontWeight = FontWeight.Bold,
                     )
-                    LibraryPlaybackReadinessMessage(readiness)
+                    LibraryPlaybackReadinessMessage(readiness, target.offlineDownloadId != null)
                     TextButton(onClick = onDismiss) {
                         Text("Close")
                     }
@@ -761,12 +794,16 @@ private fun LibraryPlaybackFullscreenPresentation(
 }
 
 @Composable
-private fun LibraryPlaybackReadinessMessage(readiness: PlaybackReadiness) {
+private fun LibraryPlaybackReadinessMessage(readiness: PlaybackReadiness, offline: Boolean) {
     val message = when (readiness) {
         PlaybackReadiness.IDLE -> null
         PlaybackReadiness.PREPARING -> "Preparing playback…"
         PlaybackReadiness.PREPARED -> null
-        PlaybackReadiness.UNAVAILABLE -> "Playback is unavailable for this item."
+        PlaybackReadiness.UNAVAILABLE -> if (offline) {
+            "Offline playback is unavailable. The downloaded file may be missing or damaged."
+        } else {
+            "Playback is unavailable for this item."
+        }
     }
     if (message != null) {
         Text(text = message, color = OwnPlayColors.TextMuted)

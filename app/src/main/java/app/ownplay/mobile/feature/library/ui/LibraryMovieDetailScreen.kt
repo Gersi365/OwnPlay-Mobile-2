@@ -22,6 +22,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import app.ownplay.mobile.design.OwnPlayColors
+import app.ownplay.mobile.downloads.domain.DownloadMediaKind
+import app.ownplay.mobile.downloads.domain.DownloadRepository
+import app.ownplay.mobile.downloads.domain.DownloadRequest
 import app.ownplay.mobile.feature.library.data.LibraryArtworkLoader
 import app.ownplay.mobile.feature.library.domain.LibraryContentKind
 import app.ownplay.mobile.feature.library.domain.LibraryMovieDetailLoadResult
@@ -37,6 +40,7 @@ internal fun LibraryMovieDetailScreen(
     source: SourceSummary,
     movieId: String,
     repository: LibraryRepository,
+    downloadRepository: DownloadRepository,
     artworkLoader: LibraryArtworkLoader,
     playbackSessionController: PlaybackSessionController,
     onBack: () -> Unit,
@@ -46,6 +50,13 @@ internal fun LibraryMovieDetailScreen(
         repository.observeMovie(source.sourceId, movieId)
     }
     val movie by movieFlow.collectAsState(initial = null)
+    val downloadsFlow = remember(downloadRepository, source.sourceId) {
+        downloadRepository.observeDownloads(source.sourceId)
+    }
+    val downloads by downloadsFlow.collectAsState(initial = emptyList())
+    val movieDownload = downloads.firstOrNull { item ->
+        item.mediaKind == DownloadMediaKind.MOVIE && item.contentId == movieId
+    }
     var loading by remember(source.sourceId, movieId) { mutableStateOf(true) }
     var detailResult by remember(source.sourceId, movieId) {
         mutableStateOf<LibraryMovieDetailLoadResult?>(null)
@@ -162,6 +173,20 @@ internal fun LibraryMovieDetailScreen(
                     }
                 }
             }
+        }
+
+        item {
+            LibraryDownloadActions(
+                request = DownloadRequest(
+                    sourceId = source.sourceId,
+                    mediaKind = DownloadMediaKind.MOVIE,
+                    contentId = cachedMovie.movieId,
+                    title = cachedMovie.title,
+                ),
+                item = movieDownload,
+                repository = downloadRepository,
+                playbackSessionController = playbackSessionController,
+            )
         }
 
         when {

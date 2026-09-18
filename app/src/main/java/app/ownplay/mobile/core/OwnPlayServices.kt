@@ -13,6 +13,8 @@ import app.ownplay.mobile.downloads.data.SourceBackedDownloadMediaResolver
 import app.ownplay.mobile.downloads.data.WorkManagedDownloadRepository
 import app.ownplay.mobile.downloads.data.WorkManagerDownloadScheduler
 import app.ownplay.mobile.downloads.domain.DownloadRepository
+import app.ownplay.mobile.feature.library.data.DownloadAwareLibraryPlaybackResolver
+import app.ownplay.mobile.downloads.data.AndroidDownloadedMediaVerifier
 import app.ownplay.mobile.feature.library.data.LibraryArtworkLoader
 import app.ownplay.mobile.feature.library.data.LibraryPlaybackLocator
 import app.ownplay.mobile.feature.library.data.OkHttpLibraryArtworkLoader
@@ -126,6 +128,11 @@ class OwnPlayServices private constructor(
                 storage = downloadStorage,
                 transferClient = OkHttpDownloadTransferClient(),
             )
+            val libraryMediaResolver = DownloadAwareLibraryPlaybackResolver(
+                onlineResolver = libraryPlaybackLocator,
+                downloadRepository = downloadRepository,
+                verifier = AndroidDownloadedMediaVerifier(applicationContext),
+            )
             val libraryArtworkLoader = OkHttpLibraryArtworkLoader()
             val libraryPlaybackProgressStore = RoomLibraryPlaybackProgressStore(libraryDao)
             val playbackSourceResolver = SourceBackedLivePlaybackSourceResolver(
@@ -139,7 +146,7 @@ class OwnPlayServices private constructor(
                 sourceResolver = playbackSourceResolver,
                 mediaPreparer = DefaultLivePlaybackMediaPreparer(),
                 playbackEngine = playbackEngineAdapter,
-                libraryMediaResolver = libraryPlaybackLocator,
+                libraryMediaResolver = libraryMediaResolver,
                 playbackProgressEngine = playbackEngineAdapter,
                 libraryProgressStore = libraryPlaybackProgressStore,
             )
