@@ -35,10 +35,13 @@ import app.ownplay.mobile.feature.playback.data.Media3PlaybackEngine
 import app.ownplay.mobile.feature.playback.data.Media3PlaybackEngineAdapter
 import app.ownplay.mobile.feature.playback.data.SourceBackedLivePlaybackSourceResolver
 import app.ownplay.mobile.feature.playback.domain.PlaybackSessionController
+import app.ownplay.mobile.feature.settings.data.DataStoreDisplayPreferencesRepository
+import app.ownplay.mobile.feature.settings.data.DisplayPreferencesDataStore
 import app.ownplay.mobile.feature.settings.data.ManagedSourceRefreshScheduleRepository
 import app.ownplay.mobile.feature.settings.data.RefreshScheduleAwareSourceRepository
 import app.ownplay.mobile.feature.settings.data.SourceRefreshSchedulePreferences
 import app.ownplay.mobile.feature.settings.data.WorkManagerSourceRefreshScheduler
+import app.ownplay.mobile.feature.settings.domain.DisplayPreferencesRepository
 import app.ownplay.mobile.feature.settings.domain.SourceRefreshScheduleRepository
 import app.ownplay.mobile.sources.data.DefaultSourceCatalogLoader
 import app.ownplay.mobile.sources.data.OkHttpProviderTransport
@@ -57,6 +60,7 @@ class OwnPlayServices private constructor(
     val credentialStore: CredentialStore,
     val sourceRepository: SourceRepository,
     val refreshScheduleRepository: SourceRefreshScheduleRepository,
+    val displayPreferencesRepository: DisplayPreferencesRepository,
     val liveOrganizationRepository: LiveOrganizationRepository,
     val libraryRepository: LibraryRepository,
     val downloadRepository: DownloadRepository,
@@ -139,6 +143,9 @@ class OwnPlayServices private constructor(
                 storage = downloadStorage,
                 notifications = downloadNotifications,
             )
+            val displayPreferencesRepository = DataStoreDisplayPreferencesRepository(
+                DisplayPreferencesDataStore(applicationContext),
+            )
             val sourceRefreshScheduler = WorkManagerSourceRefreshScheduler(applicationContext)
             val refreshScheduleRepository = ManagedSourceRefreshScheduleRepository(
                 store = SourceRefreshSchedulePreferences(applicationContext),
@@ -199,6 +206,7 @@ class OwnPlayServices private constructor(
                 credentialStore = credentialStore,
                 sourceRepository = sourceRepository,
                 refreshScheduleRepository = refreshScheduleRepository,
+                displayPreferencesRepository = displayPreferencesRepository,
                 liveOrganizationRepository = liveOrganizationRepository,
                 libraryRepository = libraryRepository,
                 downloadRepository = downloadRepository,

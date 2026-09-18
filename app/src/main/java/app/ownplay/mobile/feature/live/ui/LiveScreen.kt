@@ -53,6 +53,7 @@ import app.ownplay.mobile.feature.playback.domain.PlaybackReadiness
 import app.ownplay.mobile.feature.playback.domain.PlaybackSessionController
 import app.ownplay.mobile.feature.playback.domain.PlaybackTarget
 import app.ownplay.mobile.feature.playback.ui.PlaybackVideoSurface
+import app.ownplay.mobile.feature.settings.domain.DisplayPreferences
 import app.ownplay.mobile.sources.domain.SourceSummary
 import kotlinx.coroutines.launch
 
@@ -66,6 +67,9 @@ fun LiveScreen(
         services.sourceRepository.observeActiveSource()
     }
     val activeSource by activeSourceFlow.collectAsState(initial = null)
+    val displayPreferences by services.displayPreferencesRepository.preferences.collectAsState(
+        initial = DisplayPreferences(),
+    )
 
     val source = activeSource
     if (source == null) {
@@ -82,6 +86,7 @@ fun LiveScreen(
         repository = services.liveOrganizationRepository,
         playbackSessionController = services.playbackSessionController,
         playbackEngine = services.playbackEngine,
+        compactMediaRows = displayPreferences.compactMediaRows,
         modifier = modifier,
     )
 }
@@ -93,6 +98,7 @@ private fun LiveSourceScreen(
     repository: LiveOrganizationRepository,
     playbackSessionController: PlaybackSessionController,
     playbackEngine: Media3PlaybackEngine,
+    compactMediaRows: Boolean,
     modifier: Modifier,
 ) {
     val sourceId = source.sourceId
@@ -266,13 +272,14 @@ private fun LiveSourceScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(if (compactMediaRows) 4.dp else 8.dp),
             ) {
                 items(visibleChannels, key = { it.channelId }) { channel ->
                     LiveChannelRow(
                         channel = channel,
                         ownPlayMode = mode == LiveOrganizationMode.OWNPLAY,
                         hasManualPlacement = channel.channelId in ownPlayCatalog.manualPlacementChannelIds,
+                        compact = compactMediaRows,
                         onActivate = {
                             scope.launch {
                                 playbackSessionController.activateLiveChannel(
@@ -370,6 +377,7 @@ private fun LiveChannelRow(
     channel: LiveOrganizationChannel,
     ownPlayMode: Boolean,
     hasManualPlacement: Boolean,
+    compact: Boolean,
     onActivate: () -> Unit,
     onMove: () -> Unit,
     onReset: () -> Unit,
@@ -381,7 +389,10 @@ private fun LiveChannelRow(
             .clickable(onClick = onActivate),
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            modifier = Modifier.padding(
+                horizontal = if (compact) 12.dp else 16.dp,
+                vertical = if (compact) 7.dp else 12.dp,
+            ),
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
             Column(modifier = Modifier.weight(1f)) {

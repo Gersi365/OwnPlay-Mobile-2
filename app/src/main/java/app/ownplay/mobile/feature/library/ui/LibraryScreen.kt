@@ -50,6 +50,7 @@ import app.ownplay.mobile.feature.playback.domain.PlaybackReadiness
 import app.ownplay.mobile.feature.playback.domain.PlaybackSessionController
 import app.ownplay.mobile.feature.playback.domain.PlaybackTarget
 import app.ownplay.mobile.feature.playback.ui.PlaybackVideoSurface
+import app.ownplay.mobile.feature.settings.domain.DisplayPreferences
 import app.ownplay.mobile.sources.domain.SourceId
 import app.ownplay.mobile.sources.domain.SourceSummary
 import kotlinx.coroutines.launch
@@ -65,6 +66,9 @@ fun LibraryScreen(
     }
     val activeSource by activeSourceFlow.collectAsState(initial = null)
     val playbackState by services.playbackSessionController.state.collectAsState()
+    val displayPreferences by services.displayPreferencesRepository.preferences.collectAsState(
+        initial = DisplayPreferences(),
+    )
 
     val source = activeSource
     if (source == null) {
@@ -82,6 +86,7 @@ fun LibraryScreen(
         downloadRepository = services.downloadRepository,
         artworkLoader = services.libraryArtworkLoader,
         playbackSessionController = services.playbackSessionController,
+        compactMediaRows = displayPreferences.compactMediaRows,
         modifier = modifier,
     )
 
@@ -107,6 +112,7 @@ private fun LibrarySourceScreen(
     downloadRepository: DownloadRepository,
     artworkLoader: LibraryArtworkLoader,
     playbackSessionController: PlaybackSessionController,
+    compactMediaRows: Boolean,
     modifier: Modifier,
 ) {
     var selectedMovieId by remember(source.sourceId) { mutableStateOf<String?>(null) }
@@ -229,6 +235,7 @@ private fun LibrarySourceScreen(
             ) { item ->
                 LibraryContinueWatchingRow(
                     item = item,
+                    compact = compactMediaRows,
                     onResume = {
                         continueWatchingTarget(source.sourceId, item)?.let(::activate)
                     },
@@ -245,6 +252,7 @@ private fun LibrarySourceScreen(
                     movie = movie,
                     categoryName = movie.categoryId?.let(movieCategoryNames::get),
                     artworkLoader = artworkLoader,
+                    compact = compactMediaRows,
                     onPlay = {
                         activate(
                             PlaybackTarget.Movie(
@@ -277,6 +285,7 @@ private fun LibrarySourceScreen(
                     series = series,
                     categoryName = series.categoryId?.let(seriesCategoryNames::get),
                     artworkLoader = artworkLoader,
+                    compact = compactMediaRows,
                     onOpen = { selectedSeriesId = series.seriesId },
                     onFavorite = {
                         scope.launch {
@@ -300,7 +309,12 @@ private fun LibrarySourceScreen(
                 items = downloads,
                 key = { item -> "download:${item.downloadId}" },
             ) { item ->
-                LibraryDownloadedMediaRow(item, downloadRepository, playbackSessionController)
+                LibraryDownloadedMediaRow(
+                    item = item,
+                    repository = downloadRepository,
+                    playbackSessionController = playbackSessionController,
+                    compact = compactMediaRows,
+                )
             }
         }
     }
@@ -319,6 +333,7 @@ private fun LibrarySectionTitle(title: String) {
 @Composable
 private fun LibraryContinueWatchingRow(
     item: LibraryContinueWatchingItem,
+    compact: Boolean,
     onResume: () -> Unit,
 ) {
     val context = when (item.contentKind) {
@@ -337,7 +352,10 @@ private fun LibraryContinueWatchingRow(
         modifier = Modifier.fillMaxWidth(),
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            modifier = Modifier.padding(
+                horizontal = if (compact) 12.dp else 16.dp,
+                vertical = if (compact) 7.dp else 12.dp,
+            ),
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
             Column(
@@ -650,6 +668,7 @@ private fun LibraryMovieRow(
     movie: LibraryMovieSummary,
     categoryName: String?,
     artworkLoader: LibraryArtworkLoader,
+    compact: Boolean,
     onPlay: () -> Unit,
     onDetails: () -> Unit,
     onFavorite: () -> Unit,
@@ -661,6 +680,7 @@ private fun LibraryMovieRow(
         rating = movie.rating,
         favorite = movie.favorite,
         artworkLoader = artworkLoader,
+        compact = compact,
         primaryActionLabel = "Play",
         onPrimaryAction = onPlay,
         onFavorite = onFavorite,
@@ -674,6 +694,7 @@ private fun LibrarySeriesRow(
     series: LibrarySeriesSummary,
     categoryName: String?,
     artworkLoader: LibraryArtworkLoader,
+    compact: Boolean,
     onOpen: () -> Unit,
     onFavorite: () -> Unit,
 ) {
@@ -684,6 +705,7 @@ private fun LibrarySeriesRow(
         rating = series.rating,
         favorite = series.favorite,
         artworkLoader = artworkLoader,
+        compact = compact,
         primaryActionLabel = "Open details",
         onPrimaryAction = onOpen,
         onFavorite = onFavorite,
@@ -698,6 +720,7 @@ private fun LibraryMediaRow(
     rating: String?,
     favorite: Boolean,
     artworkLoader: LibraryArtworkLoader,
+    compact: Boolean,
     primaryActionLabel: String,
     onPrimaryAction: () -> Unit,
     onFavorite: () -> Unit,
@@ -709,12 +732,16 @@ private fun LibraryMediaRow(
         modifier = Modifier.fillMaxWidth(),
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier.padding(
+                horizontal = if (compact) 12.dp else 16.dp,
+                vertical = if (compact) 8.dp else 12.dp,
+            ),
+            horizontalArrangement = Arrangement.spacedBy(if (compact) 8.dp else 12.dp),
         ) {
             LibraryArtwork(
                 url = posterUrl,
                 loader = artworkLoader,
+                compact = compact,
             )
             Column(
                 modifier = Modifier.weight(1f),

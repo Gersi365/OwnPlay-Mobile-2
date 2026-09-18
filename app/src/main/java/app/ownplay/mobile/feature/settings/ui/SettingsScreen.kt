@@ -28,6 +28,8 @@ import androidx.compose.ui.unit.dp
 import app.ownplay.mobile.OwnPlayApplication
 import app.ownplay.mobile.design.OwnPlayColors
 import app.ownplay.mobile.design.OwnPlayShapes
+import app.ownplay.mobile.feature.settings.domain.DisplayPreferences
+import app.ownplay.mobile.feature.settings.domain.DisplayPreferencesRepository
 import app.ownplay.mobile.feature.settings.domain.SourceRefreshSchedule
 import app.ownplay.mobile.feature.settings.domain.SourceRefreshScheduleRepository
 import app.ownplay.mobile.sources.domain.SourceInput
@@ -48,6 +50,7 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
     SettingsSourcesScreen(
         repository = services.sourceRepository,
         refreshScheduleRepository = services.refreshScheduleRepository,
+        displayPreferencesRepository = services.displayPreferencesRepository,
         modifier = modifier,
     )
 }
@@ -56,6 +59,7 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
 private fun SettingsSourcesScreen(
     repository: SourceRepository,
     refreshScheduleRepository: SourceRefreshScheduleRepository,
+    displayPreferencesRepository: DisplayPreferencesRepository,
     modifier: Modifier,
 ) {
     val sourcesFlow = remember(repository) { repository.observeSources() }
@@ -148,6 +152,13 @@ private fun SettingsSourcesScreen(
             RefreshScheduleSection(
                 source = activeSource,
                 repository = refreshScheduleRepository,
+                onMessage = { message = it },
+            )
+        }
+
+        item {
+            DisplayPreferencesSection(
+                repository = displayPreferencesRepository,
                 onMessage = { message = it },
             )
         }
@@ -326,6 +337,47 @@ private fun RefreshScheduleSection(
 }
 
 @Composable
+private fun DisplayPreferencesSection(
+    repository: DisplayPreferencesRepository,
+    onMessage: (String) -> Unit,
+) {
+    val preferences by repository.preferences.collectAsState(initial = DisplayPreferences())
+    val scope = rememberCoroutineScope()
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = OwnPlayShapes.Medium,
+        color = OwnPlayColors.SurfaceRaised,
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Text("Display", color = OwnPlayColors.TextPrimary, fontWeight = FontWeight.SemiBold)
+            Text(
+                if (preferences.compactMediaRows) "Compact media rows are on." else "Compact media rows are off.",
+                color = OwnPlayColors.TextSecondary,
+            )
+            TextButton(
+                onClick = {
+                    val target = !preferences.compactMediaRows
+                    scope.launch {
+                        onMessage(
+                            if (repository.setCompactMediaRows(target)) {
+                                if (target) "Compact media rows enabled." else "Compact media rows disabled."
+                            } else {
+                                "Could not update display preference."
+                            },
+                        )
+                    }
+                },
+            ) {
+                Text(if (preferences.compactMediaRows) "Use standard rows" else "Use compact rows")
+            }
+        }
+    }
+}
+
+@Composable
 private fun SettingsNextSections() {
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -338,7 +390,7 @@ private fun SettingsNextSections() {
         ) {
             Text("Next settings sections", color = OwnPlayColors.TextPrimary, fontWeight = FontWeight.SemiBold)
             Text(
-                "Live organization • Playback • Display • Refresh • Downloads • Backup & restore • About",
+                "Live organization • Playback • Downloads • Backup & restore • About",
                 color = OwnPlayColors.TextSecondary,
             )
         }

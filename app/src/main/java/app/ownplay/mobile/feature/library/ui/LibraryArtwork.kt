@@ -31,6 +31,7 @@ import kotlinx.coroutines.withContext
 internal fun LibraryArtwork(
     url: String?,
     loader: LibraryArtworkLoader,
+    compact: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     var image by remember(url, loader) { mutableStateOf<ImageBitmap?>(null) }
@@ -46,7 +47,11 @@ internal fun LibraryArtwork(
 
     Surface(
         color = OwnPlayColors.Surface,
-        modifier = modifier.size(width = 72.dp, height = 108.dp),
+        modifier = if (compact) {
+            modifier.size(width = 56.dp, height = 84.dp)
+        } else {
+            modifier.size(width = 72.dp, height = 108.dp)
+        },
     ) {
         val current = image
         if (current == null) {

@@ -22,6 +22,7 @@ internal fun LibraryDownloadedMediaRow(
     item: DownloadItem,
     repository: DownloadRepository,
     playbackSessionController: PlaybackSessionController,
+    compact: Boolean = false,
 ) {
     val kindLabel = when (item.mediaKind) {
         DownloadMediaKind.MOVIE -> "Movie"
@@ -33,7 +34,10 @@ internal fun LibraryDownloadedMediaRow(
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            modifier = Modifier.padding(
+                horizontal = if (compact) 12.dp else 16.dp,
+                vertical = if (compact) 8.dp else 12.dp,
+            ),
             verticalArrangement = Arrangement.spacedBy(3.dp),
         ) {
             Text(
