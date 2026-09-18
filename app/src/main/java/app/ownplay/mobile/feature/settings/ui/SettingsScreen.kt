@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -33,6 +34,7 @@ import app.ownplay.mobile.feature.live.domain.LiveOrganizationMode
 import app.ownplay.mobile.feature.live.domain.LiveOrganizationRepository
 import app.ownplay.mobile.feature.live.domain.OwnPlayLiveCatalogSnapshot
 import app.ownplay.mobile.feature.live.domain.OwnPlayLiveSemanticCategory
+import app.ownplay.mobile.feature.live.domain.ProviderLiveManagementSnapshot
 import app.ownplay.mobile.downloads.domain.DownloadPreferences
 import app.ownplay.mobile.downloads.domain.DownloadPreferencesRepository
 import app.ownplay.mobile.feature.playback.domain.PlaybackPreferences
@@ -224,8 +226,15 @@ private fun SettingsSourcesScreen(
             onSubmit = { input ->
                 scope.launch {
                     val result = repository.addSource(input)
-                    message = mutationMessage(result, "Xtream source added.")
-                    if (result is SourceMutationResult.Success) addType = null
+                    if (result is SourceMutationResult.Success) {
+                        addType = null
+                        message = "Xtream source added. Importing catalog…"
+                    }
+                    message = mutationAndInitialRefreshMessage(
+                        repository = repository,
+                        result = result,
+                        success = "Xtream source added and catalog imported.",
+                    )
                 }
             },
         )
@@ -234,8 +243,15 @@ private fun SettingsSourcesScreen(
             onSubmit = { input ->
                 scope.launch {
                     val result = repository.addSource(input)
-                    message = mutationMessage(result, "M3U source added.")
-                    if (result is SourceMutationResult.Success) addType = null
+                    if (result is SourceMutationResult.Success) {
+                        addType = null
+                        message = "M3U source added. Importing catalog…"
+                    }
+                    message = mutationAndInitialRefreshMessage(
+                        repository = repository,
+                        result = result,
+                        success = "M3U source added and catalog imported.",
+                    )
                 }
             },
         )
@@ -264,7 +280,11 @@ private fun SettingsSourcesScreen(
                 runForSource(source) {
                     val result = repository.reconnectSource(source.sourceId, input)
                     if (result is SourceMutationResult.Success) reconnectSource = null
-                    mutationMessage(result, "${source.displayName} reconnected.")
+                    mutationAndInitialRefreshMessage(
+                        repository = repository,
+                        result = result,
+                        success = "${source.displayName} reconnected and catalog imported.",
+                    )
                 }
             },
         )
@@ -494,6 +514,7 @@ private fun LiveOrganizationSettingsSection(
     onMessage: (String) -> Unit,
 ) {
     val scope = rememberCoroutineScope()
+    var providerManagerOpen by remember(source?.sourceId) { mutableStateOf(false) }
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = OwnPlayShapes.Medium,
@@ -553,26 +574,260 @@ private fun LiveOrganizationSettingsSection(
                 }
                 if (mode == LiveOrganizationMode.OWNPLAY) {
                     Text(
+                        "Live shows Country first, then the 8 fixed OwnPlay categories.",
+                        color = OwnPlayColors.TextSecondary,
+                    )
+                    Text(
                         "Automatic organization: ${catalog.countries.size} country scopes • " +
                             "${OwnPlayLiveSemanticCategory.canonicalOrder.size} fixed categories each.",
-                        color = OwnPlayColors.TextSecondary,
+                        color = OwnPlayColors.TextMuted,
                     )
                     Text(
                         "Manual placement corrections: ${catalog.manualPlacementChannelIds.size}.",
-                        color = OwnPlayColors.TextSecondary,
-                    )
-                    Text(
-                        "Review, Move and Reset individual channels from Live. Manual placement remains separate from provider organization.",
                         color = OwnPlayColors.TextMuted,
                     )
                 } else {
                     Text(
-                        "Provider mode keeps provider categories and ordering. Switch to OwnPlay for country + fixed-category organization.",
-                        color = OwnPlayColors.TextMuted,
+                        "Provider mode keeps provider taxonomy and order. Only hide/reorder personalization is applied.",
+                        color = OwnPlayColors.TextSecondary,
                     )
+                    TextButton(onClick = { providerManagerOpen = true }) {
+                        Text("Manage Provider hide / reorder")
+                    }
                 }
             }
         }
+    }
+
+    val activeSource = source
+    if (providerManagerOpen && activeSource != null) {
+        ProviderLiveManagementDialog(
+            source = activeSource,
+            repository = repository,
+            onMessage = onMessage,
+            onDismiss = { providerManagerOpen = false },
+        )
+    }
+}
+
+@Composable
+private fun ProviderLiveManagementDialog(
+    source: SourceSummary,
+    repository: LiveOrganizationRepository,
+    onMessage: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val scope = rememberCoroutineScope()
+    val managementFlow = remember(repository, source.sourceId) {
+        repository.observeProviderManagement(source.sourceId)
+    }
+    val management by managementFlow.collectAsState(
+        initial = ProviderLiveManagementSnapshot(categories = emptyList(), channels = emptyList()),
+    )
+    var selectedCategoryId by remember(source.sourceId) { mutableStateOf<String?>(null) }
+    val selectedCategory = management.categories.firstOrNull { it.categoryId == selectedCategoryId }
+    val channels = selectedCategory?.let { category ->
+        management.channels.filter { it.categoryId == category.categoryId }
+    }.orEmpty()
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(selectedCategory?.displayName ?: "Provider categories")
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    if (selectedCategory == null) {
+                        "Provider names and grouping are preserved. Hide or reorder only."
+                    } else {
+                        "Provider channel names and membership are preserved. Hide or reorder only."
+                    },
+                    color = OwnPlayColors.TextMuted,
+                )
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 420.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    if (selectedCategory == null) {
+                        items(management.categories, key = { it.categoryId }) { category ->
+                            ProviderManagementRow(
+                                title = category.displayName,
+                                hidden = category.hidden,
+                                onToggleHidden = {
+                                    scope.launch {
+                                        if (!repository.setProviderCategoryHidden(
+                                                source.sourceId,
+                                                category.categoryId,
+                                                !category.hidden,
+                                            )
+                                        ) {
+                                            onMessage("Could not update Provider category visibility.")
+                                        }
+                                    }
+                                },
+                                onMoveUp = {
+                                    val moved = moveProviderItem(
+                                        management.categories.map { it.categoryId },
+                                        category.categoryId,
+                                        -1,
+                                    )
+                                    if (moved != null) scope.launch {
+                                        if (!repository.setProviderCategoryOrder(source.sourceId, moved)) {
+                                            onMessage("Could not reorder Provider categories.")
+                                        }
+                                    }
+                                },
+                                onMoveDown = {
+                                    val moved = moveProviderItem(
+                                        management.categories.map { it.categoryId },
+                                        category.categoryId,
+                                        1,
+                                    )
+                                    if (moved != null) scope.launch {
+                                        if (!repository.setProviderCategoryOrder(source.sourceId, moved)) {
+                                            onMessage("Could not reorder Provider categories.")
+                                        }
+                                    }
+                                },
+                                onOpen = { selectedCategoryId = category.categoryId },
+                            )
+                        }
+                    } else {
+                        items(channels, key = { it.channelId }) { channel ->
+                            ProviderManagementRow(
+                                title = channel.tvgName?.takeIf(String::isNotBlank) ?: channel.name,
+                                hidden = channel.hidden,
+                                onToggleHidden = {
+                                    scope.launch {
+                                        if (!repository.setProviderChannelHidden(
+                                                source.sourceId,
+                                                selectedCategory.categoryId,
+                                                channel.channelId,
+                                                !channel.hidden,
+                                            )
+                                        ) {
+                                            onMessage("Could not update Provider channel visibility.")
+                                        }
+                                    }
+                                },
+                                onMoveUp = {
+                                    val moved = moveProviderItem(
+                                        channels.map { it.channelId },
+                                        channel.channelId,
+                                        -1,
+                                    )
+                                    if (moved != null) scope.launch {
+                                        if (!repository.setProviderChannelOrder(
+                                                source.sourceId,
+                                                selectedCategory.categoryId,
+                                                moved,
+                                            )
+                                        ) {
+                                            onMessage("Could not reorder Provider channels.")
+                                        }
+                                    }
+                                },
+                                onMoveDown = {
+                                    val moved = moveProviderItem(
+                                        channels.map { it.channelId },
+                                        channel.channelId,
+                                        1,
+                                    )
+                                    if (moved != null) scope.launch {
+                                        if (!repository.setProviderChannelOrder(
+                                                source.sourceId,
+                                                selectedCategory.categoryId,
+                                                moved,
+                                            )
+                                        ) {
+                                            onMessage("Could not reorder Provider channels.")
+                                        }
+                                    }
+                                },
+                                onOpen = null,
+                            )
+                        }
+                    }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    if (selectedCategory == null) {
+                        TextButton(
+                            enabled = management.categories.isNotEmpty(),
+                            onClick = {
+                                scope.launch {
+                                    if (!repository.resetProviderCategoryOrder(source.sourceId)) {
+                                        onMessage("Could not reset Provider category order.")
+                                    }
+                                }
+                            },
+                        ) { Text("Reset order") }
+                    } else {
+                        TextButton(onClick = { selectedCategoryId = null }) { Text("Back") }
+                        TextButton(
+                            enabled = channels.isNotEmpty(),
+                            onClick = {
+                                scope.launch {
+                                    if (!repository.resetProviderChannelOrder(
+                                            source.sourceId,
+                                            selectedCategory.categoryId,
+                                        )
+                                    ) {
+                                        onMessage("Could not reset Provider channel order.")
+                                    }
+                                }
+                            },
+                        ) { Text("Reset order") }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } },
+    )
+}
+
+@Composable
+private fun ProviderManagementRow(
+    title: String,
+    hidden: Boolean,
+    onToggleHidden: () -> Unit,
+    onMoveUp: () -> Unit,
+    onMoveDown: () -> Unit,
+    onOpen: (() -> Unit)?,
+) {
+    Surface(color = OwnPlayColors.Surface) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 10.dp, vertical = 6.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Text(title, color = OwnPlayColors.TextPrimary, fontWeight = FontWeight.SemiBold)
+            Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                TextButton(onClick = onToggleHidden) { Text(if (hidden) "Show" else "Hide") }
+                TextButton(onClick = onMoveUp) { Text("↑") }
+                TextButton(onClick = onMoveDown) { Text("↓") }
+                if (onOpen != null) {
+                    TextButton(onClick = onOpen) { Text("Channels") }
+                }
+            }
+        }
+    }
+}
+
+private fun moveProviderItem(
+    ids: List<String>,
+    targetId: String,
+    delta: Int,
+): List<String>? {
+    val from = ids.indexOf(targetId)
+    if (from < 0) return null
+    val to = (from + delta).takeIf { it in ids.indices } ?: return null
+    return ids.toMutableList().apply {
+        val item = removeAt(from)
+        add(to, item)
     }
 }
 
@@ -862,6 +1117,19 @@ private fun SourceInputDialog(
         confirmButton = { TextButton(onClick = onConfirm) { Text(confirmLabel) } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
+}
+
+private suspend fun mutationAndInitialRefreshMessage(
+    repository: SourceRepository,
+    result: SourceMutationResult,
+    success: String,
+): String {
+    if (result !is SourceMutationResult.Success) return mutationMessage(result, success)
+    return when (val refresh = repository.refreshSource(result.sourceId)) {
+        SourceRefreshResult.Success -> success
+        is SourceRefreshResult.Failure ->
+            "Source saved, but catalog import failed: ${refresh.safeMessage ?: "Refresh failed."}"
+    }
 }
 
 private fun mutationMessage(

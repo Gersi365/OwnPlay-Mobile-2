@@ -24,6 +24,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -86,6 +87,23 @@ fun LiveScreen(
         return
     }
 
+    var initialRefreshError by remember(source.sourceId) { mutableStateOf<String?>(null) }
+    var initialRefreshInProgress by remember(source.sourceId) { mutableStateOf(false) }
+    LaunchedEffect(source.sourceId, source.lastSuccessfulRefreshAtEpochMs) {
+        if (source.enabled && source.lastSuccessfulRefreshAtEpochMs == null) {
+            initialRefreshError = null
+            initialRefreshInProgress = true
+            try {
+                val result = services.sourceRepository.refreshSource(source.sourceId)
+                if (result is app.ownplay.mobile.sources.domain.SourceRefreshResult.Failure) {
+                    initialRefreshError = result.safeMessage ?: "Source refresh failed."
+                }
+            } finally {
+                initialRefreshInProgress = false
+            }
+        }
+    }
+
     LiveSourceScreen(
         source = source,
         repository = services.liveOrganizationRepository,
@@ -95,6 +113,8 @@ fun LiveScreen(
         compactMediaRows = displayPreferences.compactMediaRows,
         showChannelLogos = displayPreferences.showChannelLogos,
         preferTvgName = displayPreferences.preferTvgName,
+        catalogLoadError = initialRefreshError,
+        catalogLoading = initialRefreshInProgress,
         modifier = modifier,
     )
 }
@@ -110,6 +130,8 @@ private fun LiveSourceScreen(
     compactMediaRows: Boolean,
     showChannelLogos: Boolean,
     preferTvgName: Boolean,
+    catalogLoadError: String?,
+    catalogLoading: Boolean,
     modifier: Modifier,
 ) {
     val sourceId = source.sourceId
@@ -139,7 +161,6 @@ private fun LiveSourceScreen(
     }
     var requestedProviderCategoryId by rememberSaveable(sourceId.value) { mutableStateOf<String?>(null) }
     var favoritesOnly by rememberSaveable(sourceId.value) { mutableStateOf(false) }
-    var countrySheetOpen by remember { mutableStateOf(false) }
     var movingChannelId by remember { mutableStateOf<String?>(null) }
     var moveCountryId by remember { mutableStateOf<String?>(null) }
     var moveSemanticName by remember { mutableStateOf(OwnPlayLiveSemanticCategory.GENERAL.name) }
@@ -149,14 +170,23 @@ private fun LiveSourceScreen(
         requestedCountryId = requestedCountryId,
         countries = ownPlayCatalog.countries,
     )
-    val selectedCountry = ownPlayCatalog.countries.firstOrNull { it.countryId == selectedCountryId }
     val selectedSemantic = LiveBrowseStatePolicy.selectedSemanticCategory(requestedSemanticName)
-    val providerOptions = LiveBrowseStatePolicy.providerCategoryOptions(providerCatalog)
-    val selectedProviderCategoryId = LiveBrowseStatePolicy.selectedProviderCategoryId(
-        requestedCategoryId = requestedProviderCategoryId,
-        catalog = providerCatalog,
-    )
-    val channelById = providerCatalog.channels.associateBy(LiveOrganizationChannel::channelId)
+    val providerOptions = remember(providerCatalog.categories, providerCatalog.channels) {
+        LiveBrowseStatePolicy.providerCategoryOptions(providerCatalog)
+    }
+    val selectedProviderCategoryId = remember(requestedProviderCategoryId, providerOptions) {
+        requestedProviderCategoryId
+            ?.takeIf { requested -> providerOptions.any { it.categoryId == requested } }
+            ?: providerOptions.firstOrNull()?.categoryId
+    }
+    val displayChannels = if (mode == LiveOrganizationMode.OWNPLAY) {
+        ownPlayCatalog.channels
+    } else {
+        providerCatalog.channels
+    }
+    val channelById = remember(displayChannels) {
+        displayChannels.associateBy(LiveOrganizationChannel::channelId)
+    }
     val playbackTarget = (playbackState.target as? PlaybackTarget.LiveChannel)
         ?.takeIf { it.sourceId == sourceId }
     val playbackChannelName = playbackTarget?.let { target ->
@@ -164,23 +194,36 @@ private fun LiveSourceScreen(
             ?.let { channel -> LiveChannelDisplayPolicy.displayName(channel, preferTvgName) }
             ?: "Live channel"
     }
-    val visibleChannelIds = if (mode == LiveOrganizationMode.OWNPLAY) {
-        LiveBrowseStatePolicy.visibleOwnPlayChannelIds(
-            catalog = ownPlayCatalog,
-            countryId = selectedCountryId,
-            semanticCategory = selectedSemantic,
-            favoritesOnly = favoritesOnly,
-            favoriteChannelIds = favoriteChannelIds,
-        )
-    } else {
-        LiveBrowseStatePolicy.visibleProviderChannelIds(
-            catalog = providerCatalog,
-            categoryId = selectedProviderCategoryId,
-            favoritesOnly = favoritesOnly,
-            favoriteChannelIds = favoriteChannelIds,
-        )
+    val visibleChannelIds = remember(
+        mode,
+        ownPlayCatalog,
+        providerCatalog,
+        selectedCountryId,
+        selectedSemantic,
+        selectedProviderCategoryId,
+        favoritesOnly,
+        favoriteChannelIds,
+    ) {
+        if (mode == LiveOrganizationMode.OWNPLAY) {
+            LiveBrowseStatePolicy.visibleOwnPlayChannelIds(
+                catalog = ownPlayCatalog,
+                countryId = selectedCountryId,
+                semanticCategory = selectedSemantic,
+                favoritesOnly = favoritesOnly,
+                favoriteChannelIds = favoriteChannelIds,
+            )
+        } else {
+            LiveBrowseStatePolicy.visibleProviderChannelIds(
+                catalog = providerCatalog,
+                categoryId = selectedProviderCategoryId,
+                favoritesOnly = favoritesOnly,
+                favoriteChannelIds = favoriteChannelIds,
+            )
+        }
     }
-    val visibleChannels = visibleChannelIds.mapNotNull(channelById::get)
+    val visibleChannels = remember(visibleChannelIds, channelById) {
+        visibleChannelIds.mapNotNull(channelById::get)
+    }
 
     Column(
         modifier = modifier
@@ -210,31 +253,15 @@ private fun LiveSourceScreen(
             )
         }
 
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            FilterChip(
-                selected = mode == LiveOrganizationMode.OWNPLAY,
-                onClick = {
-                    operationMessage = null
-                    scope.launch { repository.setMode(sourceId, LiveOrganizationMode.OWNPLAY) }
-                },
-                label = { Text("OwnPlay") },
-            )
-            FilterChip(
-                selected = mode == LiveOrganizationMode.PROVIDER,
-                onClick = {
-                    operationMessage = null
-                    scope.launch { repository.setMode(sourceId, LiveOrganizationMode.PROVIDER) }
-                },
-                label = { Text("Provider") },
-            )
-        }
-
         if (mode == LiveOrganizationMode.OWNPLAY) {
-            OutlinedButton(
-                onClick = { countrySheetOpen = true },
-                enabled = ownPlayCatalog.countries.isNotEmpty(),
-            ) {
-                Text(selectedCountry?.displayName ?: "Select country")
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(ownPlayCatalog.countries, key = { it.countryId }) { country ->
+                    FilterChip(
+                        selected = country.countryId == selectedCountryId,
+                        onClick = { requestedCountryId = country.countryId },
+                        label = { Text(country.displayName) },
+                    )
+                }
             }
 
             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -271,11 +298,17 @@ private fun LiveSourceScreen(
             )
         }
 
+        if (catalogLoading) {
+            Text(text = "Importing Live catalog…", color = OwnPlayColors.TextMuted)
+        }
+        catalogLoadError?.let { message ->
+            Text(text = message, color = OwnPlayColors.Error)
+        }
         operationMessage?.let { message ->
             Text(text = message, color = OwnPlayColors.Error)
         }
 
-        if (visibleChannels.isEmpty()) {
+        if (visibleChannels.isEmpty() && !catalogLoading) {
             Text(
                 text = if (favoritesOnly) "No favorite channels in this selection." else "No channels in this selection.",
                 color = OwnPlayColors.TextMuted,
@@ -326,18 +359,6 @@ private fun LiveSourceScreen(
                 }
             }
         }
-    }
-
-    if (countrySheetOpen) {
-        CountrySelectionSheet(
-            countries = ownPlayCatalog.countries,
-            selectedCountryId = selectedCountryId,
-            onSelected = { countryId ->
-                requestedCountryId = countryId
-                countrySheetOpen = false
-            },
-            onDismiss = { countrySheetOpen = false },
-        )
     }
 
     val channelToMove = movingChannelId
@@ -538,41 +559,6 @@ private fun PlaybackReadinessMessage(readiness: PlaybackReadiness) {
     }
     if (message != null) {
         Text(text = message, color = OwnPlayColors.TextMuted)
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun CountrySelectionSheet(
-    countries: List<OwnPlayCountryScope>,
-    selectedCountryId: String?,
-    onSelected: (String) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 8.dp),
-        ) {
-            Text(
-                text = "Select country",
-                fontWeight = FontWeight.Bold,
-                color = OwnPlayColors.TextPrimary,
-            )
-            LazyColumn(modifier = Modifier.heightIn(max = 480.dp)) {
-                items(countries, key = { it.countryId }) { country ->
-                    TextButton(
-                        onClick = { onSelected(country.countryId) },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text(
-                            text = if (country.countryId == selectedCountryId) "${country.displayName} • Selected" else country.displayName,
-                        )
-                    }
-                }
-            }
-        }
     }
 }
 

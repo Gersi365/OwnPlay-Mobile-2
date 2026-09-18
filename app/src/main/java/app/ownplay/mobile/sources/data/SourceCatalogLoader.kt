@@ -14,8 +14,10 @@ import app.ownplay.mobile.sources.domain.SourceRefreshFailureCategory
 import app.ownplay.mobile.sources.domain.SourceType
 import java.net.SocketTimeoutException
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.withContext
 
 class DefaultSourceCatalogLoader(
     private val xtreamClient: XtreamClient,
@@ -26,8 +28,8 @@ class DefaultSourceCatalogLoader(
         sourceType: SourceType,
         baseLocator: String,
         secret: SourceSecret,
-    ): ProviderCatalogSnapshot {
-        return try {
+    ): ProviderCatalogSnapshot = withContext(Dispatchers.Default) {
+        try {
             when (sourceType) {
                 SourceType.XTREAM -> loadXtream(sourceId, baseLocator, secret)
                 SourceType.M3U -> loadM3u(sourceId, secret)

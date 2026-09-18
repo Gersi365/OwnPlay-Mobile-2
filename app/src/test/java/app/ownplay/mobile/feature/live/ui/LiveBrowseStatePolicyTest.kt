@@ -56,7 +56,7 @@ class LiveBrowseStatePolicyTest {
     }
 
     @Test
-    fun providerBrowsePreservesProviderOrderAndAddsOnlyUncategorizedWhenNeeded() {
+    fun providerBrowsePreservesSnapshotOrderAndAddsOnlyUncategorizedWhenNeeded() {
         val catalog = ProviderLiveCatalogSnapshot(
             categories = listOf(
                 ProviderLiveCategory("late", "Late", 9),
@@ -69,7 +69,7 @@ class LiveBrowseStatePolicyTest {
         )
 
         assertEquals(
-            listOf("first", "late", LiveBrowseStatePolicy.PROVIDER_UNCATEGORIZED_ID),
+            listOf("late", "first", LiveBrowseStatePolicy.PROVIDER_UNCATEGORIZED_ID),
             LiveBrowseStatePolicy.providerCategoryOptions(catalog).map { it.categoryId },
         )
         assertEquals(

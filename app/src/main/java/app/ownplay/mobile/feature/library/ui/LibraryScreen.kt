@@ -80,6 +80,23 @@ fun LibraryScreen(
         return
     }
 
+    var initialRefreshError by remember(source.sourceId) { mutableStateOf<String?>(null) }
+    var initialRefreshInProgress by remember(source.sourceId) { mutableStateOf(false) }
+    LaunchedEffect(source.sourceId, source.lastSuccessfulRefreshAtEpochMs) {
+        if (source.enabled && source.lastSuccessfulRefreshAtEpochMs == null) {
+            initialRefreshError = null
+            initialRefreshInProgress = true
+            try {
+                val result = services.sourceRepository.refreshSource(source.sourceId)
+                if (result is app.ownplay.mobile.sources.domain.SourceRefreshResult.Failure) {
+                    initialRefreshError = result.safeMessage ?: "Source refresh failed."
+                }
+            } finally {
+                initialRefreshInProgress = false
+            }
+        }
+    }
+
     LibrarySourceScreen(
         source = source,
         repository = services.libraryRepository,
@@ -87,6 +104,8 @@ fun LibraryScreen(
         artworkLoader = services.libraryArtworkLoader,
         playbackSessionController = services.playbackSessionController,
         compactMediaRows = displayPreferences.compactMediaRows,
+        catalogLoadError = initialRefreshError,
+        catalogLoading = initialRefreshInProgress,
         modifier = modifier,
     )
 
@@ -113,6 +132,8 @@ private fun LibrarySourceScreen(
     artworkLoader: LibraryArtworkLoader,
     playbackSessionController: PlaybackSessionController,
     compactMediaRows: Boolean,
+    catalogLoadError: String?,
+    catalogLoading: Boolean,
     modifier: Modifier,
 ) {
     var selectedMovieId by remember(source.sourceId) { mutableStateOf<String?>(null) }
@@ -193,6 +214,17 @@ private fun LibrarySourceScreen(
             }
         }
 
+        if (catalogLoading) {
+            item {
+                Text(text = "Importing Library catalog…", color = OwnPlayColors.TextMuted)
+            }
+        }
+        catalogLoadError?.let { message ->
+            item {
+                Text(text = message, color = OwnPlayColors.Error)
+            }
+        }
+
         item {
             OutlinedTextField(
                 value = searchQuery,
@@ -203,7 +235,7 @@ private fun LibrarySourceScreen(
             )
         }
 
-        if (searchQuery.isBlank() && catalog.movies.isEmpty() && catalog.series.isEmpty()) {
+        if (searchQuery.isBlank() && catalog.movies.isEmpty() && catalog.series.isEmpty() && !catalogLoading) {
             item {
                 Text(
                     text = "No Movies or Series are available from this source.",

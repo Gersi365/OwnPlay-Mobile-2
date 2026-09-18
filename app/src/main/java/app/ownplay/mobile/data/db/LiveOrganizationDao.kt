@@ -166,4 +166,107 @@ interface LiveOrganizationDao {
         """,
     )
     suspend fun clearLegacyManualMemberships(sourceId: String, channelId: String): Int
+
+    @Query(
+        """
+        SELECT * FROM live_category_scope_personalization
+        WHERE sourceId = :sourceId
+          AND organizationMode = 'PROVIDER'
+        ORDER BY categoryId
+        """,
+    )
+    fun observeProviderCategoryPersonalization(
+        sourceId: String,
+    ): Flow<List<LiveCategoryScopePersonalizationEntity>>
+
+    @Query(
+        """
+        SELECT * FROM live_channel_membership_personalization
+        WHERE sourceId = :sourceId
+          AND organizationMode = 'PROVIDER'
+        ORDER BY categoryId, channelId
+        """,
+    )
+    fun observeProviderChannelPersonalization(
+        sourceId: String,
+    ): Flow<List<LiveChannelMembershipPersonalizationEntity>>
+
+    @Query(
+        """
+        SELECT * FROM live_category_scope_personalization
+        WHERE sourceId = :sourceId
+          AND organizationMode = 'PROVIDER'
+          AND categoryId = :categoryId
+        LIMIT 1
+        """,
+    )
+    suspend fun getProviderCategoryPersonalization(
+        sourceId: String,
+        categoryId: String,
+    ): LiveCategoryScopePersonalizationEntity?
+
+    @Upsert
+    suspend fun upsertProviderCategoryPersonalization(
+        row: LiveCategoryScopePersonalizationEntity,
+    )
+
+    @Query(
+        """
+        SELECT * FROM live_channel_membership_personalization
+        WHERE sourceId = :sourceId
+          AND organizationMode = 'PROVIDER'
+          AND categoryId = :categoryId
+          AND channelId = :channelId
+        LIMIT 1
+        """,
+    )
+    suspend fun getProviderChannelPersonalization(
+        sourceId: String,
+        categoryId: String,
+        channelId: String,
+    ): LiveChannelMembershipPersonalizationEntity?
+
+    @Upsert
+    suspend fun upsertProviderChannelPersonalization(
+        row: LiveChannelMembershipPersonalizationEntity,
+    )
+
+    @Query(
+        """
+        SELECT categoryKey FROM provider_categories
+        WHERE sourceId = :sourceId
+          AND kind = 'LIVE'
+          AND available = 1
+        ORDER BY providerOrder, categoryKey
+        """,
+    )
+    suspend fun getProviderLiveCategoryIds(sourceId: String): List<String>
+
+    @Query(
+        """
+        SELECT COUNT(*) FROM live_channels
+        WHERE sourceId = :sourceId
+          AND available = 1
+          AND categoryKey IS NULL
+        """,
+    )
+    suspend fun countProviderUncategorizedChannels(sourceId: String): Int
+
+    @Query(
+        """
+        SELECT channelId FROM live_channels
+        WHERE sourceId = :sourceId
+          AND available = 1
+          AND (
+            (:categoryId = :uncategorizedCategoryId AND categoryKey IS NULL)
+            OR categoryKey = :categoryId
+          )
+        ORDER BY providerOrder, channelId
+        """,
+    )
+    suspend fun getProviderChannelIds(
+        sourceId: String,
+        categoryId: String,
+        uncategorizedCategoryId: String,
+    ): List<String>
 }

@@ -24,8 +24,10 @@ import app.ownplay.mobile.feature.library.domain.LibrarySeriesDetail
 import app.ownplay.mobile.feature.library.domain.LibrarySeriesSummary
 import app.ownplay.mobile.sources.domain.SourceId
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOn
 
 class RoomLibraryRepository internal constructor(
     private val dao: LibraryDao,
@@ -70,7 +72,7 @@ class RoomLibraryRepository internal constructor(
                 episodeProgressRows = progressRows.episodes,
                 completedDownloads = downloads,
             )
-        }
+        }.flowOn(Dispatchers.Default)
     }
 
     override fun observeMovie(
