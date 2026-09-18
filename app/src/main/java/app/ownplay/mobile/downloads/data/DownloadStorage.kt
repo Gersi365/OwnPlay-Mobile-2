@@ -144,6 +144,7 @@ internal class AndroidDownloadStorage(
         )
     }
 
+    @Suppress("DEPRECATION")
     private fun discardExistingPendingMediaStore(
         relativePath: String,
         stagingDisplayName: String,
@@ -151,12 +152,12 @@ internal class AndroidDownloadStorage(
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return false
         val ids = runCatching {
             resolver.query(
-                MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+                MediaStore.setIncludePending(MediaStore.Downloads.EXTERNAL_CONTENT_URI),
                 arrayOf(BaseColumns._ID),
-                "${MediaStore.MediaColumns.DISPLAY_NAME} = ? AND " +
+                "${MediaStore.MediaColumns.DISPLAY_NAME} LIKE ? AND " +
                     "${MediaStore.MediaColumns.RELATIVE_PATH} = ? AND " +
                     "${MediaStore.MediaColumns.IS_PENDING} = 1",
-                arrayOf(stagingDisplayName, relativePath),
+                arrayOf("$stagingDisplayName%", relativePath),
                 null,
             )?.use { cursor ->
                 val idIndex = cursor.getColumnIndexOrThrow(BaseColumns._ID)
@@ -172,15 +173,16 @@ internal class AndroidDownloadStorage(
         }
     }
 
+    @Suppress("DEPRECATION")
     private fun discardPendingMediaStore(stagingDisplayName: String): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return false
         val ids = runCatching {
             resolver.query(
-                MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+                MediaStore.setIncludePending(MediaStore.Downloads.EXTERNAL_CONTENT_URI),
                 arrayOf(BaseColumns._ID),
-                "${MediaStore.MediaColumns.DISPLAY_NAME} = ? AND " +
+                "${MediaStore.MediaColumns.DISPLAY_NAME} LIKE ? AND " +
                     "${MediaStore.MediaColumns.IS_PENDING} = 1",
-                arrayOf(stagingDisplayName),
+                arrayOf("$stagingDisplayName%"),
                 null,
             )?.use { cursor ->
                 val idIndex = cursor.getColumnIndexOrThrow(BaseColumns._ID)
